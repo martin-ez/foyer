@@ -1,5 +1,5 @@
 {
-  "name": "@foyer/worker",
+  "name": "@foyer/server",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,6 @@
     "@foyer/shared": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
     "typescript": "catalog:",
     "wrangler": "catalog:"
   }

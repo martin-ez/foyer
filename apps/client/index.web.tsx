@@ -5,7 +5,7 @@ import { LoadSkiaWeb } from "react-native-skia/lib/module/web";
  *  bundle, which only loads because Expo's setup is imported first. */
 export async function startWebApp() {
   await LoadSkiaWeb({ locateFile: (file) => `/${file}` });
-  await import("./src/registerApp");
+  await import("./src/register-app");
 }
 
 startWebApp();

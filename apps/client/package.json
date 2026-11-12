@@ -1,5 +1,5 @@
 {
-  "name": "@foyer/app",
+  "name": "@foyer/client",
   "private": true,
   "main": "index",
   "scripts": {

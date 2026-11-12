@@ -1,9 +1,7 @@
 packages:
-  - app
-  - worker
-  - shared
+  - apps/*
+  - packages/*
 catalog:
-  "@types/node": ^26.6.6
   typescript: ^7.0.2
   wrangler: ^4.160.1
 allowBuilds:

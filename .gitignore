@@ -1,8 +1,18 @@
 node_modules/
 .DS_Store
 *.log
+*.tsbuildinfo
+coverage/
+
+# Local secrets; their example files are committed
 .env*
+!.env.example
+.dev.vars*
+!.dev.vars.example
 
 # Wrangler
 .wrangler/
-.dev.vars*
+
+# Claude Code: agent worktrees and personal settings
+.claude/worktrees/
+.claude/settings.local.json

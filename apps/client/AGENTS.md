@@ -15,9 +15,9 @@ The same applies to Skia: v3 differs from `@shopify/react-native-skia`. Its docs
 Run these from the repository root:
 
 ```bash
-pnpm --filter @foyer/app exec expo install <package>  # ALWAYS use instead of pnpm add — resolves SDK-compatible versions
-pnpm --filter @foyer/app web                          # start the web app
-pnpm --filter @foyer/app ios                          # build and run on an iPad simulator
+pnpm --filter @foyer/client exec expo install <package>  # ALWAYS use instead of pnpm add — resolves SDK-compatible versions
+pnpm --filter @foyer/client web                          # start the web app
+pnpm --filter @foyer/client ios                          # build and run on an iPad simulator
 pnpm check                                            # type checks, lint and formatting
 pnpm format                                           # fix formatting and import order
 ```
@@ -38,5 +38,5 @@ Run `pnpm check` before declaring any task done.
 ## Rules
 
 - `ios/` is generated (Continuous Native Generation). Never create or edit it by hand — configure native behavior in `app.json` and config plugins.
-- After adding a library with native code, rebuild the development build with `pnpm --filter @foyer/app ios`.
+- After adding a library with native code, rebuild the development build with `pnpm --filter @foyer/client ios`.
 - Prefer recommended Expo modules over third-party libraries. Docs: https://docs.expo.dev/versions/latest/index.md
