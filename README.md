@@ -34,7 +34,7 @@ Foyer is a pnpm workspace with apps in `apps/` and shared code in `packages/`:
 - `apps/server`: the backend, a Cloudflare Worker with one Durable Object per household.
 - `packages/shared`: TypeScript code used by both.
 
-Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. After that:
+Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. It installs Node with nvm when you have it, and otherwise downloads it from nodejs.org into `~/.local`. After that:
 
 - `pnpm --filter @foyer/client web` runs the web app.
 - `pnpm --filter @foyer/client ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods.
