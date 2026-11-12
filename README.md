@@ -78,5 +78,4 @@ scribble drawn over a sticker sits on top of it, just like on paper.
 ## Status
 
 Early design. Work is tracked in GitHub Issues using the FRED workflow, and
-decisions will be recorded in `decisions/`. Background research is in
-[`docs/research/`](docs/research/).
+decisions will be recorded in `decisions/`.
