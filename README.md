@@ -1,16 +1,17 @@
 # Foyer
 
-The entryway to our household: one place for our tasks, calendar and notes
-that feels like paper and is fun to use.
+A household planner for tasks, calendar and notes that feels like paper and is
+fun to use. Named after the foyer, the first room you walk into at home.
 
 ## Why
 
-As a household we use Todoist, Google Calendar, GoodNotes and Notion, but only
-part of each. Foyer brings the parts we like into one tool, built around how a
-paper planner and a notebook feel in your hands.
+Households often spread their lives across several apps: a to-do app such as
+Todoist, a calendar such as Google Calendar, a notebook app such as GoodNotes,
+and a workspace such as Notion. Each one gets used only in part.
 
-Where a good tool already exists, Foyer connects to it instead of rebuilding
-it: Google Calendar stays the home of our events. Foyer builds the rest.
+Foyer brings the useful parts together in one place, built around how a paper
+planner and a notebook feel in your hands. Where a good tool already exists,
+Foyer connects to it instead of rebuilding it: events stay in Google Calendar.
 
 ## The idea
 
@@ -21,16 +22,16 @@ write on, and that look the same on every device.
 - **Stickers** are tasks, events and notes stuck onto a page. A sticker is a
   link: tick a task right on the page, or tap the sticker to open the item.
 - **Spaces** are where things live. Everyone has a personal space, and shared
-  spaces like "Household" hold what we do together. A space decides who can
-  see and change what's in it.
+  spaces, such as "Household", hold what people do together. A space decides
+  who can see and change what's in it.
 
 Pages are allowed to get messy. Things stack in the order you add them, so a
 scribble drawn over a sticker sits on top of it, just like on paper.
 
 ## Views
 
-- **Calendar.** Month, week and day pages, like a bulletin board the household
-  writes on together.
+- **Calendar.** Month, week and day pages, like a bulletin board the whole
+  household writes on.
   - Events and tasks appear as stickers on their day. Drag one to another day
     to reschedule it, and Foyer checks that's what you meant.
   - On the day page, height is time.
@@ -61,23 +62,21 @@ scribble drawn over a sticker sits on top of it, just like on paper.
 - **Co-op.** The household plays as one team.
 - **Fast where it counts.** Capturing a thought takes seconds.
 
-## Who and where
-
-Built first for a household of two adults, on:
+## Platforms
 
 - **iPad:** write and draw with Apple Pencil.
-- **iPhone, Android phone and the web:** see everything; add, tick and move
-  stickers. No drawing yet.
+- **iPhone, Android and the web:** see everything; add, tick and move
+  stickers. Drawing on these comes later.
 
 ## Not in the first version
 
-- Kids, with a limited set of things they can do.
-- A shared touch screen on the wall with a family view.
+- Kids' accounts, with a limited set of things they can do.
+- A shared touch screen on the wall with a household view.
 - The Budget view.
 - Drawing on phones or the web, or with other styluses.
 
 ## Status
 
-Early design, November 2026. Work will be tracked in GitHub Issues using the
-FRED workflow, with decisions recorded in `decisions/`. Background research is
-in [`docs/research/`](docs/research/).
+Early design. Work is tracked in GitHub Issues using the FRED workflow, and
+decisions will be recorded in `decisions/`. Background research is in
+[`docs/research/`](docs/research/).
