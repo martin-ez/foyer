@@ -6,11 +6,11 @@ A household planner for tasks, calendar and notes that feels like paper.
 
 To keep our house on track, we make use of a suite of amazing apps: Todoist, Google Calendar, Notion, and GoodNotes. They are all good at what they do, but they are disconnected, and more importantly, it constantly feels like work.
 
-Foyer is my attempt to create an intuitive bridge that brings these useful blocks together, making it feel tangible and easy to use. It is very opinionated and tailored to how we want to organize our household, and it is far from a complete replacement for those tools.
+Foyer is my attempt to create an intuitive bridge that brings these useful blocks together, making it feel tangible and fun to use. It is very opinionated and tailored to how we want to organize our household, and it is far from a complete replacement for those tools.
 
 ## Embrace the mess
 
-The underlying idea of Foyer is to embrace the mess of a household planner. This hub is where everyone can grab a marker and scribble, while still holding important information for everyone.
+The underlying idea of Foyer is to embrace the mess of a household planner: a hub is where everyone can grab a marker and scribble, while still holding important information for everyone.
 
 This gives us the building blocks of Foyer:
 
