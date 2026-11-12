@@ -1,9 +1,27 @@
 # Foyer
 
-A household planner for tasks, calendar and notes that feels like paper and is
-fun to use. Named after the foyer, the first room you walk into at home.
+A household planner for tasks, calendar and notes that feels like paper.
 
-## Why
+## How we got here
+
+To keep our house on track, we make use of a suite of amazing apps: Todoist, Google Calendar, Notion, and GoodNotes. They are all good at what they do, but they are disconnected, and more importantly, it constantly feels like work.
+
+Foyer is my attempt to create an intuitive bridge between this useful blocks together, making it feel tangible and easy to use. It is very opinionated and tailor to how we want to organize our household, and far from a complete replacement to those tools.
+
+## Embrace the mess
+
+The underlying idea of Foyer is to embrace the mess of a household planner. This hub where everyone can take a marker and scribble on, while containing important information for everyone.
+
+This gives us the building blocks of Foyer:
+- **Pages** 
+- **Ink** is what you write and draw on a page with Apple Pencil.
+- **Stickers** are tasks, events and notes stuck onto a page. A sticker is a
+  link: tick a task right on the page, or tap the sticker to open the item.
+- **Spaces** are where things live. Everyone has a personal space, and shared
+  spaces, such as "Household", hold what people do together. A space decides
+  who can see and change what's in it.
+
+
 
 Households often spread their lives across several apps: a to-do app such as
 Todoist, a calendar such as Google Calendar, a notebook app such as GoodNotes,
