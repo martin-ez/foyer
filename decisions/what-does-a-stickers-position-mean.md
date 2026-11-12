@@ -9,7 +9,7 @@ Decided in #10
 - **Month and week pages:** position within a day has no time meaning.
 - **Free pages** (notebook and body pages): position means nothing; a sticker is a reference placed by hand.
 
-Each sticker has a fixed spot on its page, the same for everyone. New stickers take the next free spot and can be moved within their day.
+Each sticker has a fixed spot on its page, the same for everyone. New stickers are placed automatically and can be moved within their day; whether automatic placement avoids existing ink is still being tried (#27).
 
 **Why:** Moving a sticker should feel like rescheduling on paper. Fixed spots keep the page identical for everyone, so shared scribbles stay next to the sticker they're about.
 
