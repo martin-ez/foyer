@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "foyer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-10",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "HOUSEHOLD", "class_name": "Household" }]
+  },
+  "exports": {
+    "Household": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

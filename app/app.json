@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Foyer",
+    "slug": "foyer",
+    "scheme": "foyer",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "io.github.martin-ez.foyer",
+      "supportsTablet": true,
+      "isTabletOnly": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-router", "expo-status-bar"]
+  }
+}

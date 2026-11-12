@@ -26,3 +26,17 @@ Using these building blocks, Foyer can build a couple of useful views:
 - **Tasks**. Quickly capture what needs to get done, as a simple To-Do list.
 - **Budget** *(later)*. A monthly view of income, bills and budgets.
 
+## Development
+
+Foyer is a pnpm workspace with three packages:
+
+- `app`: the Expo app, built as a native iPad app and as a web app. Pages are drawn with React Native Skia.
+- `worker`: the backend, a Cloudflare Worker with one Durable Object per household.
+- `shared`: TypeScript code used by both.
+
+Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. After that:
+
+- `pnpm --filter @foyer/app web` runs the web app.
+- `pnpm --filter @foyer/app ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods.
+- `pnpm --filter @foyer/worker dev` runs the backend locally.
+- `pnpm check` runs the type checks, linting and formatting checks that CI runs.

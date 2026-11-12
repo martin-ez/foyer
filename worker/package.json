@@ -1,0 +1,18 @@
+{
+  "name": "@foyer/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types",
+    "typecheck": "wrangler types --check && tsc --noEmit"
+  },
+  "dependencies": {
+    "@foyer/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}
