@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { appName } from "@foyer/shared";
 
-/** One household's hub. Empty for now: sync is built on it later. */
+/** One household's hub, with its own SQLite storage. */
 export class Household extends DurableObject<Env> {
   /** Confirms the household's SQLite storage answers. */
   ping(): string {

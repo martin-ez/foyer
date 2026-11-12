@@ -1,6 +1,11 @@
-// Expo's setup includes the loader for split bundles, which the import of the app below needs.
 import "expo";
 import { LoadSkiaWeb } from "react-native-skia/lib/module/web";
 
-// Skia draws with CanvasKit on the web, which must load before any screen imports Skia.
-LoadSkiaWeb({ locateFile: (file) => `/${file}` }).then(() => import("./src/start"));
+/** Starts the web app once CanvasKit, which Skia draws with, has loaded. The app comes in a split
+ *  bundle, which only loads because Expo's setup is imported first. */
+export async function startWebApp() {
+  await LoadSkiaWeb({ locateFile: (file) => `/${file}` });
+  await import("./src/registerApp");
+}
+
+startWebApp();

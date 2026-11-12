@@ -1,1 +1,1 @@
-import "./src/start";
+import "./src/registerApp";

@@ -3,8 +3,7 @@ import { useState } from "react";
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { Canvas, Fill, RoundedRect, Shadow } from "react-native-skia";
 
-/** Placeholder shape (width over height) until the page size is chosen. */
-const pageAspect = 3 / 4;
+const placeholderPageAspectRatio = 3 / 4;
 const margin = 24;
 
 /** One empty page, drawn by Skia and centred on the desk. */
@@ -33,8 +32,8 @@ export function BlankPage() {
 
 function fitPage(maxWidth: number, maxHeight: number) {
   if (maxWidth <= 0 || maxHeight <= 0) return { width: 0, height: 0 };
-  const width = Math.min(maxWidth, maxHeight * pageAspect);
-  return { width, height: width / pageAspect };
+  const width = Math.min(maxWidth, maxHeight * placeholderPageAspectRatio);
+  return { width, height: width / placeholderPageAspectRatio };
 }
 
 const styles = StyleSheet.create({
