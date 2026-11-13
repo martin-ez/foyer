@@ -5,13 +5,16 @@
   "scripts": {
     "dev": "wrangler dev",
     "types": "wrangler types",
-    "typecheck": "wrangler types --check && tsc --noEmit"
+    "typecheck": "wrangler types --check && tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@foyer/shared": "workspace:*"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "catalog:",
     "typescript": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }
