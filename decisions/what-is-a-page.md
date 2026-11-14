@@ -5,7 +5,7 @@ Decided in #10
 
 **Answer:** A paper-like sheet with a fixed shape, and the unit everything in Foyer happens on: calendar pages (month, week and day), notebook pages and items' body pages. A page never stretches, and it looks the same on every device, so ink and stickers land in the same place everywhere. A long note gets more pages.
 
-Things on a page stack in the order they were added, as on paper: a scribble made after a sticker sits on top of it, and a sticker added after a scribble sits on top of the scribble. Moving something brings it to the top, like peeling it off and sticking it down again. The eraser only removes ink. Until ink option C (milestone 9), ink is drawn above stickers and text.
+Things on a page stack in the order they were added, as on paper: a scribble made after a sticker sits on top of it, and a sticker added after a scribble sits on top of the scribble. Moving something brings it to the top, like peeling it off and sticking it down again. The eraser only removes ink. Until #40 is built, ink is drawn above stickers and text.
 
 Pinch zooms within a page so people can write in detail. Moving between month, week and day pages has its own control.
 
