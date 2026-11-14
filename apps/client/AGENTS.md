@@ -35,6 +35,16 @@ Run `pnpm check` before declaring any task done.
 - `index.web.tsx` loads CanvasKit before the app starts, so any screen can import Skia directly.
 - `postinstall` copies `canvaskit.wasm` into `public/`. It is generated: never commit it.
 
+## Tests
+
+`pnpm --filter @foyer/client test` runs the app's tests in Node with Vitest. They live in `test/`.
+
+- **Unit tests** cover plain TypeScript code, such as `src/page/fit-page.ts`. Keep logic that needs no React Native in modules like that, so it can be tested on its own.
+- **Golden images** check what pages draw. `expectToMatchGoldenImage` in `test/golden-image.ts` draws Skia elements on the CPU with Skia's headless build and compares them pixel by pixel with a PNG in `test/golden-images/`. Each feature that draws something adds its own images.
+- Tests swap `react-native-skia` for its headless build, which has no `Canvas` and no React Native. So keep what a page draws in a component made only of Skia elements, such as `BlankPageDrawing`, apart from the React Native view that sizes the canvas and hosts it.
+- When a drawing differs, the test writes it and a diff, with the changed pixels in red, to `test/golden-images/failures/`. Look at both before deciding the change is intended. If it is, run `pnpm update-golden-images` from the repository root and commit the new images with the change, so the pull request shows them.
+- A golden image that doesn't exist yet fails the test: create it with the same command.
+
 ## Rules
 
 - `ios/` is generated (Continuous Native Generation). Never create or edit it by hand — configure native behavior in `app.json` and config plugins.

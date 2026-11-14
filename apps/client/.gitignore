@@ -42,3 +42,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Drawings that differed from their golden images, written by the tests
+test/golden-images/failures/

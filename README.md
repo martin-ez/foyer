@@ -40,3 +40,5 @@ Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they ar
 - `pnpm --filter @foyer/client ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods.
 - `pnpm --filter @foyer/server dev` runs the backend locally.
 - `pnpm check` runs the type checks, linting and formatting checks that CI runs.
+- `pnpm test` runs the tests that CI runs: unit tests, the comparison of page drawings with their golden images, and the backend's tests in the Workers runtime.
+- `pnpm update-golden-images` saves the current page drawings as the new golden images, for when a drawing changes on purpose.

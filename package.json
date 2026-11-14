@@ -9,7 +9,8 @@
     "check": "pnpm typecheck && biome check .",
     "typecheck": "pnpm -r typecheck",
     "format": "biome check --write .",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "update-golden-images": "pnpm -r --if-present update-golden-images"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7"
