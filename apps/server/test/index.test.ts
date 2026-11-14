@@ -7,8 +7,6 @@ import { describe, expect, it } from "vitest";
 
 const backendUrl = "https://foyer.test";
 const statusPath = "/foyer.status.v1.StatusService/GetStatus";
-const developmentServerOrigin = "http://localhost:8081";
-const otherSiteOrigin = "https://example.com";
 const redirectModeTheWorkersRuntimeAccepts: RequestInit["redirect"] = "manual";
 
 function statusClient(useBinaryFormat: boolean) {
@@ -55,28 +53,34 @@ describe("the status call", () => {
     expect(status).toMatchObject({ app: appName, storage: "ok" });
   });
 
-  it("can be made from a development server on the same computer", async () => {
-    const preflight = await preflightStatusCall(developmentServerOrigin);
-    const call = await callStatusFrom(developmentServerOrigin);
+  it.each(["http://localhost:8081", "http://127.0.0.1:8081"])(
+    "can be made from a development server on the same computer, at %s",
+    async (origin) => {
+      const preflight = await preflightStatusCall(origin);
+      const call = await callStatusFrom(origin);
 
-    expect(preflight.ok).toBe(true);
-    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(developmentServerOrigin);
-    expect(preflight.headers.get("Access-Control-Allow-Methods")).toContain("POST");
-    const allowedHeaders = preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase();
-    expect(allowedHeaders).toContain("content-type");
-    expect(allowedHeaders).toContain("connect-protocol-version");
-    expect(call.headers.get("Access-Control-Allow-Origin")).toBe(developmentServerOrigin);
-    expect(await call.json()).toEqual({ app: appName, storage: "ok" });
-  });
+      expect(preflight.ok).toBe(true);
+      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+      expect(preflight.headers.get("Access-Control-Allow-Methods")).toContain("POST");
+      const allowedHeaders = preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase();
+      expect(allowedHeaders).toContain("content-type");
+      expect(allowedHeaders).toContain("connect-protocol-version");
+      expect(call.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+      expect(await call.json()).toEqual({ app: appName, storage: "ok" });
+    },
+  );
 
-  it("can't be made from a web page on another site", async () => {
-    const preflight = await preflightStatusCall(otherSiteOrigin);
-    const call = await callStatusFrom(otherSiteOrigin);
+  it.each(["https://example.com", "http://localhost.example.com"])(
+    "can't be made from a web page on another site, at %s",
+    async (origin) => {
+      const preflight = await preflightStatusCall(origin);
+      const call = await callStatusFrom(origin);
 
-    expect(preflight.ok).toBe(false);
-    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
-    expect(call.headers.get("Access-Control-Allow-Origin")).toBeNull();
-  });
+      expect(preflight.ok).toBe(false);
+      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      expect(call.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    },
+  );
 });
 
 it("answers calls to a service that doesn't exist as not found", async () => {
