@@ -7,7 +7,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "postinstall": "setup-skia-web public"
+    "postinstall": "setup-skia-web public",
+    "test": "vitest run",
+    "update-golden-images": "UPDATE_GOLDEN_IMAGES=1 vitest run"
   },
   "dependencies": {
     "@foyer/shared": "workspace:*",
@@ -27,7 +29,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "expo": {
     "install": {
