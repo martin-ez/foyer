@@ -1,0 +1,17 @@
+# Buf checks the contracts in proto/. `pnpm check` lints them and checks their formatting, and CI
+# also checks that a pull request keeps them readable by apps and data made from main's.
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  # Fields can be removed once their number and name are reserved, which the default rules forbid.
+  # Calls travel in JSON too, so names count as much as numbers. Calls, services and packages are
+  # never removed, because an older app may still make them.
+  use:
+    - WIRE_JSON
+    - RPC_NO_DELETE
+    - PACKAGE_SERVICE_NO_DELETE
+    - PACKAGE_NO_DELETE
