@@ -3,13 +3,23 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./gen/*": "./src/gen/*.ts"
   },
   "scripts": {
+    "generate": "buf generate",
     "typecheck": "tsc --noEmit",
+    "lint-contracts": "buf lint && buf format --diff --exit-code",
+    "format-contracts": "buf format --write",
+    "check-breaking": "buf breaking --against '../../.git#branch=main,subdir=packages/shared'",
     "test": "vitest run --passWithNoTests"
   },
+  "dependencies": {
+    "@bufbuild/protobuf": "catalog:"
+  },
   "devDependencies": {
+    "@bufbuild/buf": "^1.75.0",
+    "@bufbuild/protoc-gen-es": "^2.17.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

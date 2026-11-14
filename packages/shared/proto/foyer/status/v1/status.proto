@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package foyer.status.v1;
+
+// Reports whether the backend is up.
+service StatusService {
+  // Returns the backend's status, after checking that a household's storage answers.
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  // The product name, "Foyer".
+  string app = 1;
+  // "ok" when a household's storage answered.
+  string storage = 2;
+}

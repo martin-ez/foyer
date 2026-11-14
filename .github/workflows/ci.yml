@@ -25,4 +25,23 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm exec biome ci .
+      - name: Lint the contracts and check their formatting
+        run: pnpm --filter @foyer/shared lint-contracts
+      - name: Check that the code generated from the contracts is up to date
+        run: |
+          pnpm generate
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::The generated code doesn't match the contracts. Run \`pnpm generate\` and commit the result."
+            exit 1
+          fi
+      - name: Check that the contracts still work with apps and data made from main's
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin main:main
+          if git cat-file -e main:packages/shared/buf.yaml 2>/dev/null; then
+            pnpm --filter @foyer/shared check-breaking
+          else
+            echo "main has no contracts yet, so there is nothing to break."
+          fi
       - run: pnpm test

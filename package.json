@@ -6,9 +6,10 @@
     "node": ">=26.13"
   },
   "scripts": {
-    "check": "pnpm typecheck && biome check .",
+    "check": "pnpm typecheck && biome check . && pnpm --filter @foyer/shared lint-contracts",
     "typecheck": "pnpm -r typecheck",
-    "format": "biome check --write .",
+    "format": "biome check --write . && pnpm --filter @foyer/shared format-contracts",
+    "generate": "pnpm --filter @foyer/shared generate",
     "test": "pnpm -r --if-present test",
     "update-golden-images": "pnpm -r --if-present update-golden-images"
   },

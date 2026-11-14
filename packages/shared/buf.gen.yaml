@@ -1,0 +1,9 @@
+# `pnpm --filter @foyer/shared generate` writes the TypeScript for the contracts into src/gen.
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt: target=ts
+clean: true

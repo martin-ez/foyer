@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { appName } from "@foyer/shared";
+import { handleCall } from "./calls";
 
 /** One household's hub, with its own SQLite storage. */
 export class Household extends DurableObject<Env> {
@@ -10,8 +10,5 @@ export class Household extends DurableObject<Env> {
 }
 
 export default {
-  async fetch(_request, env): Promise<Response> {
-    const storage = await env.HOUSEHOLD.getByName("development").ping();
-    return Response.json({ app: appName, storage });
-  },
+  fetch: handleCall,
 } satisfies ExportedHandler<Env>;
