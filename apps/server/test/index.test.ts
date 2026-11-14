@@ -7,8 +7,9 @@ import { describe, expect, it } from "vitest";
 
 const backendUrl = "https://foyer.test";
 const statusPath = "/foyer.status.v1.StatusService/GetStatus";
-const webAppOrigin = "http://localhost:8081";
-const redirectModeTheWorkersRuntimeAccepts: RequestRedirect = "manual";
+const developmentServerOrigin = "http://localhost:8081";
+const otherSiteOrigin = "https://example.com";
+const redirectModeTheWorkersRuntimeAccepts: RequestInit["redirect"] = "manual";
 
 function statusClient(useBinaryFormat: boolean) {
   const transport = createConnectTransport({
@@ -20,6 +21,25 @@ function statusClient(useBinaryFormat: boolean) {
       ),
   });
   return createClient(StatusService, transport);
+}
+
+function preflightStatusCall(origin: string) {
+  return exports.default.fetch(`${backendUrl}${statusPath}`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type,connect-protocol-version",
+    },
+  });
+}
+
+function callStatusFrom(origin: string) {
+  return exports.default.fetch(`${backendUrl}${statusPath}`, {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: "{}",
+  });
 }
 
 describe("the status call", () => {
@@ -35,29 +55,27 @@ describe("the status call", () => {
     expect(status).toMatchObject({ app: appName, storage: "ok" });
   });
 
-  it("can be made from a web page on another origin", async () => {
-    const preflight = await exports.default.fetch(`${backendUrl}${statusPath}`, {
-      method: "OPTIONS",
-      headers: {
-        Origin: webAppOrigin,
-        "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "content-type,connect-protocol-version",
-      },
-    });
-    const call = await exports.default.fetch(`${backendUrl}${statusPath}`, {
-      method: "POST",
-      headers: { Origin: webAppOrigin, "Content-Type": "application/json" },
-      body: "{}",
-    });
+  it("can be made from a development server on the same computer", async () => {
+    const preflight = await preflightStatusCall(developmentServerOrigin);
+    const call = await callStatusFrom(developmentServerOrigin);
 
     expect(preflight.ok).toBe(true);
-    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(developmentServerOrigin);
     expect(preflight.headers.get("Access-Control-Allow-Methods")).toContain("POST");
     const allowedHeaders = preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase();
     expect(allowedHeaders).toContain("content-type");
     expect(allowedHeaders).toContain("connect-protocol-version");
-    expect(call.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(call.headers.get("Access-Control-Allow-Origin")).toBe(developmentServerOrigin);
     expect(await call.json()).toEqual({ app: appName, storage: "ok" });
+  });
+
+  it("can't be made from a web page on another site", async () => {
+    const preflight = await preflightStatusCall(otherSiteOrigin);
+    const call = await callStatusFrom(otherSiteOrigin);
+
+    expect(preflight.ok).toBe(false);
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(call.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 });
 
