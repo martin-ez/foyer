@@ -8,14 +8,16 @@ import { describe, expect, it } from "vitest";
 const backendUrl = "https://foyer.test";
 const statusPath = "/foyer.status.v1.StatusService/GetStatus";
 const webAppOrigin = "http://localhost:8081";
+const redirectModeTheWorkersRuntimeAccepts: RequestRedirect = "manual";
 
 function statusClient(useBinaryFormat: boolean) {
   const transport = createConnectTransport({
     baseUrl: backendUrl,
     useBinaryFormat,
-    // The Workers runtime refuses the "error" redirect mode that browsers' fetch takes.
     fetch: (input, init) =>
-      exports.default.fetch(new Request(input, { ...init, redirect: "manual" })),
+      exports.default.fetch(
+        new Request(input, { ...init, redirect: redirectModeTheWorkersRuntimeAccepts }),
+      ),
   });
   return createClient(StatusService, transport);
 }
