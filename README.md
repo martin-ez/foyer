@@ -44,3 +44,29 @@ Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they ar
 - `pnpm --filter @foyer/shared check-breaking` checks that changes to the contracts don't break apps or data made with the contracts on your local `main` branch. CI runs it against `main` for every pull request.
 - `pnpm test` runs the tests that CI runs: unit tests, the comparison of page drawings with their golden images, and the backend's tests in the Workers runtime.
 - `pnpm update-golden-images` saves the current page drawings as the new golden images, for when a drawing changes on purpose.
+
+## Deploying
+
+The household's backend runs on Cloudflare, at `https://foyer.<subdomain>.workers.dev`, where `<subdomain>` is the Cloudflare account's `workers.dev` subdomain. Cloudflare's Workers Builds deploys it on every push to `main`, whether or not CI passed. Its settings live in the Worker's settings in the Cloudflare dashboard:
+
+- **Worker name:** `foyer`, the name in `apps/server/wrangler.jsonc`.
+- **Production branch:** `main`.
+- **Root directory:** the repository root.
+- **Build command:** none. Builds install the dependencies first, with the Node version in `.nvmrc` and the pnpm version in `package.json`.
+- **Deploy command:** `pnpm --filter @foyer/server run deploy`.
+- **Preview builds:** off. They would build every pushed branch as its own preview.
+- **Build cache:** on.
+
+To change what a build does, change the `deploy` script rather than the dashboard, so the change goes through a pull request.
+
+### Previewing a branch
+
+`pnpm --filter @foyer/server preview` deploys the current checkout to the preview, at `https://preview-foyer.<subdomain>.workers.dev`. It deletes the preview first, so the preview starts with empty data. There is one preview at a time, and running the script on another branch replaces it. The preview has its own Durable Objects, so it never touches the household's data.
+
+The script needs access to the Cloudflare account. On your computer, sign in once with `pnpm --filter @foyer/server exec wrangler login`. Agents use a token instead, as `AGENTS.md` says.
+
+The preview takes its secrets from the previews' base configuration, set with `pnpm --filter @foyer/server exec wrangler preview base-config secret put <NAME>`.
+
+### Which backend an app build calls
+
+The app calls the backend that `EXPO_PUBLIC_BACKEND_URL` names when the app is built, and the local backend when it's unset. To build the iPad app for the household, set it to the household's address, for example in `apps/client/.env.local`, which git ignores. A development build can point at the preview the same way.

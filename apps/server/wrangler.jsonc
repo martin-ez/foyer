@@ -3,11 +3,18 @@
   "name": "foyer",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-10",
+  "workers_dev": true,
   "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [{ "name": "HOUSEHOLD", "class_name": "Household" }]
   },
   "exports": {
     "Household": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "previews": {
+    "observability": { "enabled": true },
+    "durable_objects": {
+      "bindings": [{ "name": "HOUSEHOLD", "class_name": "Household" }]
+    }
   }
 }
