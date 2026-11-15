@@ -3,6 +3,7 @@ import { newId } from "@foyer/shared";
 import { isOnAllowlist } from "./allowlist";
 import { householdMigrations, migrate } from "./migrations";
 import { hashSecret, newSecret } from "./secrets";
+import { canSee, createFirstSpaces } from "./spaces";
 
 /** What every member sees of a member. */
 export type Member = { id: string; name: string };
@@ -36,7 +37,8 @@ export class Household extends DurableObject<Env> {
   }
 
   /** Lets a Google account in when its email is on the allowlist, as the member who signed in with
-   *  it before, or as a new member. Returns null for an account that isn't let in. */
+   *  it before, or as a new member with their first spaces. Returns null for an account that isn't
+   *  let in. */
   join(account: GoogleAccount): Member | null {
     if (!isOnAllowlist(account.email)) return null;
     const { sql } = this.ctx.storage;
@@ -48,15 +50,24 @@ export class Household extends DurableObject<Env> {
       return existing;
     }
     const member = { id: newId(), name: account.name };
-    sql.exec(
-      "INSERT INTO members (id, email, google_subject, name, joined_at) VALUES (?, ?, ?, ?, ?)",
-      member.id,
-      account.email,
-      account.subject,
-      member.name,
-      Date.now(),
-    );
+    this.ctx.storage.transactionSync(() => {
+      sql.exec(
+        "INSERT INTO members (id, email, google_subject, name, joined_at) VALUES (?, ?, ?, ?, ?)",
+        member.id,
+        account.email,
+        account.subject,
+        member.name,
+        Date.now(),
+      );
+      createFirstSpaces(sql, member.id);
+    });
     return member;
+  }
+
+  /** Whether a member can see a space, and so its items: every member sees every shared space, and
+   *  only its owner sees an Inbox or a personal space. */
+  canSee(memberId: string, spaceId: string): boolean {
+    return canSee(this.ctx.storage.sql, memberId, spaceId);
   }
 
   /** Lets an email on the allowlist in without Google, for local development: as the first member

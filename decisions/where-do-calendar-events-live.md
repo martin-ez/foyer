@@ -1,14 +1,15 @@
 # Where do calendar events live?
-Decided in #25 and #60
+Decided in #25, #60 and #13
 
 **Applies when:** showing, creating, moving or storing events, or asking Google for access.
 
 **Answer:** In Google Calendar, which stays the source of truth. Every event in Foyer is a Google Calendar event: creating an event in Foyer, or turning a task into one, creates it in Google, and every change is written back. An event's body page and its sticker position live in Foyer, linked to the Google event.
 
-Foyer works only with calendars it creates for itself, one Foyer calendar per space, and has read and write access to those and nothing else:
+Foyer works only with calendars it creates for itself, one Foyer calendar per space except the Inbox, and has read and write access to those and nothing else:
 - each person connects their own Google account;
 - a personal space's calendar lives in its owner's account, seen only by them;
-- a shared space's calendar lives in its creator's account and is shared with the space's members in Google Calendar's own settings.
+- a shared space's calendar lives in its creator's account and is shared with the household's members in Google Calendar's own settings;
+- a member's Inbox has no calendar, because quick capture always makes a task.
 
 Events in people's other Google calendars don't appear in Foyer; anything the household should see goes in a Foyer calendar.
 

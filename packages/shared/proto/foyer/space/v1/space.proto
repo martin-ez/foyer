@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package foyer.space.v1;
+
+// A container for tasks, events and notes that decides who can see and change them. Every member
+// who can see a space can edit its items. Devices receive the spaces they can see.
+message Space {
+  // A UUID version 7, made by the device that created the space, or by the backend for the spaces
+  // a member gets when they join.
+  string id = 1;
+  // Who the space is for.
+  SpaceKind kind = 2;
+  // The member whose Inbox or personal space it is. Empty for shared spaces.
+  string owner_id = 3;
+  // Such as "Work" or "Home". Empty for the Inbox, which has no name.
+  string name = 4;
+}
+
+// Who a space is for, which decides who sees it.
+enum SpaceKind {
+  SPACE_KIND_UNSPECIFIED = 0;
+  // A member's private Inbox, which holds their quick captures until they file them into another
+  // space. Each member has exactly one, made when they join. It can't be created, renamed or
+  // deleted.
+  SPACE_KIND_INBOX = 1;
+  // A space only its owner sees, such as "Work" or "Garden plans". A member can have several, and
+  // gets one named "Personal" when they join.
+  SPACE_KIND_PERSONAL = 2;
+  // A space every member of the household sees, including members who join later.
+  SPACE_KIND_SHARED = 3;
+}
+
+// Creates a personal or shared space. A personal space belongs to the member who creates it.
+message SpaceCreate {
+  // A new UUID version 7, made by the device.
+  string space_id = 1;
+  // SPACE_KIND_PERSONAL or SPACE_KIND_SHARED. An Inbox can't be created.
+  SpaceKind kind = 2;
+  // The space's name.
+  string name = 3;
+}
+
+// Renames a personal or shared space. Only its owner can rename a personal space, and the Inbox
+// can't be renamed. The rename made last wins, by the device's clock.
+message SpaceRename {
+  // The space to rename.
+  string space_id = 1;
+  // Its new name.
+  string name = 2;
+}
