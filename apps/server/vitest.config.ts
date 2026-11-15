@@ -6,6 +6,7 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
+        assets: { directory: "./test/web-app" },
         bindings: {
           HOUSEHOLD_MEMBERS: '["member@example.com"]',
           GOOGLE_CLIENT_ID: "foyer-test.apps.googleusercontent.com",

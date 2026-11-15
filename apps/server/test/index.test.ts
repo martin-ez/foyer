@@ -5,7 +5,7 @@ import { appName } from "@foyer/shared";
 import { StatusService } from "@foyer/shared/gen/foyer/status/v1/status_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { theHousehold } from "../src/household";
-import { requestBackendWith } from "./backend";
+import { requestBackend, requestBackendWith } from "./backend";
 
 const backendUrl = "https://foyer.test";
 const statusPath = "/foyer.status.v1.StatusService/GetStatus";
@@ -94,8 +94,42 @@ describe("the web app's pages", () => {
     return requestBackendWith({ WEB_APP_DEV_SERVER: devServer }, url);
   }
 
-  it("aren't served by the deployed backend", async () => {
-    expect((await requestPage(`${backendUrl}/`, undefined)).status).toBe(404);
+  async function expectTheApp(page: Response) {
+    expect(page.status).toBe(200);
+    expect(page.headers.get("Content-Type")).toMatch(/^text\/html/);
+    expect(await page.text()).toContain("<title>Foyer test app</title>");
+  }
+
+  it.each(["/", "/notes/1?open=true", "/calendar/2026-11-15/"])(
+    "are the app's index.html at every address, such as %s",
+    async (path) => {
+      await expectTheApp(await requestBackend(`${backendUrl}${path}`));
+    },
+  );
+
+  it("answer a page's address with the app when asked for its headers only", async () => {
+    const page = await requestBackend(`${backendUrl}/notes/1`, { method: "HEAD" });
+
+    expect(page.status).toBe(200);
+    expect(page.headers.get("Content-Type")).toMatch(/^text\/html/);
+  });
+
+  it("don't stand in for a file the app doesn't have", async () => {
+    const file = await requestBackend(`${backendUrl}/_expo/static/js/web/index-missing.js`);
+
+    expect(file.status).toBe(404);
+  });
+
+  it("don't answer a page's address when something is sent to it", async () => {
+    const sent = await requestBackend(`${backendUrl}/notes/1`, { method: "POST", body: "{}" });
+
+    expect(sent.status).toBe(404);
+  });
+
+  it("don't stand in for the backend's own addresses", async () => {
+    const signIn = await requestBackend(`${backendUrl}/auth/missing`);
+
+    expect(signIn.status).toBe(404);
   });
 
   it.each(["localhost", "127.0.0.1", "[::1]"])(
@@ -114,12 +148,16 @@ describe("the web app's pages", () => {
     },
   );
 
+  it("are the app's index.html at the local backend's address without a development server", async () => {
+    await expectTheApp(await requestPage("http://localhost:8787/notes/1", undefined));
+  });
+
   it("don't come from the development server for a backend reached from another computer", async () => {
     const devServer = vi.spyOn(globalThis, "fetch");
 
-    const page = await requestPage(`${backendUrl}/`, "http://localhost:8081");
+    const page = await requestPage(`${backendUrl}/notes/1`, "http://localhost:8081");
 
-    expect(page.status).toBe(404);
+    await expectTheApp(page);
     expect(devServer).not.toHaveBeenCalled();
   });
 });

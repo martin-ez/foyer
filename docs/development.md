@@ -10,6 +10,7 @@ Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they ar
 
 - `pnpm --filter @foyer/server dev` runs the backend locally, at `http://localhost:8787`. The local backend reads its secrets and settings, such as the emails that may sign in, from `apps/server/.dev.vars`, which git ignores: copy `apps/server/.dev.vars.example` there and fill it in.
 - `pnpm --filter @foyer/client web` runs Expo's development server for the web app. Open the web app at the local backend's address, `http://localhost:8787`, which forwards the app's pages to Expo, so that the web app and the backend share one address as they do when deployed.
+- `pnpm --filter @foyer/client export-web` exports the web app as static files, into `apps/client/dist`, as deploys do. To try the export at the local backend's address, remove `WEB_APP_DEV_SERVER` from `.dev.vars` and run `pnpm --filter @foyer/server exec wrangler dev`, which serves the export as the deployed Worker does.
 - `pnpm --filter @foyer/client ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods. The iPad app calls the local backend unless `EXPO_PUBLIC_BACKEND_URL` names another one.
 - `pnpm generate` writes the TypeScript for the contracts again, after a `.proto` file changes. Commit what it writes: CI checks that it matches the contracts.
 - `pnpm check` runs the type checks, linting and formatting checks that CI runs, including Buf's on the contracts.

@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-10",
   "workers_dev": true,
+  // The web app, exported by the deploy and preview scripts. Its files are served without running
+  // the Worker. Every other request runs it, and it answers the app's pages after its own routes.
+  "assets": { "directory": "../client/dist", "binding": "WEB_APP" },
   "observability": { "enabled": true },
   "secrets": { "required": ["HOUSEHOLD_MEMBERS", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
   // Off when deployed. The local backend turns them on in .dev.vars, which overrides them.
