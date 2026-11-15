@@ -1,0 +1,3 @@
+# Copy this file to .dev.vars, which git ignores, to set the local backend's secrets.
+# The emails that may sign in to the local household, as a JSON list.
+HOUSEHOLD_MEMBERS='["you@example.com"]'

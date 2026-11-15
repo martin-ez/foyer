@@ -38,7 +38,7 @@ Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they ar
 
 - `pnpm --filter @foyer/client web` runs the web app.
 - `pnpm --filter @foyer/client ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods.
-- `pnpm --filter @foyer/server dev` runs the backend locally, at `http://localhost:8787`. The app calls the backend there unless `EXPO_PUBLIC_BACKEND_URL` names another one.
+- `pnpm --filter @foyer/server dev` runs the backend locally, at `http://localhost:8787`. The app calls the backend there unless `EXPO_PUBLIC_BACKEND_URL` names another one. The local backend reads its secrets, such as the emails that may sign in, from `apps/server/.dev.vars`, which git ignores: copy `apps/server/.dev.vars.example` there and fill it in.
 - `pnpm generate` writes the TypeScript for the contracts again, after a `.proto` file changes. Commit what it writes: CI checks that it matches the contracts.
 - `pnpm check` runs the type checks, linting and formatting checks that CI runs, including Buf's on the contracts.
 - `pnpm --filter @foyer/shared check-breaking` checks that changes to the contracts don't break apps or data made with the contracts on your local `main` branch. CI runs it against `main` for every pull request.
@@ -59,13 +59,17 @@ The household's backend runs on Cloudflare, at `https://foyer.<subdomain>.worker
 
 To change what a build does, change the `deploy` script rather than the dashboard, so the change goes through a pull request.
 
+### Who can sign in
+
+The Worker lets in the emails listed in its `HOUSEHOLD_MEMBERS` secret, a JSON list such as `["alex@example.com", "sam@example.com"]`. Set it in the Worker's settings in the Cloudflare dashboard, or with `pnpm --filter @foyer/server exec wrangler secret put HOUSEHOLD_MEMBERS`. A change takes effect at once, with no deploy. Deploys fail until it's set, and a list that isn't valid lets nobody in.
+
 ### Previewing a branch
 
 `pnpm --filter @foyer/server preview` deploys the current checkout to the preview, at `https://preview-foyer.<subdomain>.workers.dev`. It deletes the preview first, so the preview starts with empty data. There is one preview at a time, and running the script on another branch replaces it. The preview has its own Durable Objects, so it never touches the household's data.
 
 The script needs access to the Cloudflare account. On your computer, sign in once with `pnpm --filter @foyer/server exec wrangler login`. Agents use a token instead, as `AGENTS.md` says.
 
-The preview takes its secrets from the previews' base configuration, set with `pnpm --filter @foyer/server exec wrangler preview base-config secret put <NAME>`.
+The preview takes its secrets, such as `HOUSEHOLD_MEMBERS`, from the previews' base configuration, set with `pnpm --filter @foyer/server exec wrangler preview base-config secret put <NAME>`.
 
 ### Which backend an app build calls
 

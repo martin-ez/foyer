@@ -1,9 +1,10 @@
-import { env, exports } from "cloudflare:workers";
+import { exports } from "cloudflare:workers";
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { appName } from "@foyer/shared";
 import { StatusService } from "@foyer/shared/gen/foyer/status/v1/status_pb";
 import { describe, expect, it } from "vitest";
+import { theHousehold } from "../src/household";
 
 const backendUrl = "https://foyer.test";
 const statusPath = "/foyer.status.v1.StatusService/GetStatus";
@@ -97,7 +98,5 @@ it("answers calls to a service that doesn't exist as not found", async () => {
 });
 
 it("answers the household's storage check", async () => {
-  const household = env.HOUSEHOLD.getByName("test");
-
-  expect(await household.ping()).toBe("ok");
+  expect(await theHousehold().ping()).toBe("ok");
 });
