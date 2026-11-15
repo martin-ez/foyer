@@ -18,7 +18,6 @@ type Space = {
 const alex: GoogleAccount = { subject: "1", email: "alex@example.com", name: "Alex" };
 const sam: GoogleAccount = { subject: "2", email: "sam@example.com", name: "Sam" };
 
-/** Lets an account into the household, with Alex and Sam on the allowlist, and returns its id. */
 function join(account: GoogleAccount): Promise<string> {
   const allowlist = JSON.stringify([alex.email, sam.email]);
   return runInDurableObject(theHousehold(), (household) => {
@@ -73,8 +72,12 @@ describe("joining the household", () => {
         created_by: alexId,
       }),
     ]);
-    for (const space of own) expect(space.created_at).toBeGreaterThanOrEqual(before);
-    expect(new Set(own.map((space) => space.id)).size).toBe(2);
+    for (const space of own) {
+      expect(space.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      expect(space.created_at).toBeGreaterThanOrEqual(before);
+    }
   });
 
   it("gives a member no more spaces when they sign in again", async () => {
@@ -147,11 +150,15 @@ describe("who can see a space", () => {
     expect(await theHousehold().canSee(samId, shared)).toBe(true);
   });
 
-  it("lets nobody see a space that doesn't exist, and lets someone who isn't a member see none", async () => {
+  it("lets nobody see a space that doesn't exist", async () => {
     const alexId = await join(alex);
-    const shared = await addSharedSpace(alexId);
 
     expect(await theHousehold().canSee(alexId, newId())).toBe(false);
+  });
+
+  it("lets someone who isn't a member see no space, not even a shared one", async () => {
+    const shared = await addSharedSpace(await join(alex));
+
     expect(await theHousehold().canSee(newId(), shared)).toBe(false);
   });
 });
@@ -160,10 +167,9 @@ describe("storage from before spaces", () => {
   it("gives the members who had already joined their Inbox and a personal space named Personal", async () => {
     const alexId = newId();
 
-    const given = await runInDurableObject(theHousehold(), (_, { storage }) => {
-      const beforeSpaces = householdMigrations.slice(0, 2);
-      storage.sql.exec("DROP TABLE spaces; DELETE FROM migrations WHERE number > 2");
-      migrate(storage, beforeSpaces);
+    const given = await runInDurableObject(theHousehold(), async (_, { storage }) => {
+      await storage.deleteAll();
+      migrate(storage, householdMigrations.slice(0, 2));
       storage.sql.exec(
         "INSERT INTO members (id, email, google_subject, name, joined_at) VALUES (?, ?, ?, ?, ?)",
         alexId,

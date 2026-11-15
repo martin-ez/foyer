@@ -28,8 +28,6 @@ export type Space = Message<"foyer.space.v1.Space"> & {
   id: string;
 
   /**
-   * Who the space is for.
-   *
    * @generated from field: foyer.space.v1.SpaceKind kind = 2;
    */
   kind: SpaceKind;
@@ -77,8 +75,6 @@ export type SpaceCreate = Message<"foyer.space.v1.SpaceCreate"> & {
   kind: SpaceKind;
 
   /**
-   * The space's name.
-   *
    * @generated from field: string name = 3;
    */
   name: string;
@@ -99,15 +95,11 @@ export const SpaceCreateSchema: GenMessage<SpaceCreate> = /*@__PURE__*/
  */
 export type SpaceRename = Message<"foyer.space.v1.SpaceRename"> & {
   /**
-   * The space to rename.
-   *
    * @generated from field: string space_id = 1;
    */
   spaceId: string;
 
   /**
-   * Its new name.
-   *
    * @generated from field: string name = 2;
    */
   name: string;

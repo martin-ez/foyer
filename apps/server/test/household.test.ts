@@ -122,6 +122,32 @@ describe("storage migrations", () => {
     });
   });
 
+  it("run the ones written as functions, and undo one that fails", async () => {
+    const result = await runInDurableObject(theHousehold(), (_, { storage }) => {
+      let failed = false;
+      try {
+        migrate(storage, [
+          ...householdMigrations,
+          (sql) => {
+            sql.exec("CREATE TABLE half (value TEXT)");
+            throw new Error("The migration failed");
+          },
+        ]);
+      } catch {
+        failed = true;
+      }
+      const left = hasTable(storage, "half");
+
+      migrate(storage, [
+        ...householdMigrations,
+        (sql) => sql.exec("CREATE TABLE half (value TEXT)"),
+      ]);
+      return { failed, left, fixedOneRuns: hasTable(storage, "half") };
+    });
+
+    expect(result).toEqual({ failed: true, left: false, fixedOneRuns: true });
+  });
+
   it("leave storage that ran newer migrations as it is", async () => {
     const stillHasMembers = await runInDurableObject(theHousehold(), (_, state) => {
       migrate(state.storage, []);
