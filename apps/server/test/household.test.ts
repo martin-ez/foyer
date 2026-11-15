@@ -1,4 +1,5 @@
 import { evictDurableObject, reset, runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it } from "vitest";
 import { theHousehold } from "../src/household";
 import { householdMigrations, migrate } from "../src/migrations";
@@ -45,6 +46,10 @@ function hasTable(storage: DurableObjectStorage, name: string): boolean {
 afterEach(() => reset());
 
 describe("the household", () => {
+  it("is the Durable Object named household, wherever the Worker runs", () => {
+    expect(theHousehold().id.equals(env.HOUSEHOLD.idFromName("household"))).toBe(true);
+  });
+
   it("starts with no members, and stores what a member is", async () => {
     const stored = await runInDurableObject(theHousehold(), (_, state) => {
       const before = members(state.storage);
