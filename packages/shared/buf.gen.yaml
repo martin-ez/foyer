@@ -1,4 +1,5 @@
-# `pnpm --filter @foyer/shared generate` writes the TypeScript for the contracts into src/gen.
+# `pnpm --filter @foyer/shared generate` writes the TypeScript for the contracts into src/gen, which
+# git ignores. Installing the dependencies, the type checks and the tests run it too.
 version: v2
 inputs:
   - directory: proto

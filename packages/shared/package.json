@@ -8,6 +8,7 @@
   },
   "scripts": {
     "generate": "buf generate",
+    "postinstall": "buf generate",
     "typecheck": "tsc --noEmit",
     "lint-contracts": "buf lint && buf format --diff --exit-code",
     "format-contracts": "buf format --write",
