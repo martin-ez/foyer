@@ -7,11 +7,11 @@
   },
   "scripts": {
     "check": "pnpm typecheck && biome check . && pnpm --filter @foyer/shared lint-contracts",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm generate && pnpm -r typecheck",
     "format": "biome check --write . && pnpm --filter @foyer/shared format-contracts",
     "generate": "pnpm --filter @foyer/shared generate",
-    "test": "pnpm -r --if-present test",
-    "update-golden-images": "pnpm -r --if-present update-golden-images"
+    "test": "pnpm generate && pnpm -r --if-present test",
+    "update-golden-images": "pnpm generate && pnpm -r --if-present update-golden-images"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7"

@@ -7,13 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": [
-      "**",
-      "!**/*.md",
-      "!**/worker-configuration.d.ts",
-      "!pnpm-workspace.yaml",
-      "!packages/shared/src/gen"
-    ]
+    "includes": ["**", "!**/*.md", "!**/worker-configuration.d.ts", "!pnpm-workspace.yaml"]
   },
   "formatter": {
     "enabled": true,
