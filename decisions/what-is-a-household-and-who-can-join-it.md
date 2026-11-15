@@ -19,8 +19,6 @@ Decided in #54
 - **Members are created on first sign-in, not from the allowlist.** The allowlist says who may join; a member exists once they have.
 - **Every member sees every member's id and name.** Emails and Google account ids never leave the server.
 
-Creating members on sign-in is built by #12.
-
 **Why:**
 - Foyer is built for one household. Anyone else deploys their own copy, so nothing needs a sign-up flow or a directory from each email to its household.
 - A household's members rarely change, so a secret the owner edits needs no screens to manage members and no admin role.

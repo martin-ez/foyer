@@ -8,6 +8,14 @@ export const householdMigrations: readonly string[] = [
     name TEXT NOT NULL,
     joined_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    member_id TEXT NOT NULL REFERENCES members (id),
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL
+  );
+  CREATE INDEX sessions_by_member ON sessions (member_id)`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

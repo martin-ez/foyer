@@ -3,8 +3,9 @@ import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { appName } from "@foyer/shared";
 import { StatusService } from "@foyer/shared/gen/foyer/status/v1/status_pb";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { theHousehold } from "../src/household";
+import { requestBackendWith } from "./backend";
 
 const backendUrl = "https://foyer.test";
 const statusPath = "/foyer.status.v1.StatusService/GetStatus";
@@ -54,24 +55,7 @@ describe("the status call", () => {
     expect(status).toMatchObject({ app: appName, storage: "ok" });
   });
 
-  it.each(["http://localhost:8081", "http://127.0.0.1:8081"])(
-    "can be made from a development server on the same computer, at %s",
-    async (origin) => {
-      const preflight = await preflightStatusCall(origin);
-      const call = await callStatusFrom(origin);
-
-      expect(preflight.ok).toBe(true);
-      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(origin);
-      expect(preflight.headers.get("Access-Control-Allow-Methods")).toContain("POST");
-      const allowedHeaders = preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase();
-      expect(allowedHeaders).toContain("content-type");
-      expect(allowedHeaders).toContain("connect-protocol-version");
-      expect(call.headers.get("Access-Control-Allow-Origin")).toBe(origin);
-      expect(await call.json()).toEqual({ app: appName, storage: "ok" });
-    },
-  );
-
-  it.each(["https://example.com", "http://localhost.example.com"])(
+  it.each(["https://example.com", "http://localhost:8081"])(
     "can't be made from a web page on another site, at %s",
     async (origin) => {
       const preflight = await preflightStatusCall(origin);
@@ -99,4 +83,43 @@ it("answers calls to a service that doesn't exist as not found", async () => {
 
 it("answers the household's storage check", async () => {
   expect(await theHousehold().ping()).toBe("ok");
+});
+
+describe("the web app's pages", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function requestPage(url: string, devServer: string | undefined) {
+    return requestBackendWith({ WEB_APP_DEV_SERVER: devServer }, url);
+  }
+
+  it("aren't served by the deployed backend", async () => {
+    expect((await requestPage(`${backendUrl}/`, undefined)).status).toBe(404);
+  });
+
+  it.each(["localhost", "127.0.0.1", "[::1]"])(
+    "come from the development server, at the local backend's address on %s",
+    async (host) => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async (input) => new Response(`page at ${new Request(input).url}`),
+      );
+
+      const page = await requestPage(
+        `http://${host}:8787/notes/1?open=true`,
+        "http://localhost:8081",
+      );
+
+      expect(await page.text()).toBe("page at http://localhost:8081/notes/1?open=true");
+    },
+  );
+
+  it("don't come from the development server for a backend reached from another computer", async () => {
+    const devServer = vi.spyOn(globalThis, "fetch");
+
+    const page = await requestPage(`${backendUrl}/`, "http://localhost:8081");
+
+    expect(page.status).toBe(404);
+    expect(devServer).not.toHaveBeenCalled();
+  });
 });
