@@ -1,6 +1,6 @@
 # Agent instructions
 
-Foyer is a household planner for tasks, calendar and notes that feels like paper. The README explains the project and how to run it. Read `apps/client/AGENTS.md` before changing the app.
+Foyer is a household planner for tasks, calendar and notes that feels like paper. The README explains the project and how to run it, and `docs/development.md` how to work on it. Read `apps/client/AGENTS.md` before changing the app.
 
 ## How Foyer is built for now
 
@@ -11,7 +11,7 @@ Foyer is a household planner for tasks, calendar and notes that feels like paper
 
 ## Signing in
 
-Locally, sign in without Google at `http://localhost:8787/auth/dev?email=…`, with an email from `HOUSEHOLD_MEMBERS` in `apps/server/.dev.vars`, as the README explains. Never ask the owner to sign in with Google for you.
+Locally, sign in without Google at `http://localhost:8787/auth/dev?email=…`, with an email from `HOUSEHOLD_MEMBERS` in `apps/server/.dev.vars`, as `docs/development.md` explains. Never ask the owner to sign in with Google for you.
 
 ## Previewing a branch
 
