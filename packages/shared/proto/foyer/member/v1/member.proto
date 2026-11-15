@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package foyer.member.v1;
+
+// A person in the household: someone who has signed in at least once. Every member sees every
+// member's id and name.
+message Member {
+  // Foyer's own id for the person, a UUID version 7.
+  string id = 1;
+  // Their first name, from their Google account when they joined.
+  string name = 2;
+}

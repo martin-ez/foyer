@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package foyer.session.v1;
+
+import "foyer/member/v1/member.proto";
+
+// Signs people in and out of the household. Signing in starts outside these calls, when the app
+// opens the backend's /auth/google address, which sends the person to Google and back. The web
+// app then holds its session in a cookie, and the iPad app sends its session token as a bearer
+// token, on every call.
+service SessionService {
+  // Exchanges the one-time code that the iPad app receives at foyer://signed-in for a session.
+  rpc FinishSignIn(FinishSignInRequest) returns (FinishSignInResponse);
+  // Returns the signed-in person. Fails as unauthenticated when the call carries no session, or one
+  // that has ended.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // Ends the session the call carries.
+  rpc SignOut(SignOutRequest) returns (SignOutResponse);
+}
+
+message FinishSignInRequest {
+  // The one-time code, valid for a minute.
+  string code = 1;
+}
+
+message FinishSignInResponse {
+  // The session token, which the iPad app keeps in the Keychain and sends as a bearer token.
+  string token = 1;
+  // The person who signed in.
+  foyer.member.v1.Member member = 2;
+}
+
+message GetSessionRequest {}
+
+message GetSessionResponse {
+  // The person who is signed in.
+  foyer.member.v1.Member member = 1;
+}
+
+message SignOutRequest {}
+
+message SignOutResponse {}

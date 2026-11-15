@@ -5,7 +5,9 @@
   "compatibility_date": "2026-11-10",
   "workers_dev": true,
   "observability": { "enabled": true },
-  "secrets": { "required": ["HOUSEHOLD_MEMBERS"] },
+  "secrets": { "required": ["HOUSEHOLD_MEMBERS", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
+  // Off when deployed. The local backend turns them on in .dev.vars, which overrides them.
+  "vars": { "DEV_SIGN_IN": "0", "WEB_APP_DEV_SERVER": "" },
   "durable_objects": {
     "bindings": [{ "name": "HOUSEHOLD", "class_name": "Household" }]
   },

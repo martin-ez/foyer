@@ -9,6 +9,10 @@ Foyer is a household planner for tasks, calendar and notes that feels like paper
 - **The data model grows one issue at a time.** Before building anything that adds or changes stored data or a contract, set out that part on its issue and wait for the owner's review. Cover the messages and fields, what's stored where, the ids, who can see it, and how it connects to what exists.
 - **No code names.** Don't use code names, such as lettered options or nicknames for designs, in code, documents, issues or milestones. Say what the thing is.
 
+## Signing in
+
+Locally, sign in without Google at `http://localhost:8787/auth/dev?email=…`, with an email from `HOUSEHOLD_MEMBERS` in `apps/server/.dev.vars`, as the README explains. Never ask the owner to sign in with Google for you.
+
 ## Previewing a branch
 
 Start the preview only when the owner asks. `pnpm --filter @foyer/server preview` deploys your checkout to the preview, replacing whatever was there, and prints its address. Post the address on the branch's pull request.

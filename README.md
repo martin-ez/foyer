@@ -36,14 +36,18 @@ Foyer is a pnpm workspace with apps in `apps/` and shared code in `packages/`:
 
 Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. It installs Node with nvm when you have it, and otherwise downloads it from nodejs.org into `~/.local`. After that:
 
-- `pnpm --filter @foyer/client web` runs the web app.
-- `pnpm --filter @foyer/client ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods.
-- `pnpm --filter @foyer/server dev` runs the backend locally, at `http://localhost:8787`. The app calls the backend there unless `EXPO_PUBLIC_BACKEND_URL` names another one. The local backend reads its secrets, such as the emails that may sign in, from `apps/server/.dev.vars`, which git ignores: copy `apps/server/.dev.vars.example` there and fill it in.
+- `pnpm --filter @foyer/server dev` runs the backend locally, at `http://localhost:8787`. The local backend reads its secrets and settings, such as the emails that may sign in, from `apps/server/.dev.vars`, which git ignores: copy `apps/server/.dev.vars.example` there and fill it in.
+- `pnpm --filter @foyer/client web` runs Expo's development server for the web app. Open the web app at the local backend's address, `http://localhost:8787`, which forwards the app's pages to Expo, so that the web app and the backend share one address as they do when deployed.
+- `pnpm --filter @foyer/client ios` builds the iPad app and runs it on a simulator. It needs Xcode and CocoaPods. The iPad app calls the local backend unless `EXPO_PUBLIC_BACKEND_URL` names another one.
 - `pnpm generate` writes the TypeScript for the contracts again, after a `.proto` file changes. Commit what it writes: CI checks that it matches the contracts.
 - `pnpm check` runs the type checks, linting and formatting checks that CI runs, including Buf's on the contracts.
 - `pnpm --filter @foyer/shared check-breaking` checks that changes to the contracts don't break apps or data made with the contracts on your local `main` branch. CI runs it against `main` for every pull request.
 - `pnpm test` runs the tests that CI runs: unit tests, the comparison of page drawings with their golden images, and the backend's tests in the Workers runtime.
 - `pnpm update-golden-images` saves the current page drawings as the new golden images, for when a drawing changes on purpose.
+
+### Signing in locally
+
+Signing in with Google needs a Google OAuth client, set in `apps/server/.dev.vars` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, as [Google sign-in](#google-sign-in) explains. Without one, open `http://localhost:8787/auth/dev?email=you@example.com` to sign in as an email on the allowlist, which works while `.dev.vars` sets `DEV_SIGN_IN=1`. Add `&app=ipad` to return to the iPad app instead, at `foyer://signed-in`.
 
 ## Deploying
 
@@ -63,14 +67,28 @@ To change what a build does, change the `deploy` script rather than the dashboar
 
 The Worker lets in the emails listed in its `HOUSEHOLD_MEMBERS` secret, a JSON list such as `["alex@example.com", "sam@example.com"]`. Set it in the Worker's settings in the Cloudflare dashboard, or with `pnpm --filter @foyer/server exec wrangler secret put HOUSEHOLD_MEMBERS`. A change takes effect at once, with no deploy. Deploys fail until it's set, and a list that isn't valid lets nobody in.
 
+### Google sign-in
+
+People sign in with Google, through a Google OAuth client the Worker holds in two secrets, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Deploys fail until both are set. To create the client:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project and set up its OAuth consent screen. While the app is in testing, add the household's Google accounts as test users.
+2. Create an OAuth client of type "Web application". Add the callback address of each environment as an authorized redirect URI:
+   - `http://localhost:8787/auth/google/callback`, for the local backend;
+   - `https://foyer.<subdomain>.workers.dev/auth/google/callback`, for the household's Worker;
+   - `https://preview-foyer.<subdomain>.workers.dev/auth/google/callback`, for the preview.
+3. Set the client's id and secret in three places:
+   - on the household's Worker, in its settings in the Cloudflare dashboard, or with `pnpm --filter @foyer/server exec wrangler secret put GOOGLE_CLIENT_ID`, then the same for `GOOGLE_CLIENT_SECRET`;
+   - in the previews' base configuration, as the next section shows;
+   - in `apps/server/.dev.vars`, for the local backend.
+
 ### Previewing a branch
 
 `pnpm --filter @foyer/server preview` deploys the current checkout to the preview, at `https://preview-foyer.<subdomain>.workers.dev`. It deletes the preview first, so the preview starts with empty data. There is one preview at a time, and running the script on another branch replaces it. The preview has its own Durable Objects, so it never touches the household's data.
 
 The script needs access to the Cloudflare account. On your computer, sign in once with `pnpm --filter @foyer/server exec wrangler login`. Agents use a token instead, as `AGENTS.md` says.
 
-The preview takes its secrets, such as `HOUSEHOLD_MEMBERS`, from the previews' base configuration, set with `pnpm --filter @foyer/server exec wrangler preview base-config secret put <NAME>`.
+The preview takes its secrets, `HOUSEHOLD_MEMBERS`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, from the previews' base configuration, set with `pnpm --filter @foyer/server exec wrangler preview base-config secret put <NAME>`.
 
 ### Which backend an app build calls
 
-The app calls the backend that `EXPO_PUBLIC_BACKEND_URL` names when the app is built, and the local backend when it's unset. To build the iPad app for the household, set it to the household's address, for example in `apps/client/.env.local`, which git ignores. A development build can point at the preview the same way.
+The web app calls the backend at the address it's served from. The iPad app calls the backend that `EXPO_PUBLIC_BACKEND_URL` names when the app is built, and the local backend when it's unset. To build the iPad app for the household, set it to the household's address, for example in `apps/client/.env.local`, which git ignores. A development build can point at the preview the same way.

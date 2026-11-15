@@ -6,8 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "preview": "wrangler preview delete --name preview --skip-confirmation || true && wrangler preview --name preview",
-    "types": "wrangler types",
-    "typecheck": "wrangler types --check && tsc --noEmit",
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

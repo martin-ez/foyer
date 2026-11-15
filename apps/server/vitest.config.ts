@@ -5,7 +5,14 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: { bindings: { HOUSEHOLD_MEMBERS: '["member@example.com"]' } },
+      miniflare: {
+        bindings: {
+          HOUSEHOLD_MEMBERS: '["member@example.com"]',
+          GOOGLE_CLIENT_ID: "foyer-test.apps.googleusercontent.com",
+          GOOGLE_CLIENT_SECRET: "google-client-secret",
+          DEV_SIGN_IN: "1",
+        },
+      },
     }),
   ],
 });
