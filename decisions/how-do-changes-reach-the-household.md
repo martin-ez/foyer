@@ -9,7 +9,7 @@ Decided in #55
 - **The preview:** one at a time, at a fixed address, `preview-foyer.<subdomain>.workers.dev`. The server's `preview` script deletes it and creates it again from the current checkout, so it starts with empty data. It has its own Durable Objects, and takes the household's allowlist and Google client from the previews' base configuration. The owner runs it after `wrangler login`. Agents run it from a cloud session with a Cloudflare token saved on the cloud environment, and post its address on the pull request.
 - **Which backend an app build calls:** the one `EXPO_PUBLIC_BACKEND_URL` names when the app is built, or the local backend when it's unset.
 
-The allowlist is built by #54, and Google sign-in by #12.
+Google sign-in is built by #12.
 
 **Why:**
 - Workers Builds needs no Cloudflare token in GitHub, and the owner prefers deploys that don't wait for CI, with builds managed in Cloudflare's dashboard.
