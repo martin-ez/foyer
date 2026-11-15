@@ -1,6 +1,6 @@
 # Deploying
 
-The household's backend runs on Cloudflare, at `https://foyer.<subdomain>.workers.dev`, where `<subdomain>` is the Cloudflare account's `workers.dev` subdomain. Cloudflare's Workers Builds deploys it on every push to `main`, whether or not CI passed. Its settings live in the Worker's settings in the Cloudflare dashboard:
+The household's Foyer runs on Cloudflare, at `https://foyer.<subdomain>.workers.dev`, where `<subdomain>` is the Cloudflare account's `workers.dev` subdomain. One Worker serves both the web app and the backend there. Cloudflare's Workers Builds deploys it on every push to `main`, whether or not CI passed. Its settings live in the Worker's settings in the Cloudflare dashboard:
 
 - **Worker name:** `foyer`, the name in `apps/server/wrangler.jsonc`.
 - **Production branch:** `main`.
@@ -11,6 +11,15 @@ The household's backend runs on Cloudflare, at `https://foyer.<subdomain>.worker
 - **Build cache:** on.
 
 To change what a build does, change the `deploy` script rather than the dashboard, so the change goes through a pull request.
+
+## The web app
+
+The `deploy` and `preview` scripts first export the web app with Expo, into `apps/client/dist`, and the Worker deploys it as its static assets:
+
+- **The app's files,** such as its JavaScript and `canvaskit.wasm`, are served without running the Worker, so they don't count against its daily requests.
+- **Every other request runs the Worker.** It answers its own routes first: the calls in the contracts, and sign-in under `/auth/`. Any other address gets the app's `index.html`, and the app shows the page for that address. A missing file, such as a script from an older deploy, is not found rather than answered with the page.
+
+The local backend never serves the export: it forwards pages to Expo's development server, as [Development](development.md) explains.
 
 ## Who can sign in
 

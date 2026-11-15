@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "preview": "wrangler preview delete --name preview --skip-confirmation || true && wrangler preview --name preview",
+    "dev": "mkdir -p .wrangler/no-web-app && wrangler dev --assets .wrangler/no-web-app",
+    "deploy": "pnpm --filter @foyer/client export-web && wrangler deploy",
+    "preview": "pnpm --filter @foyer/client export-web && { wrangler preview delete --name preview --skip-confirmation || true; } && wrangler preview --name preview",
     "types": "wrangler types --strict-vars=false",
     "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit",
     "test": "vitest run"

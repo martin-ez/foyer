@@ -45,3 +45,5 @@ jobs:
             echo "main has no contracts yet, so there is nothing to break."
           fi
       - run: pnpm test
+      - name: Export the web app, as deploys do
+        run: pnpm --filter @foyer/client export-web
