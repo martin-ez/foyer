@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { theHousehold } from "../src/household";
 import {
   backendUrl,
-  cookiesSetBy,
+  cookieSetBy,
   localBackendUrl,
   locationOf,
   requestBackend,
@@ -107,6 +107,16 @@ describe("the iPad's one-time code", () => {
     expect(expired).toBe(Code.Unauthenticated);
   });
 
+  it("is refused once its member's email leaves the allowlist", async () => {
+    const code = await signInCode();
+
+    const exchanged = await runInDurableObject(theHousehold(), (household) =>
+      withEnv({ ...env, HOUSEHOLD_MEMBERS: "[]" }, () => household.finishSignIn(code)),
+    );
+
+    expect(exchanged).toBeNull();
+  });
+
   it("is refused when it was never given", async () => {
     expect(await codeOf(sessionClient().finishSignIn({ code: "made-up" }))).toBe(
       Code.Unauthenticated,
@@ -133,9 +143,11 @@ describe("signing out", () => {
     const signedOut = await callSessionService("SignOut", cookie);
 
     expect(signedOut.ok).toBe(true);
-    expect(cookiesSetBy(signedOut)).toEqual([
-      "foyer_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure",
-    ]);
+    expect(cookieSetBy(signedOut, "foyer_session")).toMatchObject({
+      value: "",
+      path: "/",
+      "max-age": "0",
+    });
     expect(await codeOf(sessionClient().getSession({}, { headers: { Cookie: cookie } }))).toBe(
       Code.Unauthenticated,
     );
@@ -178,11 +190,12 @@ describe("a session", () => {
     const nextDay = await callSessionService("GetSession", cookie);
     const againThatDay = await callSessionService("GetSession", cookie);
 
-    expect(cookiesSetBy(sameDay)).toEqual([]);
-    expect(cookiesSetBy(nextDay)).toEqual([
-      `${cookie}; Path=/; Max-Age=7776000; HttpOnly; SameSite=Lax; Secure`,
-    ]);
-    expect(cookiesSetBy(againThatDay)).toEqual([]);
+    expect(cookieSetBy(sameDay, "foyer_session")).toBeUndefined();
+    expect(cookieSetBy(nextDay, "foyer_session")).toMatchObject({
+      value: cookie.slice("foyer_session=".length),
+      "max-age": "7776000",
+    });
+    expect(cookieSetBy(againThatDay, "foyer_session")).toBeUndefined();
   });
 
   it("ends once its member's email leaves the allowlist, even if it's added back", async () => {

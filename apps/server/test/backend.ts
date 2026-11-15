@@ -135,6 +135,23 @@ export function sessionCookieSetBy(response: Response): string | undefined {
     ?.split(";")[0];
 }
 
+/** The cookie a response sets with a name: its `value`, and its attributes by lowercase name. */
+export function cookieSetBy(
+  response: Response,
+  name: string,
+): Record<string, string | true> | undefined {
+  const set = cookiesSetBy(response).find((cookie) => cookie.startsWith(`${name}=`));
+  if (!set) return undefined;
+  const [pair = "", ...attributes] = set.split(";").map((part) => part.trim());
+  return Object.fromEntries([
+    ["value", pair.slice(name.length + 1)],
+    ...attributes.map((attribute) => {
+      const [key = "", value] = attribute.split("=");
+      return [key.toLowerCase(), value ?? true];
+    }),
+  ]);
+}
+
 /** Where a redirect sends the browser. */
 export function locationOf(response: Response): URL {
   return new URL(response.headers.get("Location") ?? "");

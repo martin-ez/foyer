@@ -1,9 +1,10 @@
-import { reset } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { reset, runInDurableObject } from "cloudflare:test";
+import { env, withEnv } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { theHousehold } from "../src/household";
 import {
   backendUrl,
-  cookiesSetBy,
+  cookieSetBy,
   localBackendUrl,
   locationOf,
   member,
@@ -62,9 +63,13 @@ describe("signing in with Google", () => {
     const cookie = sessionCookieSetBy(returned);
 
     expect(locationOf(returned).toString()).toBe(`${backendUrl}/`);
-    expect(cookiesSetBy(returned).find((set) => set.startsWith("foyer_session="))).toMatch(
-      /; Path=\/; Max-Age=7776000; HttpOnly; SameSite=Lax; Secure$/,
-    );
+    expect(cookieSetBy(returned, "foyer_session")).toMatchObject({
+      path: "/",
+      "max-age": "7776000",
+      httponly: true,
+      samesite: "Lax",
+      secure: true,
+    });
     const session = await sessionClient().getSession({}, { headers: { Cookie: cookie ?? "" } });
     expect(session.member).toMatchObject({ name: "Alex" });
   });
@@ -97,6 +102,26 @@ describe("signing in with Google", () => {
     );
     expect(sessions[1]?.member).toEqual(sessions[0]?.member);
     expect(sessions[1]?.member?.name).toBe("Alex");
+  });
+
+  it("lets a member in under their new address when their Google account's email changes", async () => {
+    const { returned } = await signInWithGoogle(member);
+    const cookie = sessionCookieSetBy(returned) ?? "";
+    const before = await sessionClient().getSession({}, { headers: { Cookie: cookie } });
+
+    const signedInAs = await runInDurableObject(theHousehold(), (household) =>
+      withEnv({ ...env, HOUSEHOLD_MEMBERS: '["new.address@example.com"]' }, async () => {
+        const joined = household.join({
+          subject: member.sub,
+          email: "new.address@example.com",
+          name: "Renamed",
+        });
+        const session = await household.sessionFor(await household.startSession(joined?.id ?? ""));
+        return session?.member;
+      }),
+    );
+
+    expect(signedInAs).toEqual({ id: before.member?.id, name: "Alex" });
   });
 
   it("names a member after their full name, or their email, when Google has no first name", async () => {
@@ -206,7 +231,7 @@ describe("signing in without Google, on the local backend", () => {
     const cookie = sessionCookieSetBy(returned) ?? "";
 
     expect(locationOf(returned).toString()).toBe(`${localBackendUrl}/`);
-    expect(cookiesSetBy(returned)[0]).not.toContain("Secure");
+    expect(cookieSetBy(returned, "foyer_session")?.secure).toBeUndefined();
     const session = await sessionClient().getSession({}, { headers: { Cookie: cookie } });
     expect(session.member).toMatchObject({ name: "member" });
   });
@@ -255,6 +280,15 @@ describe("signing in without Google, on the local backend", () => {
 
     expect(returned.status).toBe(404);
   });
+});
+
+it("answers sign-in addresses only when they're navigated to", async () => {
+  const posted = await requestBackend(`${localBackendUrl}/auth/dev?email=member@example.com`, {
+    method: "POST",
+  });
+
+  expect(posted.status).toBe(405);
+  expect(sessionCookieSetBy(posted)).toBeUndefined();
 });
 
 it("answers addresses under /auth/ that don't exist as not found", async () => {

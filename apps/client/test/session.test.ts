@@ -95,6 +95,22 @@ describe("finishSignIn", () => {
     });
   });
 
+  it("says sign-in didn't work when the backend answers without a member", async () => {
+    const keepToken = vi.fn(async () => {});
+
+    const session = await finishSignIn(
+      "foyer://signed-in?code=one-time",
+      backend({ finishSignIn: () => ({ token: "session-token" }) }),
+      keepToken,
+    );
+
+    expect(session).toEqual({
+      status: "signed-out",
+      problem: "Signing in didn't work. Try again.",
+    });
+    expect(keepToken).not.toHaveBeenCalled();
+  });
+
   it("says sign-in didn't work when the backend refuses the code", async () => {
     const keepToken = vi.fn(async () => {});
 

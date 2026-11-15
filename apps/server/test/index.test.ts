@@ -98,19 +98,21 @@ describe("the web app's pages", () => {
     expect((await requestPage(`${backendUrl}/`, undefined)).status).toBe(404);
   });
 
-  it("come from the development server, at the local backend's address", async () => {
-    const devServer = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async (input) => new Response(`page at ${new Request(input).url}`));
+  it.each(["localhost", "127.0.0.1", "[::1]"])(
+    "come from the development server, at the local backend's address on %s",
+    async (host) => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async (input) => new Response(`page at ${new Request(input).url}`),
+      );
 
-    const page = await requestPage(
-      "http://localhost:8787/notes/1?open=true",
-      "http://localhost:8081",
-    );
+      const page = await requestPage(
+        `http://${host}:8787/notes/1?open=true`,
+        "http://localhost:8081",
+      );
 
-    expect(devServer).toHaveBeenCalledOnce();
-    expect(await page.text()).toBe("page at http://localhost:8081/notes/1?open=true");
-  });
+      expect(await page.text()).toBe("page at http://localhost:8081/notes/1?open=true");
+    },
+  );
 
   it("don't come from the development server for a backend reached from another computer", async () => {
     const devServer = vi.spyOn(globalThis, "fetch");

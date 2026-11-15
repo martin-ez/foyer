@@ -118,10 +118,8 @@ export const SignOutResponseSchema: GenMessage<SignOutResponse> = /*@__PURE__*/
   messageDesc(file_foyer_session_v1_session, 5);
 
 /**
- * Signs people in and out of the household. Signing in starts outside these calls, when the app
- * opens the backend's /auth/google address, which sends the person to Google and back. The web
- * app then holds its session in a cookie, and the iPad app sends its session token as a bearer
- * token, on every call.
+ * Signs people in and out. Signing in starts outside these calls, at the backend's /auth/google
+ * address. Calls then carry the session: the web app's in a cookie, the iPad app's as a bearer token.
  *
  * @generated from service foyer.session.v1.SessionService
  */

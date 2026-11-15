@@ -5,29 +5,19 @@ import { type Member, theHousehold } from "./household";
 import { isLocalAddress } from "./local";
 import { newSecret, sha256, toBase64Url } from "./secrets";
 
-/** The app that sign-in returns to: the web app, at the backend's own address, or the iPad app. */
 type App = "web" | "ipad";
 
-/** Why sign-in returned to the app without signing someone in. */
 type SignInError = "not-in-household" | "failed";
 
 const callbackPath = "/auth/google/callback";
 const startedSignInCookieName = "foyer_sign_in";
 const startedSignInLifetimeSeconds = 10 * 60;
 
-/** What the browser keeps while the person is at Google: the state that Google must send back, the
- *  verifier that proves the code comes from this sign-in, and the app to return to. */
 type StartedSignIn = { state?: string; codeVerifier?: string; app: App };
 
-/** Answers the browser navigations that sign people in, under `/auth/`:
- *  - `/auth/google` sends the person to Google, which sends them back to `/auth/google/callback`.
- *  - `/auth/dev?email=…` signs in as an email on the allowlist without Google, when `DEV_SIGN_IN`
- *    is `1` and the backend runs on this computer.
- *
- *  Both return to the web app, or to the iPad app at `foyer://signed-in` when they're opened with
- *  `?app=ipad`. The web app gets the session's cookie; the iPad app gets a one-time `code` that it
- *  exchanges for a session token. A person who isn't let in returns with an `error`, as
- *  `?sign-in-error=` on the web. */
+/** Answers the browser navigations under `/auth/` that sign people in, with Google or, locally,
+ *  without it. They return to the web app with a session cookie, or, opened with `?app=ipad`, to
+ *  `foyer://signed-in` with a one-time code. Someone who isn't let in returns with an error. */
 export async function handleSignIn(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (request.method !== "GET") return new Response(null, { status: 405 });
