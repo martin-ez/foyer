@@ -58,8 +58,8 @@ export function pullRows(
   return { rows: rowsBetween(sql, memberId, cursor, upTo), cursor: upTo, done: false };
 }
 
-/** The rows as they are now, each once, with who can see each. A row that no longer exists comes as deleted
- *  when the household keeps its tombstone, and is left out otherwise. */
+/** The rows as they are now, each once, with who can see each. A row that no longer exists comes
+ *  as deleted when the household keeps its tombstone, and is left out otherwise. */
 export function readRows(sql: SqlStorage, keys: RowKey[]): VisibleRow[] {
   const unique = new Map(keys.map((key) => [`${key.kind} ${key.id}`, key]));
   return [...unique.values()].flatMap((key) => {

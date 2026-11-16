@@ -6,10 +6,9 @@ import "foyer/member/v1/member.proto";
 import "foyer/space/v1/space.proto";
 import "google/protobuf/timestamp.proto";
 
-// Sync keeps every device up to date with the household's data. A device opens a WebSocket at the
-// backend's /sync address, carrying its session as calls do. Each binary WebSocket message holds
-// one DeviceMessage from the device or one HouseholdMessage from the household. The text "ping" is
-// answered with "pong", to keep the connection open.
+// Sync keeps devices up to date over a WebSocket at the backend's /sync address, which carries the
+// session as calls do. Each binary message holds one DeviceMessage or one HouseholdMessage. The
+// text "ping" is answered with "pong", to keep the connection open.
 
 // What a device sends the household.
 message DeviceMessage {

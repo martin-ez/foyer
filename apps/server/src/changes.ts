@@ -148,8 +148,6 @@ function renameSpace(
   return { seq, changed: [key], unchanged: [] };
 }
 
-/** Whether a change was made after another, by the device's clock, with equal times settled by
- *  the larger change id. */
 function isLater(change: Setter, than: Setter): boolean {
   return change.at > than.at || (change.at === than.at && change.changeId > than.changeId);
 }

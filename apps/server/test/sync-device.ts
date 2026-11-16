@@ -159,7 +159,6 @@ export class Device {
     }
   }
 
-  /** Waits for a message or the close, and says whether one came in time. */
   #nextArrival(): Promise<boolean> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => resolve(false), waitLimit);
@@ -175,7 +174,6 @@ async function bytesOf(data: ArrayBuffer | Blob): Promise<Uint8Array> {
   return new Uint8Array(data instanceof Blob ? await data.arrayBuffer() : data);
 }
 
-/** When and as which change a test's change was made: now, as a new change, unless it says. */
 type Made = { changeId?: string; at?: ChangeInit["at"] };
 
 /** Creates a space, made by the device now unless `made` says otherwise. */

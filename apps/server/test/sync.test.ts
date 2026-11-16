@@ -5,7 +5,7 @@ import { type Row, RowKind } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { theHousehold } from "../src/household";
 import { householdMigrations, migrate } from "../src/migrations";
-import { pullReplyRowLimit, pullRows } from "../src/rows";
+import { pullReplyRowLimit } from "../src/rows";
 import { backendUrl, cookieSetBy, requestBackend } from "./backend";
 import { Device, madeAt, openConnection, signIn, spaceCreate, spaceRename } from "./sync-device";
 
@@ -28,7 +28,6 @@ afterEach(async () => {
   await reset();
 });
 
-/** What each row is, in a form that's easy to compare. */
 function describeRows(rows: Row[]) {
   return rows.map(({ row }) => {
     switch (row.case) {
@@ -158,6 +157,25 @@ describe("opening a sync connection", () => {
     await expect(device.ping()).resolves.toBeUndefined();
   });
 
+  it("closes a connection, as signed out, when it's used after its session ended unused", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 0, 1) });
+    const device = await connect((await signIn(alex)).token);
+
+    vi.setSystemTime(Date.UTC(2026, 3, 2));
+    device.send({ case: "pull", value: { cursor: 0n } });
+
+    expect((await device.closed).code).toBe(signedOutCloseCode);
+  });
+
+  it("only opens connections whose session the Worker checked", async () => {
+    const response = await theHousehold().fetch(
+      new Request(`${backendUrl}/sync`, { headers: { Upgrade: "websocket" } }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.webSocket).toBeNull();
+  });
+
   it("closes a connection that sends bytes that aren't a sync message", async () => {
     const device = await connect((await signIn(alex)).token);
 
@@ -270,6 +288,32 @@ describe("pushing changes", () => {
     const reconnected = await Device.connect((await signIn(sam)).token);
     devices.push(reconnected);
     expect(await reconnected.welcome()).toBe(seqOf(first.results[0]));
+  });
+});
+
+describe("remembering changes", () => {
+  const day = 24 * 60 * 60 * 1000;
+
+  it("answers a change sent again for 90 days, as long as an unused session lasts", async () => {
+    const start = Date.UTC(2026, 0, 1);
+    vi.useFakeTimers({ toFake: ["Date"], now: start });
+    const device = await connect((await signIn(alex)).token);
+    const create = spaceCreate({ name: "Home" });
+    const first = await device.push(create);
+    const useDailyUntil = async (days: number) => {
+      for (let time = Date.now() + day; time <= start + days * day; time += day) {
+        vi.setSystemTime(time);
+        await device.pull(1_000_000);
+      }
+    };
+
+    await useDailyUntil(89);
+    const within = await device.push(create);
+    await useDailyUntil(90);
+    const after = await device.push(create);
+
+    expect(within.results).toEqual(first.results);
+    expect(refusalOf(after.results[0])).toBe("A space with this id already exists.");
   });
 });
 
@@ -480,17 +524,18 @@ describe("catching up", () => {
   });
 
   it("keeps the rows one change changed in the same reply", async () => {
-    const { memberId } = await signIn(alex);
+    const samDevice = await connect((await signIn(sam)).token);
+    const spaces = Array.from({ length: pullReplyRowLimit - 2 }, (_, index) =>
+      spaceCreate({ name: `Space ${index}` }),
+    );
+    await samDevice.push(...spaces);
+    const { token } = await signIn(alex);
+    const device = await connect(token);
 
-    const pages = await runInDurableObject(theHousehold(), (_, { storage }) => [
-      pullRows(storage.sql, memberId, 0, 2),
-      pullRows(storage.sql, memberId, 1, 2),
-    ]);
+    const replies = await device.catchUp();
 
-    expect(pages.map(({ rows, cursor, done }) => ({ rows: rows.length, cursor, done }))).toEqual([
-      { rows: 3, cursor: 1, done: false },
-      { rows: 0, cursor: 1, done: true },
-    ]);
+    expect(replies.map(({ rows }) => rows.length)).toEqual([pullReplyRowLimit - 1, 3]);
+    expect(describeRows(replies[1]?.rows ?? [])).toContainEqual({ member: "member" });
   });
 
   it("sends a deleted row as deleted, only to the members who could see it", async () => {
@@ -532,8 +577,7 @@ describe("members joining", () => {
 describe("storage from before sync", () => {
   it("numbers the members and spaces it holds, so that devices catch up with them", async () => {
     const alexId = newId();
-
-    const pulled = await runInDurableObject(theHousehold(), async (_, { storage }) => {
+    await runInDurableObject(theHousehold(), async (_, { storage }) => {
       await storage.deleteAll();
       migrate(storage, householdMigrations.slice(0, 3));
       storage.sql.exec(
@@ -548,13 +592,16 @@ describe("storage from before sync", () => {
         alexId,
         Date.now(),
       );
-
       migrate(storage, householdMigrations);
-      return pullRows(storage.sql, alexId, 0);
     });
+    const device = await Device.connect(await theHousehold().startSession(alexId));
+    devices.push(device);
 
-    expect(pulled.cursor).toBe(2);
-    expect(describeRows(pulled.rows)).toEqual([
+    const welcomed = await device.welcome();
+    const replies = await device.catchUp();
+
+    expect(welcomed).toBe(2);
+    expect(describeRows(replies.flatMap(({ rows }) => rows))).toEqual([
       { member: "Alex" },
       { space: "Home", kind: SpaceKind.SHARED, ownerId: "" },
     ]);

@@ -63,7 +63,10 @@ export class Household extends DurableObject<Env> {
     const { 0: device, 1: household } = new WebSocketPair();
     this.ctx.acceptWebSocket(household);
     household.serializeAttachment({ memberId, sessionId } satisfies SyncConnection);
-    send(household, { case: "welcome", value: { seq: BigInt(latestSeq(this.ctx.storage.sql)) } });
+    sendIfOpen(household, {
+      case: "welcome",
+      value: { seq: BigInt(latestSeq(this.ctx.storage.sql)) },
+    });
     return new Response(null, { status: 101, webSocket: device });
   }
 
@@ -87,7 +90,7 @@ export class Household extends DurableObject<Env> {
         const cursor = Number(received.message.value.cursor);
         const page = pullRows(sql, connection.memberId, cursor);
         const value = { rows: page.rows, cursor: BigInt(page.cursor), done: page.done };
-        send(socket, { case: "pullReply", value });
+        sendIfOpen(socket, { case: "pullReply", value });
         return;
       }
       case "push":
@@ -103,11 +106,10 @@ export class Household extends DurableObject<Env> {
     const { results, changed, unchanged } = applyPush(this.ctx.storage, memberId, push, now);
     this.#sendUpdates(readRows(sql, changed));
     const asTheyAre = readRows(sql, unchanged).map(({ row }) => row);
-    if (asTheyAre.length > 0) send(sender, { case: "updates", value: { rows: asTheyAre } });
-    send(sender, { case: "committed", value: { pushId: push.pushId, results } });
+    if (asTheyAre.length > 0) sendIfOpen(sender, { case: "updates", value: { rows: asTheyAre } });
+    sendIfOpen(sender, { case: "committed", value: { pushId: push.pushId, results } });
   }
 
-  /** Sends rows to every connected device that can see them. */
   #sendUpdates(rows: VisibleRow[]): void {
     if (rows.length === 0) return;
     for (const socket of this.ctx.getWebSockets()) {
@@ -116,19 +118,14 @@ export class Household extends DurableObject<Env> {
       const visible = rows
         .filter(({ visibleTo }) => visibleTo === null || visibleTo === connection.memberId)
         .map(({ row }) => row);
-      if (visible.length > 0) send(socket, { case: "updates", value: { rows: visible } });
+      if (visible.length > 0) sendIfOpen(socket, { case: "updates", value: { rows: visible } });
     }
   }
 
-  /** The connection a socket carries while its session lasts. Closes it once the session ends. */
   #stillSignedIn(socket: WebSocket): SyncConnection | null {
     const connection = socket.deserializeAttachment() as SyncConnection | null;
     if (connection && this.#liveSession("id", connection.sessionId)) return connection;
-    try {
-      socket.close(signedOutCloseCode, "The session has ended.");
-    } catch {
-      // It was already closed.
-    }
+    closeIfOpen(socket, signedOutCloseCode, "The session has ended.");
     return null;
   }
 
@@ -292,10 +289,14 @@ export function theHousehold(): DurableObjectStub<Household> {
   return env.HOUSEHOLD.getByName("household");
 }
 
-function send(socket: WebSocket, message: HouseholdMessageInit): void {
+function sendIfOpen(socket: WebSocket, message: HouseholdMessageInit): void {
   try {
     socket.send(toBinary(HouseholdMessageSchema, create(HouseholdMessageSchema, { message })));
-  } catch {
-    // The connection closed. The device catches up when it connects again.
-  }
+  } catch {}
+}
+
+function closeIfOpen(socket: WebSocket, code: number, reason: string): void {
+  try {
+    socket.close(code, reason);
+  } catch {}
 }

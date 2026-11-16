@@ -3,8 +3,7 @@ import { readSessionToken } from "../session/session-token";
 import type { Connect } from "./household-sync";
 import { reportEvents, syncAddress } from "./socket";
 
-/** React Native's WebSocket, which takes headers. The app's types describe the browser's. */
-type NativeWebSocket = new (
+type ReactNativeWebSocketWithHeaders = new (
   address: string,
   protocols: null,
   options: { headers: Record<string, string> },
@@ -18,9 +17,13 @@ export const connectToHousehold: Connect = (events) => {
     (token) => {
       if (closed) return;
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      socket = new (WebSocket as unknown as NativeWebSocket)(syncAddress(backendUrl), null, {
-        headers,
-      });
+      socket = new (WebSocket as unknown as ReactNativeWebSocketWithHeaders)(
+        syncAddress(backendUrl),
+        null,
+        {
+          headers,
+        },
+      );
       reportEvents(socket, events);
     },
     () => events.closed(0),

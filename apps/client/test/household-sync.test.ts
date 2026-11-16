@@ -19,14 +19,13 @@ import {
   pushChangeLimit,
   silenceLimit,
 } from "../src/sync/household-sync";
-import { syncAddress } from "../src/sync/socket";
+import { reportEvents, syncAddress } from "../src/sync/socket";
 
 type RowInit = MessageInitShape<typeof RowSchema>;
 
 const me = "019a8f4e-5c00-7000-8000-000000000001";
 const housemate = "019a8f4e-5c00-7000-8000-000000000002";
 
-/** One connection the device opened, seen from the household's side. */
 class HouseholdEnd {
   readonly received: DeviceMessage[] = [];
   readonly texts: string[] = [];
@@ -127,7 +126,6 @@ function household(): HouseholdEnd {
   return end;
 }
 
-/** Starts the device, and brings it up to date with the rows. */
 function startUpToDate(rows: RowInit[] = [spaceRow(1, inbox), spaceRow(2, home)], seq = 2) {
   sync.start();
   household().welcome(seq);
@@ -480,5 +478,57 @@ describe("the sync address", () => {
     ["https://foyer.example.com", "wss://foyer.example.com/sync"],
   ])("of %s is %s", (backendUrl, address) => {
     expect(syncAddress(backendUrl)).toBe(address);
+  });
+});
+
+describe("a WebSocket's events", () => {
+  type FakeSocket = {
+    binaryType: string;
+    onopen: () => void;
+    onmessage: (event: { data: unknown }) => void;
+    onclose: (event: { code?: number }) => void;
+  };
+
+  function reported() {
+    const socket = { binaryType: "blob" } as FakeSocket;
+    const events = { opened: vi.fn(), received: vi.fn(), closed: vi.fn() };
+    reportEvents(socket as unknown as WebSocket, events);
+    return { socket, events };
+  }
+
+  it("asks for binary messages as bytes, and reports them as bytes", () => {
+    const { socket, events } = reported();
+
+    socket.onmessage({ data: new Uint8Array([1, 2, 3]).buffer });
+
+    expect(socket.binaryType).toBe("arraybuffer");
+    expect(events.received).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]));
+  });
+
+  it("reports text messages as text", () => {
+    const { socket, events } = reported();
+
+    socket.onmessage({ data: "pong" });
+
+    expect(events.received).toHaveBeenCalledWith("pong");
+  });
+
+  it("reports that it opened", () => {
+    const { socket, events } = reported();
+
+    socket.onopen();
+
+    expect(events.opened).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["with its code", signedOutCloseCode, signedOutCloseCode],
+    ["as 0 when it has no code", undefined, 0],
+  ])("reports that it closed, %s", (_, code, reportedCode) => {
+    const { socket, events } = reported();
+
+    socket.onclose({ code });
+
+    expect(events.closed).toHaveBeenCalledWith(reportedCode);
   });
 });

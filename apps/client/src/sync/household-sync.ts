@@ -55,11 +55,9 @@ export const pushChangeLimit = 100;
 
 type Pending = { change: Change; describe: string; pushId?: string };
 
-/** Keeps a device in step with the household: catches up when it connects, applies what others
- *  change as they change it, and sends the member's own changes, which show at once and wait
- *  until the household commits or refuses them. It connects again after the connection drops,
- *  waiting longer after each failed attempt, and stops once the session has ended. What it knows
- *  is kept in memory, so a new instance catches up in full. */
+/** Keeps a device in step with the household, in memory: catches up when it connects, applies
+ *  what others change, and shows the member's own changes at once until the household commits or
+ *  refuses them. Connects again after a drop, waiting longer each time, until signed out. */
 export class HouseholdSync {
   readonly #memberId: string;
   readonly #connect: Connect;

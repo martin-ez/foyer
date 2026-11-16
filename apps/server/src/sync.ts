@@ -3,10 +3,9 @@ import { sessionCookie } from "./cookies";
 import { syncConnectionHeaders, theHousehold } from "./household";
 import { sessionTokenIn } from "./signed-in";
 
-/** Opens a device's sync connection with the household, once the WebSocket's request carries a
- *  session that hasn't ended. Without one, the connection opens and closes at once with
- *  `signedOutCloseCode`, which browsers can tell apart from a network failure. The web app's
- *  cookie only opens a connection from the backend's own site. */
+/** Opens a device's sync connection with the household once its request carries a live session,
+ *  taking the web app's cookie only from the backend's own site. Without one, the connection opens
+ *  and closes at once with `signedOutCloseCode`, which browsers can tell from a network failure. */
 export async function handleSyncConnection(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
