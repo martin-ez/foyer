@@ -35,6 +35,9 @@ message SpaceCreate {
   string space_id = 1;
   // SPACE_KIND_PERSONAL or SPACE_KIND_SHARED. An Inbox can't be created.
   SpaceKind kind = 2;
+  // Trimmed, then refused if blank or over 120 Unicode code points. If it clashes, ignoring case,
+  // with a shared space's or one of the creator's personal spaces', the household numbers it, as
+  // in "Groceries 2", shortening the name before the number to fit.
   string name = 3;
 }
 
@@ -42,5 +45,8 @@ message SpaceCreate {
 // can't be renamed. The rename made last wins, by the device's clock.
 message SpaceRename {
   string space_id = 1;
+  // Trimmed, then refused if blank or over 120 Unicode code points, or if it clashes, ignoring case,
+  // with another shared space's or one of the renamer's personal spaces'. A rename that loses to
+  // one made later has no effect and isn't checked.
   string name = 2;
 }

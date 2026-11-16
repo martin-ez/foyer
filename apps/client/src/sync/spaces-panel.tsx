@@ -1,3 +1,4 @@
+import { limitSpaceName } from "@foyer/shared";
 import { type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -53,11 +54,15 @@ export function SpacesPanel({
           <SpaceRow
             key={space.id}
             space={space}
+            problemWith={(name) => sync.nameProblem(name, space.id)}
             onRename={(name) => sync.renameSpace(space.id, name)}
           />
         ))}
       </ScrollView>
-      <NewSpace onCreate={(kind, name) => sync.createSpace(kind, name)} />
+      <NewSpace
+        problemWith={(name) => sync.nameProblem(name)}
+        onCreate={(kind, name) => sync.createSpace(kind, name)}
+      />
       <Text style={styles.line}>
         Household: {state.members.map((member) => member.name).join(", ")}
       </Text>
@@ -65,26 +70,39 @@ export function SpacesPanel({
   );
 }
 
-function SpaceRow({ space, onRename }: { space: Space; onRename: (name: string) => void }) {
+function SpaceRow({
+  space,
+  problemWith,
+  onRename,
+}: {
+  space: Space;
+  problemWith: (name: string) => string | null;
+  onRename: (name: string) => void;
+}) {
   const [draft, setDraft] = useState<string | null>(null);
+  const problem = draft === null ? null : problemWith(draft);
   const save = () => {
-    if (draft !== null && draft !== space.name) onRename(draft);
+    if (draft === null || problem) return;
+    if (draft.trim() !== space.name) onRename(draft);
     setDraft(null);
   };
 
   if (draft !== null) {
     return (
-      <View style={styles.row}>
-        <TextInput
-          style={[styles.input, styles.grow]}
-          value={draft}
-          onChangeText={setDraft}
-          onSubmitEditing={save}
-          accessibilityLabel={`New name for ${space.name}`}
-          autoFocus
-        />
-        <Button title="Save" onPress={save} />
-        <Button title="Cancel" onPress={() => setDraft(null)} />
+      <View>
+        <View style={styles.row}>
+          <TextInput
+            style={[styles.input, styles.grow]}
+            value={draft}
+            onChangeText={(text) => setDraft(limitSpaceName(text))}
+            onSubmitEditing={save}
+            accessibilityLabel={`New name for ${space.name}`}
+            autoFocus
+          />
+          <Button title="Save" disabled={problem !== null} onPress={save} />
+          <Button title="Cancel" onPress={() => setDraft(null)} />
+        </View>
+        {problem ? <Text style={styles.problem}>{problem}</Text> : null}
       </View>
     );
   }
@@ -104,11 +122,14 @@ function SpaceRow({ space, onRename }: { space: Space; onRename: (name: string) 
 }
 
 function NewSpace({
+  problemWith,
   onCreate,
 }: {
+  problemWith: (name: string) => string | null;
   onCreate: (kind: SpaceKind.PERSONAL | SpaceKind.SHARED, name: string) => void;
 }) {
   const [name, setName] = useState("");
+  const blocked = problemWith(name) !== null;
   const create = (kind: SpaceKind.PERSONAL | SpaceKind.SHARED) => {
     onCreate(kind, name);
     setName("");
@@ -119,19 +140,15 @@ function NewSpace({
       <TextInput
         style={styles.input}
         value={name}
-        onChangeText={setName}
+        onChangeText={(text) => setName(limitSpaceName(text))}
         placeholder="New space's name"
         accessibilityLabel="New space's name"
       />
       <View style={styles.row}>
-        <Button
-          title="Create shared"
-          disabled={name.trim() === ""}
-          onPress={() => create(SpaceKind.SHARED)}
-        />
+        <Button title="Create shared" disabled={blocked} onPress={() => create(SpaceKind.SHARED)} />
         <Button
           title="Create personal"
-          disabled={name.trim() === ""}
+          disabled={blocked}
           onPress={() => create(SpaceKind.PERSONAL)}
         />
       </View>

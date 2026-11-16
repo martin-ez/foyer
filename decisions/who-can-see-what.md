@@ -1,5 +1,5 @@
 # Who can see what?
-Decided in #10 and #13
+Decided in #10, #13 and #98
 
 **Applies when:** creating an item or a space, moving an item between spaces, deciding which devices receive a change, or designing anything about sharing or privacy.
 
@@ -21,17 +21,29 @@ Spaces are stored in the household's `spaces` table:
 
 Devices create and rename spaces through sync, with `SpaceCreate` and `SpaceRename`, and the rename made last wins, by the device's clock. Devices receive the spaces they can see as `Space` (`how-do-devices-stay-in-sync.md`).
 
+A space's name follows these rules, which the household applies to `SpaceCreate` and `SpaceRename`, and the app applies too, so a person learns about a problem before they save:
+- **Trimmed:** spaces at its start and end are dropped before it's checked or stored.
+- **Not blank, and at most 120 characters**, counted as Unicode code points. Anything else is refused, and the app stops typing at 120.
+- **Unique among the spaces the person making the change sees:** every shared space and their own personal spaces, ignoring case, so "home" clashes with "Home". Other members' personal spaces don't count, so a member may see their personal "Home" next to a shared "Home" someone else created.
+- **A create that clashes is numbered, not refused,** because a space created offline may already hold items. The household adds the first free number, as in "Groceries 2", shortening the name before the number if it would pass 120 characters, and the device receives the space under that name. The "Personal" space a member gets when they join is numbered the same way.
+- **A rename that clashes is refused**, and the device undoes it. A space can take its own name in another case. A rename that loses to one made later has no effect and isn't checked.
+
 Ink on calendar pages is the one exception: it's always shared with the whole household, even though the stickers under it keep their own space's visibility. Private handwriting belongs in a personal notebook or an item's body page.
 
 **Why:**
 - One rule per container is easier to understand and to enforce than permissions on every item.
 - For a household of a few people, "shared" means shared with the household. A shared space's audience never changes, so sync never has to send a space's whole history to someone newly added, or take it back from someone removed.
 - Several personal spaces let a person keep their own projects apart.
+- Unique names keep spaces apart in every list a person sees, without revealing anyone's private spaces.
 - An Inbox of its own keeps unfiled captures out of every view of a personal space, and keeps every item in exactly one space.
 - The calendar is the household's shared board, like one on the fridge, and keeping its ink in one shared layer avoids the scope of separate boards or layers.
 
 **Rejected:**
 - Per-item visibility, which may be useful later but adds complexity now.
+- Duplicate space names, which the owner wants unique among what each person sees.
+- Refusing a create whose name clashes, which would refuse the items added to the space offline along with it.
+- Checking a name against every member's personal spaces, which would reveal that a private space's name exists.
+- A limit of 60 characters on names, or none.
 - Chosen members for each shared space, changeable later. Each change to the members means sending or removing everything in the space on their devices. A list of chosen members can still be added as an optional field, where no list means everyone, with no migration.
 - One personal space for each person, which can't keep a person's projects apart.
 - Captures stored in the person's personal space with an "unfiled" mark, which every view of that space would have to leave out.

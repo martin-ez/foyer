@@ -37,12 +37,13 @@ function spacesOf(memberId: string): Promise<Space[]> {
   return spaces().then((all) => all.filter((space) => space.owner_id === memberId));
 }
 
-function addSharedSpace(createdBy: string): Promise<string> {
+function addSharedSpace(createdBy: string, name = "Home"): Promise<string> {
   const id = newId();
   return runInDurableObject(theHousehold(), (_, { storage }) => {
     storage.sql.exec(
-      "INSERT INTO spaces (id, kind, owner_id, name, created_by, created_at) VALUES (?, 'shared', NULL, 'Home', ?, ?)",
+      "INSERT INTO spaces (id, kind, owner_id, name, created_by, created_at) VALUES (?, 'shared', NULL, ?, ?, ?)",
       id,
+      name,
       createdBy,
       Date.now(),
     );
@@ -78,6 +79,22 @@ describe("joining the household", () => {
       );
       expect(space.created_at).toBeGreaterThanOrEqual(before);
     }
+  });
+
+  it("numbers a new member's personal space when a shared space is named Personal", async () => {
+    await addSharedSpace(await join(alex), "personal");
+
+    const own = await spacesOf(await join(sam));
+
+    expect(own.map(({ name }) => name)).toEqual([null, "Personal 2"]);
+  });
+
+  it("names a new member's personal space Personal when other members have one", async () => {
+    await join(alex);
+
+    const own = await spacesOf(await join(sam));
+
+    expect(own.map(({ name }) => name)).toEqual([null, "Personal"]);
   });
 
   it("gives a member no more spaces when they sign in again", async () => {

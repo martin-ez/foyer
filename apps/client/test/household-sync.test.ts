@@ -332,6 +332,56 @@ describe("changing things", () => {
   });
 });
 
+describe("naming spaces", () => {
+  it("drops spaces at the start and end of the names it sends", () => {
+    startUpToDate();
+
+    sync.createSpace(SpaceKind.SHARED, "  Garden ");
+    sync.renameSpace(home.id, "\tOur home  ");
+
+    const sent = household()
+      .pushes()
+      .flatMap(({ changes }) => changes)
+      .map(({ change }) => change.value?.name);
+    expect(sent).toEqual(["Garden", "Our home"]);
+    expect(names()).toEqual(["Inbox", "Our home", "Garden"]);
+  });
+
+  it("shows a new space numbered at once when another the member sees has its name", () => {
+    startUpToDate();
+
+    sync.createSpace(SpaceKind.PERSONAL, "home");
+
+    expect(names()).toEqual(["Inbox", "home 2", "Home"]);
+    const push = household().lastPush();
+    expect(push.changes.map(({ change }) => change.value?.name)).toEqual(["home"]);
+  });
+
+  it.each([
+    ["a blank name", "   ", undefined, "A space's name can't be blank."],
+    [
+      "a name over 120 characters",
+      "a".repeat(121),
+      undefined,
+      "A space's name can't be longer than 120 characters.",
+    ],
+    [
+      "renaming to another space's name, ignoring case",
+      " HOME ",
+      "garden",
+      "Another space you see is called “Home”.",
+    ],
+    ["renaming to the space's own name in another case", "HOME", "home", null],
+    ["creating a space with a name another has, which is numbered", "Home", undefined, null],
+  ])("says what's wrong with %s", (_, name, renaming, problem) => {
+    startUpToDate();
+    const garden = sync.createSpace(SpaceKind.SHARED, "Garden");
+    const spaceId = { garden, home: home.id }[renaming ?? ""];
+
+    expect(sync.nameProblem(name, spaceId)).toBe(problem);
+  });
+});
+
 describe("losing the connection", () => {
   it("connects again, and catches up from where it left off", () => {
     startUpToDate();
