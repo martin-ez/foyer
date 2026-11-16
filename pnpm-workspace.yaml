@@ -7,6 +7,7 @@ catalog:
   '@cloudflare/vitest-plugin': ^1.8.2
   '@connectrpc/connect': ^2.3.0
   '@connectrpc/connect-web': ^2.3.0
+  '@playwright/test': 1.63.0
   typescript: ^7.0.2
   vitest: ^4.1.12
   wrangler: ^4.160.1

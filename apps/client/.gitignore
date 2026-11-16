@@ -45,3 +45,7 @@ yarn-error.*
 
 # Drawings that differed from their golden images, written by the tests
 test/golden-images/failures/
+
+# What the web checks write: their screenshots, and Playwright's results
+web-checks/screenshots/
+web-checks/results/
