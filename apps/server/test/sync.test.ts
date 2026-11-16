@@ -463,6 +463,166 @@ describe("conflicting changes", () => {
   });
 });
 
+describe("space names", () => {
+  const longest = "a".repeat(119);
+
+  async function namesOn(device: Device): Promise<string[]> {
+    const rows = (await device.catchUp()).flatMap(({ rows }) => rows);
+    return rows.flatMap(({ row }) =>
+      row.case === "space" && row.value.kind !== SpaceKind.INBOX ? [row.value.name] : [],
+    );
+  }
+
+  it.each([
+    ["a blank name", "   ", "A space's name can't be blank."],
+    [
+      "a name over 120 characters",
+      `${longest}bc`,
+      "A space's name can't be longer than 120 characters.",
+    ],
+  ])("refuses creating or renaming a space with %s", async (_, name, reason) => {
+    const device = await connect((await signIn(alex)).token);
+    const create = spaceCreate({ name: "Home" });
+    await device.push(create);
+    await device.updates();
+
+    const committed = await device.push(
+      spaceCreate({ name }),
+      spaceRename(spaceIdOf(create), name),
+    );
+
+    expect(committed.results.map(refusalOf)).toEqual([reason, reason]);
+    expect(await device.updates()).toEqual([]);
+  });
+
+  it("counts characters as code points, so a name of 120 with an emoji fits", async () => {
+    const device = await connect((await signIn(alex)).token);
+
+    const committed = await device.push(spaceCreate({ name: `${longest}🏡` }));
+
+    expect(committed.results[0]?.result.case).toBe("seq");
+  });
+
+  it("drops spaces at the start and end of a name", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const create = spaceCreate({ name: "  Garden  " });
+
+    await device.push(create);
+    const created = describeRows(await device.updates());
+    await device.push(spaceRename(spaceIdOf(create), "\tGarden plans "));
+
+    expect(created).toEqual([{ space: "Garden", kind: SpaceKind.SHARED, ownerId: "" }]);
+    expect(describeRows(await device.updates())).toEqual([
+      { space: "Garden plans", kind: SpaceKind.SHARED, ownerId: "" },
+    ]);
+  });
+
+  it("refuses renaming a space to the name of another the member sees, ignoring case", async () => {
+    const owner = await signIn(alex);
+    const device = await connect(owner.token);
+    const shared = spaceCreate({ name: "Garden" });
+    await device.push(spaceCreate({ name: "Home" }), shared);
+    const { personal } = await spacesOf(device);
+    await device.updates();
+
+    const committed = await device.push(
+      spaceRename(spaceIdOf(shared), "HOME"),
+      spaceRename(personal, "garden"),
+    );
+
+    expect(committed.results.map(refusalOf)).toEqual([
+      "Another space you see is called “Home”.",
+      "Another space you see is called “Garden”.",
+    ]);
+    expect(await device.updates()).toEqual([]);
+  });
+
+  it("lets a space be renamed to its own name in another case", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const create = spaceCreate({ name: "home" });
+    await device.push(create);
+    await device.updates();
+
+    await device.push(spaceRename(spaceIdOf(create), "Home"));
+
+    expect(describeRows(await device.updates())).toEqual([
+      { space: "Home", kind: SpaceKind.SHARED, ownerId: "" },
+    ]);
+  });
+
+  it("numbers a new space whose name another the member sees has, ignoring case", async () => {
+    const device = await connect((await signIn(alex)).token);
+
+    await device.push(
+      spaceCreate({ name: "Groceries" }),
+      spaceCreate({ name: "groceries", kind: SpaceKind.PERSONAL }),
+      spaceCreate({ name: "Groceries" }),
+      spaceCreate({ name: "Personal" }),
+    );
+
+    expect(await namesOn(device)).toEqual([
+      "Personal",
+      "Groceries",
+      "groceries 2",
+      "Groceries 3",
+      "Personal 2",
+    ]);
+  });
+
+  it("sends a numbered space to the device that created it under its new name", async () => {
+    const device = await connect((await signIn(alex)).token);
+    await device.push(spaceCreate({ name: "Home" }));
+    await device.updates();
+
+    await device.push(spaceCreate({ name: "Home" }));
+
+    expect(describeRows(await device.updates())).toEqual([
+      { space: "Home 2", kind: SpaceKind.SHARED, ownerId: "" },
+    ]);
+  });
+
+  it("shortens a name before its number when the number would take it past 120 characters", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const name = `${"a".repeat(117)} bc`;
+
+    await device.push(spaceCreate({ name }), spaceCreate({ name }));
+
+    expect(await namesOn(device)).toEqual(["Personal", name, `${"a".repeat(117)} 2`]);
+  });
+
+  it("doesn't count other members' personal spaces as clashes", async () => {
+    const samDevice = await connect((await signIn(sam)).token);
+    const alexDevice = await connect((await signIn(alex)).token);
+    await samDevice.push(
+      spaceCreate({ name: "Garden", kind: SpaceKind.PERSONAL }),
+      spaceCreate({ name: "Work", kind: SpaceKind.PERSONAL }),
+    );
+    const shared = spaceCreate({ name: "Home" });
+
+    await alexDevice.push(spaceCreate({ name: "Garden" }), shared);
+    const renamed = await alexDevice.push(spaceRename(spaceIdOf(shared), "work"));
+
+    expect(renamed.results[0]?.result.case).toBe("seq");
+    expect(await namesOn(alexDevice)).toEqual(["Personal", "Garden", "work"]);
+  });
+
+  it("doesn't check the name of a rename that loses to one made later", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const monday = Date.UTC(2026, 10, 16, 9);
+    const create = spaceCreate({ name: "Garden" }, { at: madeAt(monday - 1) });
+    await device.push(spaceCreate({ name: "Home" }), create);
+    await device.push(spaceRename(spaceIdOf(create), "Yard", { at: madeAt(monday + 1) }));
+    await device.updates();
+
+    const late = await device.push(spaceRename(spaceIdOf(create), "Home", { at: madeAt(monday) }));
+
+    expect(late.results[0]?.result.case).toBe("seq");
+    expect(describeRows(await device.updates())).toEqual([
+      { space: "Yard", kind: SpaceKind.SHARED, ownerId: "" },
+    ]);
+  });
+});
+
 describe("catching up", () => {
   it("sends a device what its member can see, and the household's latest number", async () => {
     const owner = await signIn(alex);

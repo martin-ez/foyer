@@ -1,6 +1,12 @@
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { newId, signedOutCloseCode } from "@foyer/shared";
+import {
+  clashingName,
+  freeSpaceName,
+  newId,
+  signedOutCloseCode,
+  spaceNameProblem,
+} from "@foyer/shared";
 import type { Member } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { type Space, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
@@ -108,19 +114,37 @@ export class HouseholdSync {
     return () => this.#listeners.delete(listener);
   };
 
-  /** Creates a personal or shared space, and returns its id. */
+  /** Creates a personal or shared space, and returns its id. Spaces at the start and end of the
+   *  name are dropped. A name another space the member sees has is numbered, as in "Home 2". */
   createSpace(kind: SpaceKind.PERSONAL | SpaceKind.SHARED, name: string): string {
     const spaceId = newId();
-    this.#change(`creating “${name}”`, { case: "spaceCreate", value: { spaceId, kind, name } });
+    const trimmed = name.trim();
+    this.#change(`creating “${trimmed}”`, {
+      case: "spaceCreate",
+      value: { spaceId, kind, name: trimmed },
+    });
     return spaceId;
   }
 
-  /** Renames a personal or shared space. */
+  /** Renames a personal or shared space. Spaces at the start and end of the name are dropped. */
   renameSpace(spaceId: string, name: string): void {
-    this.#change(`renaming a space to “${name}”`, {
+    const trimmed = name.trim();
+    this.#change(`renaming a space to “${trimmed}”`, {
       case: "spaceRename",
-      value: { spaceId, name },
+      value: { spaceId, name: trimmed },
     });
+  }
+
+  /** Why the household would refuse this name for a new space, or for the space `renaming` if
+   *  given, as far as the device knows, or null if it wouldn't: a name that's blank or too long
+   *  once trimmed, or a rename to the name of another space the member sees, ignoring case. */
+  nameProblem(name: string, renaming?: string): string | null {
+    const trimmed = name.trim();
+    const problem = spaceNameProblem(trimmed);
+    if (problem || renaming === undefined) return problem;
+    const others = this.#state.spaces.filter(({ id }) => id !== renaming);
+    const clash = clashingName(trimmed, namesOf(others));
+    return clash === undefined ? null : `Another space you see is called “${clash}”.`;
   }
 
   /** Forgets the refused changes the state reports. */
@@ -295,7 +319,8 @@ export class HouseholdSync {
         const { spaceId, kind, name } = change.change.value;
         const ownerId = kind === SpaceKind.PERSONAL ? this.#memberId : "";
         if (!spaces.has(spaceId)) {
-          spaces.set(spaceId, create(SpaceSchema, { id: spaceId, kind, ownerId, name }));
+          const numbered = freeSpaceName(name, namesOf(spaces.values()));
+          spaces.set(spaceId, create(SpaceSchema, { id: spaceId, kind, ownerId, name: numbered }));
         }
       } else if (change.change.case === "spaceRename") {
         const { spaceId, name } = change.change.value;
@@ -315,6 +340,12 @@ export class HouseholdSync {
       problems: [...this.#problems],
     };
   }
+}
+
+function namesOf(spaces: Iterable<Space>): string[] {
+  return Array.from(spaces)
+    .filter(({ kind }) => kind !== SpaceKind.INBOX)
+    .map(({ name }) => name);
 }
 
 const kindOrder: Record<SpaceKind, number> = {

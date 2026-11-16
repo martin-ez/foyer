@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { isId } from "@foyer/shared";
+import { clashingName, freeSpaceName, isId, spaceNameProblem } from "@foyer/shared";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
   type Change,
@@ -9,6 +9,7 @@ import {
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { nextSeq, type RowKey } from "./rows";
+import { namesSeenBy } from "./spaces";
 
 /** What a push did: what became of each change, the rows it changed, and the rows that changes
  *  with no effect would have changed, which only the device that pushed them receives. */
@@ -98,6 +99,9 @@ function createSpace(
   if (sql.exec("SELECT 1 FROM spaces WHERE id = ?", space.spaceId).toArray().length > 0) {
     return { refused: "A space with this id already exists." };
   }
+  const name = space.name.trim();
+  const problem = spaceNameProblem(name);
+  if (problem) return { refused: problem };
 
   const seq = nextSeq(sql);
   sql.exec(
@@ -106,7 +110,7 @@ function createSpace(
     space.spaceId,
     kind,
     kind === "personal" ? memberId : null,
-    space.name,
+    freeSpaceName(name, namesSeenBy(sql, memberId)),
     memberId,
     setter.at,
     seq,
@@ -131,15 +135,21 @@ function renameSpace(
     .toArray();
   if (!space) return { refused: "There's no such space." };
   if (space.kind === "inbox") return { refused: "The Inbox can't be renamed." };
+  const name = rename.name.trim();
+  const problem = spaceNameProblem(name);
+  if (problem) return { refused: problem };
 
   const key: RowKey = { kind: "space", id: rename.spaceId };
-  const seq = nextSeq(sql);
   if (!isLater(setter, { at: space.name_at, changeId: space.name_change_id })) {
-    return { seq, changed: [], unchanged: [key] };
+    return { seq: nextSeq(sql), changed: [], unchanged: [key] };
   }
+  const clash = clashingName(name, namesSeenBy(sql, memberId, rename.spaceId));
+  if (clash !== undefined) return { refused: `Another space you see is called “${clash}”.` };
+
+  const seq = nextSeq(sql);
   sql.exec(
     "UPDATE spaces SET name = ?, name_at = ?, name_change_id = ?, seq = ? WHERE id = ?",
-    rename.name,
+    name,
     setter.at,
     setter.changeId,
     seq,
