@@ -61,4 +61,8 @@ describe("limitSpaceName", () => {
     expect(limitSpaceName(emoji)).toBe("🏡".repeat(120));
     expect(limitSpaceName("Home")).toBe("Home");
   });
+
+  it("keeps the first characters up to a limit it's given", () => {
+    expect(limitSpaceName("Groceries", 6)).toBe("Grocer");
+  });
 });

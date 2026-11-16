@@ -528,11 +528,13 @@ describe("space names", () => {
     const committed = await device.push(
       spaceRename(spaceIdOf(shared), "HOME"),
       spaceRename(personal, "garden"),
+      spaceRename(spaceIdOf(shared), "personal"),
     );
 
     expect(committed.results.map(refusalOf)).toEqual([
       "Another space you see is called “Home”.",
       "Another space you see is called “Garden”.",
+      "Another space you see is called “Personal”.",
     ]);
     expect(await device.updates()).toEqual([]);
   });
