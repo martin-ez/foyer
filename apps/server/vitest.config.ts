@@ -8,7 +8,7 @@ export default defineConfig({
       miniflare: {
         assets: { directory: "./test/web-app" },
         bindings: {
-          HOUSEHOLD_MEMBERS: '["member@example.com"]',
+          HOUSEHOLD_MEMBERS: '["member@example.com", "housemate@example.com"]',
           GOOGLE_CLIENT_ID: "foyer-test.apps.googleusercontent.com",
           GOOGLE_CLIENT_SECRET: "google-client-secret",
           DEV_SIGN_IN: "1",

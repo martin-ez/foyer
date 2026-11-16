@@ -29,8 +29,6 @@ Decided in #12
   - `member` is `foyer.member.v1.Member {id, name}`.
 - **Locally, people can sign in without Google.** When `apps/server/.dev.vars` sets `DEV_SIGN_IN=1`, `/auth/dev?email=…` signs in as an email on the allowlist. The Worker only allows it on `localhost`, and deployments never turn it on.
 
-Sending the session when the sync connection opens is built by #14.
-
 **Why:**
 - One flow for both platforms, and no Google SDK in the app.
 - Google's answer reaches the Worker directly, so nothing in the app can forge it, and the Worker needs no library to check Google's signature.
