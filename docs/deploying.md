@@ -5,7 +5,7 @@ The household's Foyer runs on Cloudflare, at `https://foyer.<subdomain>.workers.
 - **Worker name:** `foyer`, the name in `apps/server/wrangler.jsonc`.
 - **Production branch:** `main`.
 - **Root directory:** the repository root.
-- **Build command:** none. Builds install the dependencies first, with the Node version in `.nvmrc` and the pnpm version in `package.json`. Installing them also generates the TypeScript for the contracts.
+- **Build command:** none. Builds install the dependencies first, with the Node version in `.nvmrc` and the pnpm version in `package.json`. Installing them also downloads the Node version that `package.json` pins, which the deploy command runs on, and generates the TypeScript for the contracts.
 - **Deploy command:** `pnpm --filter @foyer/server run deploy`.
 - **Preview builds:** off. They would build every pushed branch as its own preview.
 - **Build cache:** on.
