@@ -22,6 +22,22 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - name: Check that .nvmrc and engines agree with the Node version package.json pins
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            const pin = pkg.devEngines.runtime.version;
+            const [, major, minor] = /^\^(\d+)\.(\d+)\.\d+$/.exec(pin) ?? [];
+            const nvmrc = require("node:fs").readFileSync(".nvmrc", "utf8").trim();
+            if (!major) {
+              console.error(`devEngines.runtime in package.json should be a range like ^24.22.0, not ${pin}.`);
+              process.exit(1);
+            }
+            if (nvmrc !== major || pkg.engines.node !== `>=${major}.${minor}`) {
+              console.error(`devEngines.runtime in package.json pins Node ${pin}, so .nvmrc should be ${major} and engines.node >=${major}.${minor}, not ${nvmrc} and ${pkg.engines.node}.`);
+              process.exit(1);
+            }
+          '
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm exec biome ci .

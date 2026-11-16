@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Installs what the project needs to run: the pinned Node and pnpm versions, then the dependencies.
+# Installs pnpm if it's missing, then the dependencies, which bring the Node version the project
+# runs on. Installing pnpm needs Node, so it first installs the major version in .nvmrc if needed.
 # Works on macOS and Linux, including cloud sessions.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -54,21 +55,19 @@ install_node() {
   installed_node=true
 }
 
-if ! has_pinned_node; then
-  nvm_script="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
-  if [ -s "$nvm_script" ]; then
-    # shellcheck source=/dev/null
-    . "$nvm_script"
-    nvm install "$node_major"
-  else
-    install_node
-  fi
-fi
-
-pnpm_spec="$(node -p 'require("./package.json").packageManager')"
 if ! command -v pnpm > /dev/null; then
-  # pnpm's install script swaps its launchers for its native binary.
-  npm install --global --allow-scripts=pnpm "$pnpm_spec"
+  if ! has_pinned_node; then
+    nvm_script="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+    if [ -s "$nvm_script" ]; then
+      # shellcheck source=/dev/null
+      . "$nvm_script"
+      nvm install "$node_major"
+    else
+      install_node
+    fi
+  fi
+
+  npm install --global --allow-scripts=pnpm "$(node -p 'require("./package.json").packageManager')"
   if [ "$installed_node" = true ]; then
     ln -sf "$node_dir/bin/pnpm" "$bin_dir/"
   fi
@@ -76,9 +75,9 @@ fi
 
 pnpm install --frozen-lockfile
 
-if [ "$installed_node" = true ] && [ "$(PATH="$original_path" && command -v node)" != "$bin_dir/node" ]; then
+if [ "$installed_node" = true ] && [ "$(PATH="$original_path" && command -v pnpm)" != "$bin_dir/pnpm" ]; then
   echo
-  echo "Node $node_major is installed in $bin_dir."
-  echo "Put that folder first on your PATH by adding this line to your shell profile:"
+  echo "pnpm is installed in $bin_dir."
+  echo "Put that folder on your PATH by adding this line to your shell profile:"
   echo "  export PATH=\"$bin_dir:\$PATH\""
 fi
