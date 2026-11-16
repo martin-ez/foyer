@@ -1,0 +1,47 @@
+name: Screenshots
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: false
+
+jobs:
+  remove:
+    name: Remove the pull request's screenshots
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      FOLDER: pr-${{ github.event.pull_request.number }}
+    steps:
+      - name: Look for the pull request's folder on the screenshots branch
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$FOLDER?ref=screenshots" --silent 2> /dev/null; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "The screenshots branch has no $FOLDER folder."
+          fi
+      - uses: actions/checkout@v7
+        if: steps.find.outputs.found == 'true'
+        with:
+          ref: screenshots
+      - name: Delete the folder and push
+        if: steps.find.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r --quiet "$FOLDER"
+          git commit --quiet -m "Remove the screenshots for pull request ${FOLDER#pr-}"
+          for attempt in 1 2 3; do
+            git push --quiet origin HEAD:screenshots && exit 0
+            git pull --rebase --quiet origin screenshots
+          done
+          exit 1

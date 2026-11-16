@@ -18,6 +18,8 @@ Run these from the repository root:
 pnpm --filter @foyer/client exec expo install <package>  # ALWAYS use instead of pnpm add — resolves SDK-compatible versions
 pnpm --filter @foyer/client web                          # start the web app
 pnpm --filter @foyer/client ios                          # build and run on an iPad simulator
+pnpm --filter @foyer/client check-web                    # check the web app in a browser, with screenshots
+pnpm --filter @foyer/client check-ios-bundle             # build the iPad app's bundle
 pnpm check                                            # type checks, lint and formatting
 pnpm format                                           # fix formatting and import order
 ```
@@ -44,6 +46,14 @@ Run `pnpm check` before declaring any task done.
 - Tests swap `react-native-skia` for its headless build, which has no `Canvas` and no React Native. So keep what a page draws in a component made only of Skia elements, such as `BlankPageDrawing`, apart from the React Native view that sizes the canvas and hosts it.
 - When a drawing differs, the test writes it and a diff, with the changed pixels in red, to `test/golden-images/failures/`. Look at both before deciding the change is intended. If it is, run `pnpm update-golden-images` from the repository root and commit the new images with the change, so the pull request shows them.
 - A golden image that doesn't exist yet fails the test: create it with the same command.
+
+## Checking the app
+
+The root `AGENTS.md` says which checks to run for which change. In this package:
+
+- **Web checks** are Playwright checks in `web-checks/`, one `*.check.ts` file each, run against the local backend in an iPad's and a phone's viewport. Sign in with `signIn` from `web-checks/sign-in.ts`, and save what a check shows with `saveScreenshot` from `web-checks/screenshot.ts`, which writes to `web-checks/screenshots/`.
+- Find what's on the page by role and text, as a person would, such as `getByRole("button", { name: "Sign out" })`, never by the page's structure or styles: views are wireframes and will change.
+- Code that runs only on the iPad, such as `session-token.ts` beside its `.web.ts`, never runs in the web checks. `check-ios-bundle` checks it builds, and the simulator checks it works, which needs a Mac.
 
 ## Rules
 
