@@ -32,7 +32,9 @@ function addMember(storage: DurableObjectStorage, member: Member) {
 }
 
 function members(storage: DurableObjectStorage): Member[] {
-  return storage.sql.exec<Member>("SELECT * FROM members").toArray();
+  return storage.sql
+    .exec<Member>("SELECT id, email, google_subject, name, joined_at FROM members")
+    .toArray();
 }
 
 function hasTable(storage: DurableObjectStorage, name: string): boolean {

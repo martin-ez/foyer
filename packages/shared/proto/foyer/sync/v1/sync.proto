@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package foyer.sync.v1;
+
+import "foyer/member/v1/member.proto";
+import "foyer/space/v1/space.proto";
+import "google/protobuf/timestamp.proto";
+
+// Sync keeps every device up to date with the household's data. A device opens a WebSocket at the
+// backend's /sync address, carrying its session as calls do. Each binary WebSocket message holds
+// one DeviceMessage from the device or one HouseholdMessage from the household. The text "ping" is
+// answered with "pong", to keep the connection open.
+
+// What a device sends the household.
+message DeviceMessage {
+  oneof message {
+    Push push = 1;
+    Pull pull = 2;
+  }
+}
+
+// Changes the device made, in the order it made them. The household answers with Committed, after
+// sending the rows they changed as Updates.
+message Push {
+  // A UUID version 7, made by the device, which Committed repeats.
+  string push_id = 1;
+  repeated Change changes = 2;
+}
+
+// A change to the household's data.
+message Change {
+  // A UUID version 7, made by the device when the change is made and kept when the change is sent
+  // again. A change the household received in the last 90 days has no further effect, and is
+  // answered as it was the first time.
+  string change_id = 1;
+  // When the person made the change, by their device's clock. A change only replaces a value if it
+  // was made after the change that set it, with equal times settled by the larger change_id. A time
+  // later than the household's clock counts as the household's time. Required.
+  google.protobuf.Timestamp at = 2;
+  oneof change {
+    foyer.space.v1.SpaceCreate space_create = 3;
+    foyer.space.v1.SpaceRename space_rename = 4;
+  }
+}
+
+// Asks for the rows the device can see that changed after its cursor. Answered with a PullReply.
+message Pull {
+  // The cursor the device has caught up to, or 0 for everything.
+  int64 cursor = 1;
+}
+
+// What the household sends a device.
+message HouseholdMessage {
+  oneof message {
+    Welcome welcome = 1;
+    Committed committed = 2;
+    Updates updates = 3;
+    PullReply pull_reply = 4;
+  }
+}
+
+// Sent first, when the connection opens.
+message Welcome {
+  // The number of the household's latest change.
+  int64 seq = 1;
+}
+
+// What became of each change in a push.
+message Committed {
+  string push_id = 1;
+  // One for each change in the push, in the same order.
+  repeated ChangeResult results = 2;
+}
+
+// What became of a change.
+message ChangeResult {
+  string change_id = 1;
+  oneof result {
+    // The number the household gave the change when it committed it. A change that lost a conflict
+    // is committed too, with no effect.
+    int64 seq = 2;
+    // The household couldn't apply the change. The device undoes it.
+    Refusal refused = 3;
+  }
+}
+
+// Why the household refused a change.
+message Refusal {
+  // A sentence in English, such as "Only its owner can rename a personal space."
+  string reason = 1;
+}
+
+// Rows a change just changed, sent to every connected device that can see them, the device that
+// made the change included. A change that had no effect sends that device its rows as they are.
+message Updates {
+  repeated Row rows = 1;
+}
+
+// The rows the device can see that changed after a Pull's cursor, oldest change first. A long
+// catch-up takes several replies.
+message PullReply {
+  repeated Row rows = 1;
+  // Where the next Pull starts: the device has caught up to here once it holds these rows.
+  int64 cursor = 2;
+  // Whether the device has caught up with every change so far. If not, it pulls again from cursor.
+  bool done = 3;
+}
+
+// A row as the household holds it now.
+message Row {
+  // The number of the row's last change. A device keeps the row with the larger number.
+  int64 seq = 1;
+  oneof row {
+    foyer.member.v1.Member member = 2;
+    foyer.space.v1.Space space = 3;
+    // A row that was deleted, which the device drops.
+    RowRef deleted = 4;
+  }
+}
+
+// Which row: its kind and its id.
+message RowRef {
+  RowKind kind = 1;
+  string id = 2;
+}
+
+// The kinds of row the household holds.
+enum RowKind {
+  ROW_KIND_UNSPECIFIED = 0;
+  ROW_KIND_MEMBER = 1;
+  ROW_KIND_SPACE = 2;
+}

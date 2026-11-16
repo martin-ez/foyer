@@ -6,9 +6,15 @@ import { type Member, theHousehold } from "./household";
 export function sessionTokenOf(
   context: HandlerContext,
 ): { token: string; inCookie: boolean } | null {
-  const bearer = context.requestHeader.get("Authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  return sessionTokenIn(context.requestHeader);
+}
+
+/** The session token a request's headers carry: the iPad app's bearer token, or the web app's
+ *  cookie. */
+export function sessionTokenIn(headers: Headers): { token: string; inCookie: boolean } | null {
+  const bearer = headers.get("Authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   if (bearer) return { token: bearer, inCookie: false };
-  const token = readCookie(context.requestHeader, sessionCookieName);
+  const token = readCookie(headers, sessionCookieName);
   return token ? { token, inCookie: true } : null;
 }
 

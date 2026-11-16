@@ -8,6 +8,7 @@ import {
   SignIn,
 } from "../session/session-screens";
 import { useSession } from "../session/use-session";
+import { SpacesPanel } from "../sync/spaces-panel";
 
 export default function Home() {
   const { session, check, signIn, signOut } = useSession();
@@ -23,6 +24,7 @@ export default function Home() {
       return (
         <View style={styles.fill}>
           <BlankPage />
+          <SpacesPanel memberId={session.member.id} onSignedOut={check} />
           <BackendStatus />
           <SignedInAs member={session.member} onSignOut={signOut} />
         </View>

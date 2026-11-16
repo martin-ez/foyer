@@ -11,8 +11,6 @@ Decided in #6 and #62
 - **Request/response calls use Connect RPC**, for what happens outside a household's sync, such as signing in, connecting Google Calendar, search, uploading images and the backend's status. Calls are declared as services next to the messages in the contracts. The generated code gives the iPad and web apps a typed client, and the Worker a typed handler. Calls travel as plain HTTP POST, in JSON or binary.
 - **Changes to household data go through the sync protocol, even when they look like a request.** A quick capture is a change pushed through sync, like a stroke. The answer comes back as the change being committed or refused, not as a reply.
 
-Household changes going through sync is built by #14.
-
 **Why:**
 - The iPad app is reinstalled at most every 7 days, so it can run behind the backend. Buf's breaking-change check catches a change to a message or a call that an older app or stored data can't read.
 - The binary encoding keeps strokes compact: about 1 KB each in #4.

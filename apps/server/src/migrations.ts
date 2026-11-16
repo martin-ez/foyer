@@ -55,6 +55,46 @@ export const householdMigrations: readonly Migration[] = [
       }
     }
   },
+  (sql) => {
+    sql.exec(`CREATE TABLE household (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      seq INTEGER NOT NULL
+    );
+    ALTER TABLE members ADD COLUMN seq INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX members_by_seq ON members (seq);
+    ALTER TABLE spaces ADD COLUMN seq INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE spaces ADD COLUMN name_at INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE spaces ADD COLUMN name_change_id TEXT NOT NULL DEFAULT '';
+    CREATE INDEX spaces_by_seq ON spaces (seq);
+    CREATE TABLE tombstones (
+      kind TEXT NOT NULL,
+      id TEXT NOT NULL,
+      visible_to TEXT REFERENCES members (id),
+      seq INTEGER NOT NULL,
+      PRIMARY KEY (kind, id)
+    );
+    CREATE INDEX tombstones_by_seq ON tombstones (seq);
+    CREATE TABLE changes (
+      id TEXT PRIMARY KEY,
+      member_id TEXT NOT NULL REFERENCES members (id),
+      seq INTEGER,
+      refused TEXT,
+      received_at INTEGER NOT NULL,
+      CHECK ((seq IS NULL) != (refused IS NULL))
+    );
+    CREATE INDEX changes_by_received_at ON changes (received_at)`);
+
+    let seq = 0;
+    const members = sql.exec<{ id: string }>("SELECT id FROM members ORDER BY joined_at, id");
+    for (const { id } of members.toArray()) {
+      sql.exec("UPDATE members SET seq = ? WHERE id = ?", ++seq, id);
+    }
+    const spaces = sql.exec<{ id: string }>("SELECT id FROM spaces ORDER BY created_at, id");
+    for (const { id } of spaces.toArray()) {
+      sql.exec("UPDATE spaces SET seq = ?, name_at = created_at WHERE id = ?", ++seq, id);
+    }
+    sql.exec("INSERT INTO household (id, seq) VALUES (1, ?)", seq);
+  },
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

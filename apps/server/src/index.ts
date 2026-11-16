@@ -1,5 +1,7 @@
+import { syncPath } from "@foyer/shared";
 import { handleCall, isCall } from "./calls";
 import { handleSignIn } from "./sign-in";
+import { handleSyncConnection } from "./sync";
 import { serveWebApp } from "./web-app";
 
 export { Household } from "./household";
@@ -9,6 +11,7 @@ export default {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith("/auth/")) return handleSignIn(request);
     if (isCall(pathname)) return handleCall(request);
+    if (pathname === syncPath) return handleSyncConnection(request);
     return serveWebApp(request);
   },
 } satisfies ExportedHandler<Env>;

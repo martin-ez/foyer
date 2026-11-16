@@ -19,7 +19,7 @@ Spaces are stored in the household's `spaces` table:
 - `name`: empty for the Inbox.
 - `created_by` and `created_at`.
 
-Devices create and rename spaces through sync, with `SpaceCreate` and `SpaceRename`, and the rename made last wins, by the device's clock. Devices receive the spaces they can see as `Space`. Sync is built by #14.
+Devices create and rename spaces through sync, with `SpaceCreate` and `SpaceRename`, and the rename made last wins, by the device's clock. Devices receive the spaces they can see as `Space` (`how-do-devices-stay-in-sync.md`).
 
 Ink on calendar pages is the one exception: it's always shared with the whole household, even though the stickers under it keep their own space's visibility. Private handwriting belongs in a personal notebook or an item's body page.
 
