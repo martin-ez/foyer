@@ -19,7 +19,7 @@ Check a change yourself before asking for review, with the checks that fit it, a
 
 Share what you checked:
 
-- **Screenshots:** you may push to the `screenshots` branch, only in your own pull request's folder, `pr-<number>/`. Then comment on the pull request with the images and what was checked, as `docs/development.md` explains.
+- **Screenshots:** share only the ones that show what the change does. You may push them to the `screenshots` branch, only in your own pull request's folder, `pr-<number>/`. Then comment on the pull request with the images and what was checked, as `docs/development.md` explains. A workflow deletes the folder once the pull request is merged or closed.
 - **The running app:** in a cloud session, when the owner asks to look, or a change is ready to look at, tell the Claude app that the web app is on port 8787, so the owner can open it from there.
 
 ## Signing in

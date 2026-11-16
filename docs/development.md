@@ -57,13 +57,15 @@ A cloud session runs the backend, Expo's development server, `pnpm check`, `pnpm
 
 Screenshots go on the `screenshots` branch, which is never merged. Each pull request gets a folder there, `pr-<number>/`, linked from a comment on it. The images are public, like the code, so they show only development data. The branch can be deleted at any time.
 
-To share the web checks' screenshots, commit them to the pull request's folder from a separate worktree, so your checkout stays on its branch:
+When a pull request is merged or closed, the Screenshots workflow deletes its folder. Its comments keep showing the images, because they link to the commit that added them.
+
+Share only the screenshots that show what the change does, not every one the checks take. Commit them to the pull request's folder from a separate worktree, so your checkout stays on its branch:
 
 ```bash
 git fetch origin screenshots
 git worktree add --detach /tmp/foyer-screenshots FETCH_HEAD
 mkdir -p /tmp/foyer-screenshots/pr-123
-cp apps/client/web-checks/screenshots/*.png /tmp/foyer-screenshots/pr-123/
+cp apps/client/web-checks/screenshots/first-page-*.png /tmp/foyer-screenshots/pr-123/
 git -C /tmp/foyer-screenshots add pr-123
 git -C /tmp/foyer-screenshots commit -m "Screenshots for pull request 123"
 git -C /tmp/foyer-screenshots push origin HEAD:screenshots
