@@ -28,7 +28,7 @@ Using these building blocks, Foyer can build a couple of useful views:
 
 ## Getting started
 
-Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. Copy `apps/server/.dev.vars.example` to `apps/server/.dev.vars` and fill it in. Then run each of these in its own terminal:
+Run `./scripts/setup.sh` to install pnpm if it's missing, then the dependencies, which include the Node version the project runs on. Copy `apps/server/.dev.vars.example` to `apps/server/.dev.vars` and fill it in. Then run each of these in its own terminal:
 
 - `pnpm --filter @foyer/server dev`, the backend;
 - `pnpm --filter @foyer/client web`, the web app's development server.
