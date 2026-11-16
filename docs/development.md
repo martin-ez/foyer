@@ -6,7 +6,11 @@ Foyer is a pnpm workspace with apps in `apps/` and shared code in `packages/`:
 - `apps/server`: the backend, a Cloudflare Worker with one Durable Object per household.
 - `packages/shared`: code used by both, including the contracts between them. The contracts are Protocol Buffers in `proto/`. The TypeScript for them is generated into `src/gen/` when the dependencies are installed, and git ignores it.
 
-Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. It installs Node with nvm when you have it, and otherwise downloads it from nodejs.org into `~/.local`. After that:
+Run `./scripts/setup.sh` to install the pinned Node and pnpm versions if they are missing, then the dependencies. It installs Node with nvm when you have it, and otherwise downloads it from nodejs.org into `~/.local`.
+
+pnpm runs the project's scripts, and the tools they start, on the Node version that `devEngines.runtime` in `package.json` pins. `pnpm install` downloads that version into `node_modules`, so the Node your shell finds first doesn't matter. Cloud sessions, for example, come with Node 22. `pnpm exec node` runs the pinned version. If an install skips the download, `engineStrict` in `pnpm-workspace.yaml` makes it fail on any Node older than `engines` in `package.json`. To move to another Node version, change `.nvmrc`, `engines` and `devEngines.runtime` together, then run `pnpm install`. Recording the new version in `pnpm-lock.yaml` needs `nodejs.org` and `unofficial-builds.nodejs.org`.
+
+After that:
 
 - `pnpm --filter @foyer/server dev` runs the backend locally, at `http://localhost:8787`. The local backend reads its secrets and settings, such as the emails that may sign in, from `apps/server/.dev.vars`, which git ignores: copy `apps/server/.dev.vars.example` there and fill it in.
 - `pnpm --filter @foyer/client web` runs Expo's development server for the web app. Open the web app at the local backend's address, `http://localhost:8787`, which forwards the app's pages to Expo, so that the web app and the backend share one address as they do when deployed.

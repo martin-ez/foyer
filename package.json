@@ -5,6 +5,13 @@
   "engines": {
     "node": ">=24.22"
   },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.22.0",
+      "onFail": "download"
+    }
+  },
   "scripts": {
     "check": "pnpm typecheck && biome check . && pnpm --filter @foyer/shared lint-contracts",
     "typecheck": "pnpm generate && pnpm -r typecheck",
