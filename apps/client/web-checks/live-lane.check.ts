@@ -14,7 +14,6 @@ const bundleBuildTimeout = 120_000;
 type Sent = DeviceMessage["message"];
 type Received = HouseholdMessage["message"];
 
-/** A member's browser, signed in, with the live lane's messages on its sync connection. */
 type Member = { page: Page; sent: Sent[]; received: Received[] };
 
 test("tells the household which page is open and where the member points", async ({
@@ -115,7 +114,6 @@ async function pointAtMiddleOfPage(page: Page) {
   await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2, { steps: 5 });
 }
 
-/** Makes the browser say the tab is hidden or shown, as when it goes to the background. */
 function setHidden(page: Page, hidden: boolean) {
   return page.evaluate((isHidden) => {
     Object.defineProperty(document, "visibilityState", {

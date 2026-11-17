@@ -44,8 +44,7 @@ type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["mes
 
 /** The household's hub, with its own SQLite storage. Starting it runs the storage migrations it
  *  hasn't run yet, before it answers anything. It keeps devices in sync over WebSockets, which stay
- *  open while it sleeps, and answers their "ping" with "pong" without waking. The same connections
- *  carry the live lane: who is on which page, and where they're pointing. */
+ *  open while it sleeps, and answers their "ping" with "pong" without waking. */
 export class Household extends DurableObject<Env> {
   readonly #signInCodes = new Map<string, SignInCode>();
   readonly #live: LiveLane;
@@ -78,10 +77,9 @@ export class Household extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: device });
   }
 
-  /** Answers a device's pull with the next page of rows it can see, applies its pushes, and passes
-   *  what it says on the live lane to the devices on its page. A connection whose session has ended
-   *  is closed instead, and one that sends something other than a sync message is closed as
-   *  broken. */
+  /** Answers a device's pull, applies its pushes, and passes what it says on the live lane to the
+   *  devices on its page. A connection whose session has ended is closed instead, and one that
+   *  sends something other than a sync message is closed as broken. */
   override async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const connection = this.#stillSignedIn(socket);
     if (!connection || typeof message === "string") return;

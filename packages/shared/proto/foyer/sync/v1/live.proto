@@ -2,10 +2,9 @@ syntax = "proto3";
 
 package foyer.sync.v1;
 
-// The live lane carries short-lived state between devices, over the sync connection: who is on
-// which page, and where they're pointing. The household keeps it in memory with each connection and
-// never stores it, so after a restart devices send Enter again when they connect again. Positions
-// are in points from the page's top-left corner, with y growing downwards.
+// The live lane carries who is on which page and where they point between devices, over the sync
+// connection, in points from the page's top-left corner. The household keeps it in memory with each
+// connection and never stores it, so after a restart devices send Enter again.
 
 // This device is now on a page. Sent on opening a page, and again on returning from the background
 // or connecting again. The household answers every device on the page, this one included, with
@@ -18,9 +17,8 @@ message Enter {
 message Leave {}
 
 // Where this device is pointing on its page. Sent only while the household says someone else is on
-// the page, only while the pointer moves, and at most 4 times a second. The household passes it on
-// to the other members' devices on the page as Pointed, and drops positions sent faster than that,
-// or once the day's limit for positions is reached.
+// the page and the pointer moves, at most 4 times a second. The household passes it on as Pointed,
+// and drops positions sent faster, or once the day's limit is reached.
 message Point {
   double x = 1;
   double y = 2;
@@ -57,8 +55,7 @@ message Pointed {
   double y = 3;
 }
 
-// The day's limit for positions is reached, which keeps the live lane within a third of the free
-// plan's daily requests. Stop sending Point until the next day starts, at midnight UTC, when the
-// plan's count starts again. Enter and Leave keep working. Sent to every device when the limit is
-// reached, and to a device that enters a page or points while it is.
+// The day's limit for positions is reached: stop sending Point until midnight UTC, when the free
+// plan's count of daily requests starts again. Sent to every device when it's reached, and to a
+// device that enters a page or points while it is. Enter and Leave keep working.
 message LiveLimit {}

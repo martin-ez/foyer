@@ -29,7 +29,6 @@ export type LiveConnection = {
   unsavedPoints: number;
 };
 
-/** What the live lane needs of a connection's attachment, which holds other things too. */
 type Attachment = { memberId: string; live?: LiveConnection };
 
 type Device = { socket: WebSocket; attachment: Attachment; live: LiveConnection };
@@ -76,7 +75,7 @@ export class LiveLane {
     if (!visible) return;
     this.#announce(pageId, now);
     if (this.#pointsToday(now) >= dailyPointLimit) send(socket, { case: "liveLimit", value: {} });
-    this.#checkLater(now);
+    this.#scheduleSilenceCheck(now);
   }
 
   /** Takes a device off its page, and tells the others on it. */
@@ -91,10 +90,9 @@ export class LiveLane {
     if (left !== undefined) this.#announce(left, now);
   }
 
-  /** Keeps where a device is pointing on its page, and passes it on to the other members' devices
-   *  there. Every position counts towards the day's limit. Positions sent faster than
-   *  `pointsPerSecond` aren't passed on, nor once the limit is reached, when every device is told
-   *  to stop sending them. */
+  /** Passes where a device points on its page on to the other members' devices there, unless it
+   *  comes faster than `pointsPerSecond` or the day's limit is reached, which every device is told
+   *  of. Every position counts towards the limit. */
   point(socket: WebSocket, x: number, y: number): void {
     const now = Date.now();
     const device = this.#device(socket);
@@ -118,7 +116,7 @@ export class LiveLane {
     }
     const allowed = page !== null && live.allowance >= 1;
     if (allowed) live.allowance -= 1;
-    if (live.unsavedPoints >= unsavedPointLimit) this.#save(live, now);
+    if (live.unsavedPoints >= unsavedPointLimit) this.#savePoints(live, now);
     this.#keep(device);
 
     const used = this.#pointsToday(now);
@@ -146,7 +144,7 @@ export class LiveLane {
     if (!attachment?.live) return;
     const device = { socket, attachment, live: attachment.live };
     const left = device.live.page?.id;
-    this.#save(device.live, now);
+    this.#savePoints(device.live, now);
     device.live.page = null;
     this.#keep(device);
     if (left !== undefined) this.#announce(left, now);
@@ -164,11 +162,9 @@ export class LiveLane {
         device.socket.close(1000, "Not heard from for a minute.");
       } catch {}
     }
-    this.#checkLater(now);
+    this.#scheduleSilenceCheck(now);
   }
 
-  /** Tells every device on a page who else is there, each member once, without the device's own
-   *  member, with where they last pointed unless the day's limit is reached. */
   #announce(pageId: string, now: number): void {
     const onPage = this.#onPage(pageId, now);
     const limited = this.#pointsToday(now) >= dailyPointLimit;
@@ -191,9 +187,7 @@ export class LiveLane {
     }
   }
 
-  /** Sets the household's alarm for when the first device on a page that someone shares would go
-   *  silent, when there is one. */
-  #checkLater(now: number): void {
+  #scheduleSilenceCheck(now: number): void {
     const membersOn = new Map<string, Set<string>>();
     const devices = this.#devices().filter(({ live }) => live.page);
     for (const { attachment, live } of devices) {
@@ -222,7 +216,6 @@ export class LiveLane {
     return Math.max(live.heardAt, pinged);
   }
 
-  /** The devices whose connections are open. */
   #devices(): Device[] {
     return this.#ctx.getWebSockets().flatMap((socket) => {
       if (socket.readyState !== WebSocket.OPEN) return [];
@@ -240,8 +233,6 @@ export class LiveLane {
     socket.serializeAttachment({ ...attachment, live });
   }
 
-  /** How many positions devices sent today: the stored count, and the counts open connections hold
-   *  in memory. */
   #pointsToday(now: number): number {
     const today = utcDay(now);
     const unsaved = this.#devices()
@@ -260,8 +251,7 @@ export class LiveLane {
     return this.#stored.points;
   }
 
-  /** Adds a connection's positions from today to the day's stored count, and forgets older days'. */
-  #save(live: LiveConnection, now: number): void {
+  #savePoints(live: LiveConnection, now: number): void {
     const today = utcDay(now);
     if (live.unsavedPoints > 0 && live.day === today) {
       const stored = this.#storedPoints(today);
@@ -280,7 +270,6 @@ export class LiveLane {
   }
 }
 
-/** The day of a moment by UTC, as an ISO 8601 date such as "2026-11-17". */
 function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }

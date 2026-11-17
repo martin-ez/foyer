@@ -20,18 +20,23 @@ const tomorrow = "day:2026-11-18";
 
 const devices: Device[] = [];
 
-type Connected = Device & { memberId: string };
+type Connected = Device & { memberId: string; token: string };
 
 async function connect(email: string): Promise<Connected> {
   const { memberId, token } = await signIn(email);
   const device = await Device.connect(token);
   devices.push(device);
   await device.welcome();
-  return Object.assign(device, { memberId });
+  return Object.assign(device, { memberId, token });
 }
 
-/** Connects a device for each email, and puts each on the page in turn, reading the Here messages
- *  that entering sends. */
+async function sharedSpacePage(device: Device): Promise<string> {
+  const space = spaceCreate({ name: "Home", kind: SpaceKind.SHARED });
+  await device.push(space);
+  const spaceId = space.change?.case === "spaceCreate" ? space.change.value.spaceId : "";
+  return `space:${spaceId}:1`;
+}
+
 async function onPage<Emails extends string[]>(
   pageId: string,
   ...emails: Emails
@@ -59,8 +64,6 @@ function describePointed({ memberId, x, y }: Pointed) {
   return { memberId, x, y };
 }
 
-/** Fakes the household's clock, from now unless `now` says otherwise. Starting from the real time
- *  keeps the alarms it sets in the future. */
 function fakeClock(now = Date.now()) {
   vi.useFakeTimers({ toFake: ["Date"], now });
 }
@@ -149,6 +152,22 @@ describe("who is on a page", () => {
     expect(describeHere(await sams.next("here"))).toEqual({ pageId: tomorrow, members: [] });
   });
 
+  it("tells the others when someone's session ends", async () => {
+    const [alexs, sams] = await onPage(today, alex, sam);
+
+    await theHousehold().endSession(sams.token);
+
+    expect(describeHere(await alexs.next("here"))).toEqual({ pageId: today, members: [] });
+  });
+
+  it("tells the others when someone sends something that isn't a sync message", async () => {
+    const [alexs, sams] = await onPage(today, alex, sam);
+
+    sams.sendBytes(new Uint8Array([0xff, 0xff, 0xff]));
+
+    expect(describeHere(await alexs.next("here"))).toEqual({ pageId: today, members: [] });
+  });
+
   it("tells the others when someone's connection closes", async () => {
     const [alexs, sams] = await onPage(today, alex, sam);
 
@@ -172,12 +191,20 @@ describe("who is on a page", () => {
 });
 
 describe("who can be seen on a page", () => {
+  it("shows members on the household's month and week pages to each other", async () => {
+    for (const page of ["month:2026-11", "week:2026-11-16"]) {
+      const [alexs] = await onPage(page, alex);
+      const sams = await connect(sam);
+
+      sams.enter(page);
+
+      expect(describeHere(await sams.next("here")).members).toEqual([{ memberId: alexs.memberId }]);
+    }
+  });
+
   it("shows members on a shared space's page to each other", async () => {
     const alexs = await connect(alex);
-    const space = spaceCreate({ name: "Home", kind: SpaceKind.SHARED });
-    await alexs.push(space);
-    const spaceId = space.change?.case === "spaceCreate" ? space.change.value.spaceId : "";
-    const page = `space:${spaceId}:1`;
+    const page = await sharedSpacePage(alexs);
     alexs.enter(page);
     await alexs.next("here");
     const sams = await connect(sam);
@@ -211,6 +238,19 @@ describe("who can be seen on a page", () => {
     const sams = await connect(sam);
 
     for (const page of ["day:2026-02-30", "space:not-a-space:1", "notebook", ""]) sams.enter(page);
+
+    expect(await sams.all("here")).toEqual([]);
+    expect(await alexs.all("here")).toEqual([]);
+  });
+
+  it("puts nobody on a space's page that isn't numbered from 1", async () => {
+    const alexs = await connect(alex);
+    const page = await sharedSpacePage(alexs);
+    alexs.enter(page);
+    await alexs.next("here");
+    const sams = await connect(sam);
+
+    for (const number of ["0", "01", "1.5", "-1", ""]) sams.enter(page.replace(/1$/, number));
 
     expect(await sams.all("here")).toEqual([]);
     expect(await alexs.all("here")).toEqual([]);

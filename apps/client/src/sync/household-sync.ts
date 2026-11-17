@@ -68,8 +68,7 @@ type Pending = { change: Change; describe: string; pushId?: string };
 
 /** Keeps a device in step with the household, in memory: catches up when it connects, applies
  *  what others change, and shows the member's own changes at once until the household commits or
- *  refuses them. Connects again after a drop, waiting longer each time, until signed out. Its
- *  connection also carries the live lane. */
+ *  refuses them. Connects again after a drop, waiting longer each time, until signed out. */
 export class HouseholdSync {
   /** Which page the device is on and where it's pointing, and who else is there. */
   readonly live = new LiveLane((message) => this.#send(message));

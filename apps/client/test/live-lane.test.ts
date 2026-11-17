@@ -33,12 +33,10 @@ function pointed(memberId: string, x: number, y: number) {
   say({ case: "pointed", value: { memberId, x, y } });
 }
 
-/** What the lane sent since the last call, as [kind, contents]. */
 function sentSince() {
   return sent.splice(0).map((message) => [message.case, message.value]);
 }
 
-/** A lane that is connected and on a page, with someone else there. */
 function sharingPage(pageId = today) {
   lane.connected();
   lane.enter(pageId);

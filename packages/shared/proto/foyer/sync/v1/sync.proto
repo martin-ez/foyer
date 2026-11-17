@@ -9,9 +9,8 @@ import "foyer/sync/v1/live.proto";
 import "google/protobuf/timestamp.proto";
 
 // Sync keeps devices up to date over a WebSocket at the backend's /sync address, which carries the
-// session as calls do. Each binary message holds one DeviceMessage or one HouseholdMessage. The
-// text "ping" is answered with "pong", to keep the connection open. The same connection carries the
-// live lane, in live.proto.
+// session as calls do, and the live lane in live.proto. Each binary message holds one DeviceMessage
+// or one HouseholdMessage. The text "ping" is answered with "pong", to keep the connection open.
 
 // What a device sends the household.
 message DeviceMessage {

@@ -24,10 +24,9 @@ export const pointInterval = 1000 / pointsPerSecond;
 
 type DeviceMessageInit = MessageInitShape<typeof DeviceMessageSchema>["message"];
 
-/** Tells the household which page the device is on and where it's pointing, and keeps what the
- *  household says about who else is there. The device is on its page only while connected and in
- *  the foreground. It sends positions only while someone else is there, at most
- *  `pointInterval` apart, and none while the day's limit is reached. */
+/** Tells the household which page the device is on, while connected and in the foreground, and
+ *  where it points while someone else is there, and keeps what the household says about who else
+ *  is there. */
 export class LiveLane {
   readonly #send: (message: DeviceMessageInit) => void;
   readonly #listeners = new Set<() => void>();

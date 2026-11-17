@@ -16,8 +16,7 @@ import {
 
 /** A page lying on the desk, drawn by Skia in a canvas the size of the view. Pinching, or scrolling
  *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. A pointer
- *  moving over the page, with or without a button pressed, is reported to `onPoint`, in points from
- *  the page's top-left corner. */
+ *  moving over the page is reported to `onPoint`, in points from the page's top-left corner. */
 export function PageSheet({
   size,
   label,

@@ -12,10 +12,9 @@ import { deskColour } from "./desk-drawing";
 import { PageDrawing } from "./page-drawing";
 import { type Point, type Size, zoomLimits } from "./sheet-camera";
 
-/** A page lying on the desk, fitted to it at first: a canvas of the page's own size inside a view
- *  that iOS zooms and moves as one sheet, so everything on the page moves with it in every frame of
- *  a pinch, the bounce included. A touch on the page, as it starts and moves, is reported to
- *  `onPoint`, in points from the page's top-left corner. */
+/** A page lying on the desk, fitted to it at first, in a view that iOS zooms and moves as one sheet,
+ *  so everything on the page moves with it in every frame of a pinch. A touch on the page is
+ *  reported to `onPoint`, in points from the page's top-left corner. */
 export function PageSheet({
   size,
   label,
