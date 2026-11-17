@@ -4,12 +4,11 @@ import { signIn } from "./sign-in";
 /** How long the first visit may wait while Expo builds the app's bundle. */
 export const bundleBuildTimeout = 120_000;
 
-/** Signs in and opens the Inbox on its newest page. */
+/** Signs in and opens the Tasks, which open on the Inbox's newest page. */
 export async function openInbox(page: Page) {
   await signIn(page);
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
-  await page.getByRole("button", { name: "Spaces" }).click();
-  await page.getByRole("button", { name: "Open Inbox" }).click();
+  await page.getByRole("tab", { name: "Tasks" }).click();
   await expect(pageTitle(page)).toHaveText(/^Inbox, page \d+$/);
 }
 

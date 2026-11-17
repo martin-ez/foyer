@@ -21,5 +21,5 @@ export function BackendStatus() {
 }
 
 const styles = StyleSheet.create({
-  line: { position: "absolute", left: 12, bottom: 8, fontSize: 12, color: "#6b6459" },
+  line: { fontSize: 12, color: "#6b6459" },
 });

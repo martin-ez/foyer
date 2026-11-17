@@ -100,6 +100,13 @@ test("shows who else is on the page and where they point, through the household"
   await sam.page.getByRole("button", { name: "Today" }).click();
   await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
   await expect(samsMarker).toBeVisible();
+
+  await sam.page.getByRole("tab", { name: "Notebook" }).click();
+  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expect(samsMarker).toHaveCount(0);
+  await sam.page.getByRole("tab", { name: "Calendar" }).click();
+  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expect(samsMarker).toBeVisible();
   await sam.page.context().close();
   await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
   await expect(samsMarker).toHaveCount(0);

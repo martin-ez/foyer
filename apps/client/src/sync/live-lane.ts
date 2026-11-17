@@ -65,9 +65,9 @@ export class LiveLane {
     this.#changed();
   }
 
-  /** Takes the device off its page. */
-  leave(): void {
-    if (this.#pageId === null) return;
+  /** Takes the device off a page, unless it has already moved on to another one. */
+  leave(pageId: string): void {
+    if (pageId !== this.#pageId) return;
     const wasOnPage = this.#isOnPage();
     this.#pageId = null;
     this.#forgetPage();

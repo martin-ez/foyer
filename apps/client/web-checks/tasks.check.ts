@@ -91,14 +91,14 @@ test("lists tasks dated today under Today", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Save" }).click();
   await page.getByRole("button", { name: "Close" }).click();
 
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "All lists" }).click();
 
   const today = page.getByRole("list", { name: "Today" });
   await expect(today.getByRole("button", { name: title })).toBeVisible();
   await saveScreenshot(page, testInfo, "tasks-view");
-  await page.getByRole("button", { name: "Hide tasks" }).click();
+  await page.getByRole("button", { name: "Hide all lists" }).click();
   await expect(today).toBeHidden();
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "All lists" }).click();
   await today.getByRole("button", { name: title }).click();
   await expect(page.getByLabel("Title")).toHaveValue(title);
 });

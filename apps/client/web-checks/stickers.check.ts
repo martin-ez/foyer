@@ -76,16 +76,18 @@ test("opens a sticker's task by tapping it, with its body page below", async ({
   await expect(stickerOf(page, title)).toBeVisible();
 });
 
-test("leaves an open task for the day's page", async ({ page }) => {
+test("keeps a task open while the Calendar is shown", async ({ page }) => {
   const title = await addTask(page);
   await stickerOf(page, title).click();
   await expect(pageTitle(page)).toHaveText(title);
 
-  await page.getByRole("button", { name: "Today" }).click();
-
+  await page.getByRole("tab", { name: "Calendar" }).click();
   await expect(page.getByLabel("Title")).toBeHidden();
   await expect(pageTitle(page)).not.toHaveText(title);
-  await expect(pageTitle(page)).not.toHaveText(/page \d+$/);
+  await page.getByRole("tab", { name: "Tasks" }).click();
+
+  await expect(pageTitle(page)).toHaveText(title);
+  await expect(page.getByLabel("Title")).toHaveValue(title);
 });
 
 test("puts a task on the space's next page once its newest page is full", async ({

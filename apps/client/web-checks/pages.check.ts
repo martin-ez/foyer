@@ -26,6 +26,7 @@ test("moves between days, and back to today", async ({ page }) => {
 });
 
 test("opens a space on its newest page", async ({ page }, testInfo) => {
+  await page.getByRole("tab", { name: "Tasks" }).click();
   await page.getByRole("button", { name: "Spaces" }).click();
   await page.getByRole("button", { name: "Open Inbox" }).click();
 
@@ -34,12 +35,10 @@ test("opens a space on its newest page", async ({ page }, testInfo) => {
   await expect(page.getByLabel((await heading.textContent()) ?? "")).toBeVisible();
   await expect(page.getByRole("button", { name: "Next page" })).toBeDisabled();
   await saveScreenshot(page, testInfo, "space-page");
-
-  await page.getByRole("button", { name: "Next day" }).click();
-  await expect(page.getByRole("heading")).toHaveText(await describeDayInBrowser(page, 1));
 });
 
 test("shows and hides the spaces", async ({ page }) => {
+  await page.getByRole("tab", { name: "Tasks" }).click();
   await page.getByRole("button", { name: "Spaces" }).click();
   await expect(page.getByRole("button", { name: "Open Inbox" })).toBeVisible();
 

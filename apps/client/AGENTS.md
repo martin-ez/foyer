@@ -32,6 +32,13 @@ Run `pnpm check` before declaring any task done.
 - Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
 - Docs: https://docs.expo.dev/router/introduction.md
 
+## The app's frame
+
+- **Destinations:** once someone is signed in, `src/app/(household)/_layout.tsx` shows the frame, `src/shell/app-shell.tsx`. It's built with Expo Router's headless tabs (`expo-router/ui`) and holds three destinations: Calendar, Notebook and Tasks. Each is a route with its own address, such as `/tasks`. `/` opens the Calendar.
+- **The bar** runs along the bottom of narrow windows and along the side of wider ones. It holds the sync status and an account menu with sign-out and the backend's status.
+- **Hidden destinations** stay mounted and keep their state. React Activity isn't used to hide them: Skia's canvas crashes when it's shown again. A page is drawn, and the device is on it on the live lane, only while its destination is in front (`src/page/page-view.tsx`).
+- **Sync:** the destinations share one connection to the household. Read it with `useHousehold()` from `src/shell/household.tsx`.
+
 ## Skia on the web
 
 - `index.web.tsx` loads CanvasKit before the app starts, so any screen can import Skia directly.
