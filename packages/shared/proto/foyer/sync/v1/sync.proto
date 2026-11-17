@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package foyer.sync.v1;
 
+import "foyer/calendar/v1/calendar.proto";
 import "foyer/item/v1/item.proto";
 import "foyer/member/v1/member.proto";
 import "foyer/page/v1/page.proto";
@@ -143,6 +144,7 @@ message Row {
     foyer.item.v1.Item item = 6;
     foyer.sticker.v1.Sticker sticker = 7;
     foyer.task.v1.Completion completion = 8;
+    foyer.calendar.v1.GoogleConnection google_connection = 9;
   }
 }
 
@@ -161,4 +163,5 @@ enum RowKind {
   ROW_KIND_ITEM = 4;
   ROW_KIND_STICKER = 5;
   ROW_KIND_COMPLETION = 6;
+  ROW_KIND_GOOGLE_CONNECTION = 7;
 }

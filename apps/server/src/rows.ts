@@ -1,16 +1,20 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import {
+  GoogleConnectionSchema,
+  GoogleConnectionState,
+} from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
 import { ItemKind, ItemSchema, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { MemberSchema } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
-import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { CalendarState, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { type Row, RowKind, RowSchema } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 
 /** Which row devices hold: its kind and its id. */
 export type RowKey = {
-  kind: "member" | "space" | "page" | "item" | "sticker" | "completion";
+  kind: "member" | "space" | "page" | "item" | "sticker" | "completion" | "google_connection";
   id: string;
 };
 
@@ -49,8 +53,11 @@ export function pullRows(
     ...seqsOf(
       `SELECT seq FROM members WHERE seq > ?
        UNION ALL SELECT seq FROM spaces WHERE seq > ? AND (owner_id IS NULL OR owner_id = ?)
-       UNION ALL SELECT pages.seq FROM ${pagesWithOwner} AND pages.seq > ? AND ${pageSeenBy}`,
+       UNION ALL SELECT pages.seq FROM ${pagesWithOwner} AND pages.seq > ? AND ${pageSeenBy}
+       UNION ALL SELECT seq FROM google_connections WHERE seq > ? AND member_id = ?`,
       cursor,
+      cursor,
+      memberId,
       cursor,
       memberId,
       cursor,
@@ -123,7 +130,7 @@ function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
     case "member":
       return sql.exec<MemberRow>(`${selectMembers} WHERE id = ?`, id).toArray().map(memberRow);
     case "space":
-      return sql.exec<SpaceRow>(`${selectSpaces} WHERE id = ?`, id).toArray().map(spaceRow);
+      return sql.exec<SpaceRow>(`${selectSpaces} WHERE spaces.id = ?`, id).toArray().map(spaceRow);
     case "page":
       return sql.exec<PageRow>(`${selectPages} AND pages.id = ?`, id).toArray().map(pageRow);
     case "item":
@@ -138,6 +145,11 @@ function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
         .exec<CompletionRow>(`${selectCompletions} WHERE completions.id = ?`, id)
         .toArray()
         .map(completionRow);
+    case "google_connection":
+      return sql
+        .exec<GoogleConnectionRow>(`${selectGoogleConnections} WHERE member_id = ?`, id)
+        .toArray()
+        .map(googleConnectionRow);
   }
 }
 
@@ -148,6 +160,14 @@ type SpaceRow = {
   kind: "inbox" | "personal" | "shared";
   owner_id: string | null;
   name: string | null;
+  seq: number;
+  calendar_member_id: string | null;
+  calendar_holder_state: "connected" | "needs_reconnecting" | null;
+};
+
+type GoogleConnectionRow = {
+  member_id: string;
+  state: "connected" | "needs_reconnecting";
   seq: number;
 };
 
@@ -206,7 +226,15 @@ type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; 
 
 const selectMembers = "SELECT id, name, seq FROM members";
 
-const selectSpaces = "SELECT id, kind, owner_id, name, seq FROM spaces";
+/** Each space with the member whose Google account holds its calendar, if it has one, and the
+ *  state of that member's connection, if they're connected. */
+const selectSpaces = `SELECT spaces.id, spaces.kind, spaces.owner_id, spaces.name, spaces.seq,
+  space_calendars.member_id AS calendar_member_id,
+  google_connections.state AS calendar_holder_state
+  FROM spaces LEFT JOIN space_calendars ON space_calendars.space_id = spaces.id
+  LEFT JOIN google_connections ON google_connections.member_id = space_calendars.member_id`;
+
+const selectGoogleConnections = "SELECT member_id, state, seq FROM google_connections";
 
 /** Joins each of the `pages` to the space whose members see it, as `spaces`: a space page's own,
  *  or an item page's item's. Calendar pages have none, as every member sees them. */
@@ -281,6 +309,12 @@ const rowKinds = {
   item: RowKind.ITEM,
   sticker: RowKind.STICKER,
   completion: RowKind.COMPLETION,
+  google_connection: RowKind.GOOGLE_CONNECTION,
+} as const;
+
+const googleConnectionStates = {
+  connected: GoogleConnectionState.CONNECTED,
+  needs_reconnecting: GoogleConnectionState.NEEDS_RECONNECTING,
 } as const;
 
 function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: number): Row[] {
@@ -290,7 +324,8 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     .map(memberRow);
   const spaces = sql
     .exec<SpaceRow>(
-      `${selectSpaces} WHERE seq > ? AND seq <= ? AND (owner_id IS NULL OR owner_id = ?)`,
+      `${selectSpaces} WHERE spaces.seq > ? AND spaces.seq <= ?
+       AND (spaces.owner_id IS NULL OR spaces.owner_id = ?)`,
       after,
       upTo,
       memberId,
@@ -333,6 +368,15 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(completionRow);
+  const googleConnections = sql
+    .exec<GoogleConnectionRow>(
+      `${selectGoogleConnections} WHERE seq > ? AND seq <= ? AND member_id = ?`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(googleConnectionRow);
   const tombstones = sql
     .exec<Tombstone>(
       `${selectTombstones} WHERE seq > ? AND seq <= ? AND (visible_to IS NULL OR visible_to = ?)`,
@@ -358,6 +402,7 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     ...items,
     ...stickers,
     ...completions,
+    ...googleConnections,
     ...tombstones,
     ...hidden,
   ]
@@ -379,10 +424,31 @@ function spaceRow(space: SpaceRow): VisibleRow {
     kind: spaceKinds[space.kind],
     ownerId: space.owner_id ?? "",
     name: space.name ?? "",
+    calendarMemberId: space.calendar_member_id ?? "",
+    calendarState: calendarStateOf(space),
   });
   return {
     row: create(RowSchema, { seq: BigInt(space.seq), row: { case: "space", value } }),
     visibleTo: space.owner_id,
+  };
+}
+
+function calendarStateOf(space: SpaceRow): CalendarState {
+  if (space.calendar_member_id === null) return CalendarState.NONE;
+  return space.calendar_holder_state === "connected" ? CalendarState.SYNCING : CalendarState.PAUSED;
+}
+
+function googleConnectionRow(connection: GoogleConnectionRow): VisibleRow {
+  const value = create(GoogleConnectionSchema, {
+    memberId: connection.member_id,
+    state: googleConnectionStates[connection.state],
+  });
+  return {
+    row: create(RowSchema, {
+      seq: BigInt(connection.seq),
+      row: { case: "googleConnection", value },
+    }),
+    visibleTo: connection.member_id,
   };
 }
 

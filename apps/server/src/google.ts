@@ -7,6 +7,10 @@ export type GoogleClient = { id: string; secret: string };
 /** A Google account that signed in, and whether Google has verified its email. */
 export type SignedInGoogleAccount = GoogleAccount & { emailVerified: boolean };
 
+/** Where Google returns to the backend, both after signing in and after connecting Google
+ *  Calendar. */
+export const googleCallbackPath = "/auth/google/callback";
+
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
 const issuers = ["https://accounts.google.com", "accounts.google.com"];
@@ -90,7 +94,9 @@ export async function googleAccountFor(
   };
 }
 
-function readIdToken(idToken: string): Record<string, unknown> {
+/** The claims in a Google ID token, read without checking its signature: only use it on a token
+ *  that Google sent the Worker directly. */
+export function readIdToken(idToken: string): Record<string, unknown> {
   const payload = idToken.split(".")[1];
   if (!payload) throw new Error("Google's ID token has no claims");
   const bytes = Uint8Array.from(atob(payload.replaceAll("-", "+").replaceAll("_", "/")), (char) =>

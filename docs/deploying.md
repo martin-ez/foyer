@@ -29,7 +29,7 @@ The Worker lets in the emails listed in its `HOUSEHOLD_MEMBERS` secret, a JSON l
 
 People sign in with Google, through a Google OAuth client the Worker holds in two secrets, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Deploys fail until both are set. To create the client:
 
-1. In the [Google Cloud console](https://console.cloud.google.com/), create a project and set up its OAuth consent screen. While the app is in testing, add the household's Google accounts as test users.
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project and set up its OAuth consent screen. While the app is in testing, add the household's Google accounts as test users. Before anyone connects Google Calendar, publish it as the next section says.
 2. Create an OAuth client of type "Web application". Add the callback address of each environment as an authorized redirect URI:
    - `http://localhost:8787/auth/google/callback`, for the local backend;
    - `https://foyer.<subdomain>.workers.dev/auth/google/callback`, for the household's Worker;
@@ -38,6 +38,16 @@ People sign in with Google, through a Google OAuth client the Worker holds in tw
    - on the household's Worker, in its settings in the Cloudflare dashboard, or with `pnpm --filter @foyer/server exec wrangler secret put GOOGLE_CLIENT_ID`, then the same for `GOOGLE_CLIENT_SECRET`;
    - in the previews' base configuration, as the next section shows;
    - in `apps/server/.dev.vars`, for the local backend.
+
+## Google Calendar
+
+Each member connects their own Google account from the account menu, and the household then keeps a Google calendar for each of their spaces, as [the decision](../decisions/where-do-calendar-events-live.md) says. Connecting uses the same OAuth client and the same callback address as signing in, so it needs no new secret or redirect URI. It asks only for `https://www.googleapis.com/auth/calendar.app.created`: access to the calendars Foyer creates, and nothing else in the person's account. In the Google Cloud project behind `GOOGLE_CLIENT_ID`:
+
+1. Enable the Google Calendar API, under APIs & Services.
+2. Add the `.../auth/calendar.app.created` scope to the consent screen's data access.
+3. Publish the app "In production", without asking Google to verify it. In testing, Google stops accepting its access after 7 days. Unverified, Google shows a "Google hasn't verified this app" screen when someone connects, which they continue past.
+
+Until these are done, connecting fails and says so in the app. The household tries Google again later when it can't reach it, and a member whose access Google stops accepting is asked to reconnect.
 
 ## Previewing a branch
 

@@ -1,11 +1,11 @@
 # How do people sign in, and how long do they stay signed in?
-Decided in #12
+Decided in #12 and #25
 
 **Applies when:** signing people in or out, checking who makes a call or opens the sync connection, storing anything about sessions, or asking Google for anything about a person.
 
 **Answer:**
 - **Everyone signs in with Google, through the Worker, the same way on the iPad and the web.**
-  - The app opens the Worker's `/auth/google`, which sends the person to Google, asking only for their name and email. Calendar access is asked for separately, when someone connects Google Calendar (#25).
+  - The app opens the Worker's `/auth/google`, which sends the person to Google, asking only for their name and email. Calendar access is asked for separately, of the same Google account, when someone connects Google Calendar (`where-do-calendar-events-live.md`). Google returns to the same `/auth/google/callback` then.
   - Google returns to the Worker's `/auth/google/callback`. The Worker checks that the email is verified and on the allowlist, finds the member by their Google account or creates them, and starts a session.
   - **Web:** the Worker sets the session's cookie and returns to the app.
   - **iPad:** the app opens `/auth/google?app=ipad` in the system's sign-in sheet (`expo-web-browser`). The Worker returns to `foyer://signed-in` with a one-time code, valid for a minute, which the app exchanges for its session token.

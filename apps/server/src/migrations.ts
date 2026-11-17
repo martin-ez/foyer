@@ -186,6 +186,26 @@ export const householdMigrations: readonly Migration[] = [
   ALTER TABLE items ADD COLUMN parent_at INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE items ADD COLUMN parent_change_id TEXT NOT NULL DEFAULT '';
   CREATE INDEX items_by_parent ON items (parent_id) WHERE parent_id IS NOT NULL`,
+  `CREATE TABLE google_connections (
+    member_id TEXT PRIMARY KEY REFERENCES members (id),
+    refresh_token TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('connected', 'needs_reconnecting')),
+    time_zone TEXT NOT NULL,
+    connected_at INTEGER NOT NULL,
+    access_token TEXT,
+    access_token_expires_at INTEGER,
+    seq INTEGER NOT NULL
+  );
+  CREATE INDEX google_connections_by_seq ON google_connections (seq);
+  CREATE TABLE space_calendars (
+    space_id TEXT PRIMARY KEY REFERENCES spaces (id),
+    member_id TEXT NOT NULL REFERENCES members (id),
+    google_calendar_id TEXT NOT NULL,
+    name_in_google TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX space_calendars_by_member ON space_calendars (member_id)`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

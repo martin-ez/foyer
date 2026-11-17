@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14 and #21
+Decided in #14, #21 and #25
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -16,7 +16,7 @@ Decided in #14 and #21
   - Changes to different values never conflict.
   - An `at` later than the household's clock counts as the household's time, so a device whose clock runs fast can't win forever.
 - **What each device receives:** everything its member can see except ink, plus the ink of the pages it opens. On connecting, it catches up from its cursor. While connected, it receives every change it can see as soon as the change is committed, its own included.
-- **Who receives what:** each row belongs to a space, or to the household, as members do. The household's rows go to every member, and a space's rows to the members who can see the space (`who-can-see-what.md`). Members never learn of changes in spaces they can't see. Stickers belong to their page, not to their item (`what-is-a-sticker.md`).
+- **Who receives what:** each row belongs to a space, to the household, as members do, or to one member, as their Google connection does. The household's rows go to every member, a space's rows to the members who can see the space (`who-can-see-what.md`), and a member's own rows to them alone. Members never learn of changes in spaces they can't see. Stickers belong to their page, not to their item (`what-is-a-sticker.md`).
 - **Refused changes:** the household refuses a change it can't apply, such as renaming someone else's personal space, and says why in a sentence. The device undoes the change, drops it, and says it couldn't be saved. A change that loses a conflict isn't refused: it's committed with no effect, and the device that made it receives the row as it now is.
 - **The connection** is a WebSocket at `/sync`, which carries the session as calls do (`how-do-people-sign-in.md`). The Worker checks the session before the connection reaches the household, and takes the web app's cookie only from the backend's own site.
   - Each binary WebSocket message is one Protocol Buffers message from `foyer.sync.v1`. A device sends `Push {push_id, changes[]}` and `Pull {cursor}`. The household sends `Welcome {seq}` when the connection opens, `Updates {rows[]}`, `Committed {push_id, results[]}` after a push's updates, and `PullReply {rows[], cursor, done}`.

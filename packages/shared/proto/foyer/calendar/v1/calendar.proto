@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package foyer.calendar.v1;
+
+// Connects a member's Google account to Foyer, so that the household can make a Google calendar for
+// each of their spaces. Foyer asks only for access to the calendars it creates itself. Calls carry
+// the session, as SessionService's do.
+service CalendarService {
+  // Returns the address that asks Google for access to the calendars Foyer creates, in the same
+  // Google account the member signs in with. The app opens it: in the same tab on the web, in the
+  // system's sign-in sheet on the iPad. Google returns to the backend, which stores the access and
+  // returns to the app: to the web app's first page, or to foyer://google-calendar on the iPad, with
+  // a google-calendar-error, or error on the iPad, when it didn't connect. Fails as unauthenticated
+  // when nobody is signed in, and as an invalid argument for a time zone the backend doesn't know.
+  rpc StartConnecting(StartConnectingRequest) returns (StartConnectingResponse);
+  // Revokes Foyer's access to the member's Google account and forgets it. The spaces whose calendars
+  // are in their account become paused. Their calendars and events stay in Google, and connecting
+  // again resumes them. Does nothing for a member who isn't connected.
+  rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);
+}
+
+message StartConnectingRequest {
+  // The app to return to.
+  App app = 1;
+  // The device's time zone, an IANA name such as "Europe/Madrid", which the Google calendars Foyer
+  // creates for the member take.
+  string time_zone = 2;
+}
+
+message StartConnectingResponse {
+  // The address the app opens.
+  string address = 1;
+}
+
+message DisconnectRequest {}
+
+message DisconnectResponse {}
+
+// The app a person is connecting from, which the backend returns to.
+enum App {
+  APP_UNSPECIFIED = 0;
+  APP_WEB = 1;
+  APP_IPAD = 2;
+}
+
+// A member's connection to their Google account. Only that member receives it. A member who has
+// never connected, or who disconnected, has none.
+message GoogleConnection {
+  // The member it belongs to, which is also its id.
+  string member_id = 1;
+  GoogleConnectionState state = 2;
+}
+
+// Whether the household can use a member's Google account.
+enum GoogleConnectionState {
+  GOOGLE_CONNECTION_STATE_UNSPECIFIED = 0;
+  // Foyer can use the account.
+  GOOGLE_CONNECTION_STATE_CONNECTED = 1;
+  // Google stopped accepting Foyer's access, as when the person removes it in their Google account.
+  // Connecting again restores it.
+  GOOGLE_CONNECTION_STATE_NEEDS_RECONNECTING = 2;
+}

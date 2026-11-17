@@ -20,7 +20,7 @@ type SpacePage = { spaceId: string; number: number };
  *  move between its pages and add tasks, to open, tick and edit a task above its body page, and to
  *  show the spaces and the task lists. */
 export function TasksScreen() {
-  const { state, sync } = useHousehold();
+  const { member, state, sync } = useHousehold();
   const [chosen, setChosen] = useState<SpacePage | null>(null);
   const [panel, setPanel] = useState<"spaces" | "lists" | "list" | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -92,6 +92,7 @@ export function TasksScreen() {
           <SpacesPanel
             state={state}
             sync={sync}
+            memberId={member.id}
             onOpen={(spaceId) => {
               setChosen({ spaceId, number: newestSpacePage(spaceId, state.pages) });
               setPanel(null);

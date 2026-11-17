@@ -52,11 +52,18 @@ export function newLiveConnection(now: number): LiveConnection {
 export class LiveLane {
   readonly #ctx: DurableObjectState;
   readonly #canSeePage: (memberId: string, pageId: string) => boolean;
+  readonly #wake: (at: number) => void;
   #stored: { day: string; points: number } | null = null;
 
-  constructor(ctx: DurableObjectState, canSeePage: (memberId: string, pageId: string) => boolean) {
+  /** `wake` asks for the household's alarm, which runs `checkForSilence`, at a time. */
+  constructor(
+    ctx: DurableObjectState,
+    canSeePage: (memberId: string, pageId: string) => boolean,
+    wake: (at: number) => void,
+  ) {
     this.#ctx = ctx;
     this.#canSeePage = canSeePage;
+    this.#wake = wake;
   }
 
   /** Puts a device on a page its member can see, or on no page, and tells the devices on the page
@@ -214,7 +221,7 @@ export class LiveLane {
       .filter(({ live }) => (membersOn.get(live.page?.id ?? "")?.size ?? 0) > 1)
       .map((device) => this.#lastHeard(device) + silenceLimit);
     if (deadlines.length === 0) return;
-    void this.#ctx.storage.setAlarm(Math.max(now, Math.min(...deadlines)));
+    this.#wake(Math.max(now, Math.min(...deadlines)));
   }
 
   #onPage(pageId: string, now: number): Device[] {

@@ -2,6 +2,7 @@ import { limitSpaceName } from "@foyer/shared";
 import { type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { describeSpaceCalendar, shareReminder } from "../calendar/google-calendar";
 import type { HouseholdSync, SyncState } from "./household-sync";
 
 const kindLabels: Record<SpaceKind, string> = {
@@ -11,15 +12,17 @@ const kindLabels: Record<SpaceKind, string> = {
   [SpaceKind.SHARED]: "Shared",
 };
 
-/** The spaces the signed-in member sees, with ways to open their first page, and to create and
- *  rename them. */
+/** The spaces the signed-in member `memberId` sees, with where each one's Google calendar stands,
+ *  and ways to open their first page, and to create and rename them. */
 export function SpacesPanel({
   state,
   sync,
+  memberId,
   onOpen,
 }: {
   state: SyncState;
   sync: HouseholdSync;
+  memberId: string;
   onOpen: (spaceId: string) => void;
 }) {
   return (
@@ -30,6 +33,8 @@ export function SpacesPanel({
           <SpaceRow
             key={space.id}
             space={space}
+            calendar={describeSpaceCalendar(space, memberId, state.members)}
+            reminder={shareReminder(space, memberId)}
             problemWith={(name) => sync.nameProblem(name, space.id)}
             onRename={(name) => sync.renameSpace(space.id, name)}
             onOpen={() => onOpen(space.id)}
@@ -49,11 +54,15 @@ export function SpacesPanel({
 
 function SpaceRow({
   space,
+  calendar,
+  reminder,
   problemWith,
   onRename,
   onOpen,
 }: {
   space: Space;
+  calendar: string | null;
+  reminder: string | null;
   problemWith: (name: string) => string | null;
   onRename: (name: string) => void;
   onOpen: () => void;
@@ -87,17 +96,21 @@ function SpaceRow({
   }
   const name = space.kind === SpaceKind.INBOX ? "Inbox" : space.name;
   return (
-    <View style={styles.row}>
-      <Text style={styles.grow}>{name}</Text>
-      <Text style={styles.line}>{kindLabels[space.kind]}</Text>
-      <Button title="Open" accessibilityLabel={`Open ${name}`} onPress={onOpen} />
-      {space.kind === SpaceKind.INBOX ? null : (
-        <Button
-          title="Rename"
-          accessibilityLabel={`Rename ${space.name}`}
-          onPress={() => setDraft(space.name)}
-        />
-      )}
+    <View>
+      <View style={styles.row}>
+        <Text style={styles.grow}>{name}</Text>
+        <Text style={styles.line}>{kindLabels[space.kind]}</Text>
+        <Button title="Open" accessibilityLabel={`Open ${name}`} onPress={onOpen} />
+        {space.kind === SpaceKind.INBOX ? null : (
+          <Button
+            title="Rename"
+            accessibilityLabel={`Rename ${space.name}`}
+            onPress={() => setDraft(space.name)}
+          />
+        )}
+      </View>
+      {calendar ? <Text style={styles.line}>{calendar}</Text> : null}
+      {reminder ? <Text style={styles.line}>{reminder}</Text> : null}
     </View>
   );
 }

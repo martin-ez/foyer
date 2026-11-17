@@ -1,3 +1,4 @@
+export { calendarName } from "./calendar";
 export { isId, newId } from "./id";
 export {
   itemDescriptionLimit,
