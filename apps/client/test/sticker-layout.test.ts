@@ -1,20 +1,24 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, itemPageId, spacePageId } from "@foyer/shared";
+import {
+  a4Portrait,
+  itemPageId,
+  pageMargin,
+  spacePageId,
+  stickerGap,
+  taskStickerSize,
+  unknownStickerSize,
+} from "@foyer/shared";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { describe, expect, it } from "vitest";
 import {
   keepOnPage,
   newestSpacePage,
-  pageMargin,
   spotInSpace,
   spotOnPage,
-  stickerGap,
   stickerSize,
   stickersOn,
-  taskStickerSize,
-  unknownStickerSize,
 } from "../src/page/sticker-layout";
 
 const spaceId = "019a8f4e-5c00-7000-8000-0000000000a1";

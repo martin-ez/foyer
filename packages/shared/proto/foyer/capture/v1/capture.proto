@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package foyer.capture.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Captures tasks from outside the app, such as an iOS Shortcut, which has no sync connection to
+// push changes through. Capture takes a capture key; the other calls carry the member's session.
+service CaptureService {
+  // Adds a task to the key's member's Inbox, as if their device pushed it. Takes only the key, as
+  // `Authorization: Bearer <key>`. Fails as unauthenticated for a key that doesn't work now, and as
+  // an invalid argument for a refused title. Sending the same capture twice makes two tasks.
+  rpc Capture(CaptureRequest) returns (CaptureResponse);
+  // Makes a capture key for the signed-in member, replacing any key they had. The key is only ever
+  // shown in this answer.
+  rpc MakeKey(MakeKeyRequest) returns (MakeKeyResponse);
+  // Removes the signed-in member's capture key, if they have one.
+  rpc RemoveKey(RemoveKeyRequest) returns (RemoveKeyResponse);
+  // Says whether the signed-in member has a capture key, when it was made and when it was last used.
+  rpc GetKey(GetKeyRequest) returns (GetKeyResponse);
+}
+
+// A task for the Inbox, with its sticker in the next free spot of the Inbox's newest page, or on a
+// new page when it's full. A key stops working once replaced or removed, or while its member's
+// email is off the allowlist.
+message CaptureRequest {
+  // The task's title, which is trimmed, and must then not be blank or longer than 500 Unicode code
+  // points.
+  string title = 1;
+}
+
+message CaptureResponse {}
+
+message MakeKeyRequest {}
+
+message MakeKeyResponse {
+  // The new key: 32 random bytes, written in base64url. The household keeps only its hash.
+  string key = 1;
+}
+
+message RemoveKeyRequest {}
+
+message RemoveKeyResponse {}
+
+message GetKeyRequest {}
+
+message GetKeyResponse {
+  // Whether the member has a capture key.
+  bool exists = 1;
+  // When the key was made. Unset when there's none.
+  google.protobuf.Timestamp created_at = 2;
+  // When the key was last used, to within a day. Unset when it has never been used.
+  google.protobuf.Timestamp last_used_at = 3;
+}

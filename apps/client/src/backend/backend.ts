@@ -1,6 +1,7 @@
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { CalendarService } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
+import { CaptureService } from "@foyer/shared/gen/foyer/capture/v1/capture_pb";
 import { SessionService } from "@foyer/shared/gen/foyer/session/v1/session_pb";
 import { StatusService } from "@foyer/shared/gen/foyer/status/v1/status_pb";
 import { Platform } from "react-native";
@@ -25,6 +26,12 @@ export const statusClient = createClient(StatusService, transport);
 
 /** Calls the backend's session service. */
 export const sessionClient = createClient(SessionService, transport);
+
+/** Calls the backend's capture service. */
+export const captureClient = createClient(CaptureService, transport);
+
+/** The address an iOS Shortcut sends its captures to, as plain HTTP POSTs of JSON. */
+export const captureAddress = `${backendUrl}/${CaptureService.typeName}/${CaptureService.method.capture.name}`;
 
 /** Calls the backend's calendar service. */
 export const calendarClient = createClient(CalendarService, transport);

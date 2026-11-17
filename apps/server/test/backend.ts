@@ -1,6 +1,7 @@
 import { env, exports, withEnv } from "cloudflare:workers";
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { CaptureService } from "@foyer/shared/gen/foyer/capture/v1/capture_pb";
 import { SessionService } from "@foyer/shared/gen/foyer/session/v1/session_pb";
 import { vi } from "vitest";
 import worker from "../src/index";
@@ -31,11 +32,19 @@ export async function requestBackendWith(
 
 /** Calls the backend's session service. */
 export function sessionClient() {
-  const transport = createConnectTransport({
+  return createClient(SessionService, backendTransport());
+}
+
+/** Calls the backend's capture service. */
+export function captureClient() {
+  return createClient(CaptureService, backendTransport());
+}
+
+function backendTransport() {
+  return createConnectTransport({
     baseUrl: backendUrl,
     fetch: (input, init) => requestBackend(input.toString(), init),
   });
-  return createClient(SessionService, transport);
 }
 
 /** A Google account, as Google's ID token describes it. */

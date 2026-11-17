@@ -1,6 +1,6 @@
 import { DurableObject, env } from "cloudflare:workers";
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { newId, signedOutCloseCode } from "@foyer/shared";
+import { itemTitleProblem, newId, signedOutCloseCode } from "@foyer/shared";
 import {
   type DeviceMessage,
   DeviceMessageSchema,
@@ -9,6 +9,14 @@ import {
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { isOnAllowlist } from "./allowlist";
 import { Calendars, type ConnectingAnswer, type ConnectingResult } from "./calendars";
+import {
+  type CaptureKey,
+  captureKeyOf,
+  captureTask,
+  makeCaptureKey,
+  removeCaptureKey,
+  useCaptureKey,
+} from "./capture";
 import { applyPush } from "./changes";
 import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
 import { householdMigrations, migrate } from "./migrations";
@@ -324,6 +332,39 @@ export class Household extends DurableObject<Env> {
   async endSession(token: string): Promise<void> {
     this.ctx.storage.sql.exec("DELETE FROM sessions WHERE token_hash = ?", await hashSecret(token));
     for (const socket of this.ctx.getWebSockets()) this.#stillSignedIn(socket);
+  }
+
+  /** Makes a capture key for a member, replacing any key they had, and returns it. */
+  makeCaptureKey(memberId: string): Promise<string> {
+    return makeCaptureKey(this.ctx.storage, memberId, Date.now());
+  }
+
+  /** Removes a member's capture key, if they have one. */
+  removeCaptureKey(memberId: string): void {
+    removeCaptureKey(this.ctx.storage.sql, memberId);
+  }
+
+  /** A member's capture key, or null when they have none. */
+  captureKeyOf(memberId: string): CaptureKey | null {
+    return captureKeyOf(this.ctx.storage.sql, memberId);
+  }
+
+  /** Adds a task to the Inbox of the member a capture key belongs to, as if their device had pushed
+   *  it, and sends it to their devices. A key works while it's their current one and their email
+   *  is on the allowlist. The title is trimmed, and its problem returned if it has one. */
+  async capture(
+    key: string,
+    title: string,
+  ): Promise<"captured" | "unauthenticated" | { problem: string }> {
+    const now = Date.now();
+    const { sql } = this.ctx.storage;
+    const owner = await useCaptureKey(sql, key, now);
+    if (!owner || !isOnAllowlist(owner.email)) return "unauthenticated";
+    const trimmed = title.trim();
+    const problem = itemTitleProblem(trimmed);
+    if (problem) return { problem };
+    this.#sendUpdates(readRows(sql, captureTask(this.ctx.storage, owner.memberId, trimmed, now)));
+    return "captured";
   }
 
   #liveSession(by: "id" | "token_hash", value: string): LiveSession | null {

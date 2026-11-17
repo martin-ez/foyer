@@ -4,6 +4,8 @@ import { Button, Pressable, StyleSheet, Text, useWindowDimensions, View } from "
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BackendStatus } from "../backend/backend-status";
 import { GoogleCalendarEntry } from "../calendar/google-calendar-views";
+import { CapturePanel } from "../capture/capture-panel";
+import { ShortcutsPanel } from "../capture/shortcuts-panel";
 import { SignedInAs } from "../session/session-screens";
 import type { SyncStatus } from "../sync/household-sync";
 import { useHousehold } from "./household";
@@ -19,12 +21,13 @@ const statusLines: Record<SyncStatus, string> = {
 };
 
 /** The frame around Foyer's views: a bar to move between the Calendar, the Notebook and the Tasks,
- *  along the bottom of narrow windows and the side of wider ones, with the household's sync status
- *  and an account menu, beside the open view and anything sync couldn't do. */
+ *  along the bottom of narrow windows and the side of wider ones, with Capture, the sync status and
+ *  an account menu, beside the open view and anything sync couldn't do. */
 export function AppShell() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [accountShown, setAccountShown] = useState(false);
+  const [captureShown, setCaptureShown] = useState(false);
   const side = width >= sideBarFrom;
   const bar = (
     <TabList style={side ? styles.sideBar : styles.bottomBar} accessibilityRole="tablist">
@@ -37,6 +40,7 @@ export function AppShell() {
       <TabTrigger name="tasks" href="/tasks" asChild>
         <Destination label="Tasks" />
       </TabTrigger>
+      <Button title="Capture" onPress={() => setCaptureShown(!captureShown)} />
       <View style={side ? styles.sideEnd : styles.bottomEnd}>
         <SyncLine />
         <Button
@@ -62,6 +66,7 @@ export function AppShell() {
     >
       {side ? bar : null}
       <View style={styles.fill}>
+        {captureShown ? <CapturePanel onClose={() => setCaptureShown(false)} /> : null}
         <Problems />
         <TabSlot />
         {accountShown ? <AccountPanel alongSide={side} /> : null}
@@ -101,11 +106,17 @@ function SyncLine() {
 
 function AccountPanel({ alongSide }: { alongSide: boolean }) {
   const { member, signOut } = useHousehold();
+  const [shortcutsShown, setShortcutsShown] = useState(false);
   return (
     <View style={[styles.panel, alongSide ? styles.panelLeft : styles.panelRight]}>
       <SignedInAs member={member} onSignOut={signOut} />
       <GoogleCalendarEntry />
       <BackendStatus />
+      <Button
+        title={shortcutsShown ? "Hide Shortcuts" : "Shortcuts"}
+        onPress={() => setShortcutsShown(!shortcutsShown)}
+      />
+      {shortcutsShown ? <ShortcutsPanel /> : null}
     </View>
   );
 }

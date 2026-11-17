@@ -46,6 +46,19 @@ export {
   spaceNameLimit,
   spaceNameProblem,
 } from "./space-name";
+export {
+  type NewestSpacePage,
+  nextStickerSpot,
+  type PagePoint,
+  pageMargin,
+  type StickerKindName,
+  type StickerOnPage,
+  stickerGap,
+  stickerSizeOf,
+  stickerSpotInSpace,
+  taskStickerSize,
+  unknownStickerSize,
+} from "./sticker-spot";
 export { signedOutCloseCode, syncPath } from "./sync";
 
 /** The product name, shown by the app and reported by the backend. */

@@ -1,15 +1,18 @@
 import { createConnectRouter } from "@connectrpc/connect";
 import { createFetchHandler } from "@connectrpc/connect/protocol";
 import { CalendarService } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
+import { CaptureService } from "@foyer/shared/gen/foyer/capture/v1/capture_pb";
 import { SessionService } from "@foyer/shared/gen/foyer/session/v1/session_pb";
 import { StatusService } from "@foyer/shared/gen/foyer/status/v1/status_pb";
 import { calendarService } from "./calendar-service";
+import { captureService } from "./capture-service";
 import { sessionService } from "./session-service";
 import { statusService } from "./status-service";
 
 const router = createConnectRouter({ grpc: false, grpcWeb: false })
   .service(StatusService, statusService)
   .service(SessionService, sessionService)
+  .service(CaptureService, captureService)
   .service(CalendarService, calendarService);
 
 const handlers = new Map(
