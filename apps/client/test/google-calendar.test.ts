@@ -1,7 +1,7 @@
-import { GoogleConnectionState } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
+import { App, GoogleConnectionState } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
 import { CalendarState, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { problemFromConnecting } from "../src/calendar/connect-google.web";
+import { connectGoogleCalendar, problemFromConnecting } from "../src/calendar/connect-google.web";
 import {
   describeConnection,
   describeSpaceCalendar,
@@ -134,21 +134,49 @@ describe("problemReturnedTo", () => {
   });
 });
 
-describe("problemFromConnecting on the web", () => {
-  function openWebAppAt(address: string) {
-    const browser = {
-      location: { href: address },
-      history: {
-        state: { route: "home" },
-        replaceState: vi.fn((_: unknown, __: string, url: URL) => {
-          browser.location.href = url.toString();
-        }),
-      },
-    };
-    vi.stubGlobal("window", browser);
-    return browser;
-  }
+function openWebAppAt(address: string) {
+  const browser = {
+    location: { href: address, assign: vi.fn() },
+    history: {
+      state: { route: "home" },
+      replaceState: vi.fn((_: unknown, __: string, url: URL) => {
+        browser.location.href = url.toString();
+      }),
+    },
+  };
+  vi.stubGlobal("window", browser);
+  return browser;
+}
 
+describe("connectGoogleCalendar on the web", () => {
+  it("asks the backend where to connect, for the web app in the device's time zone, and goes there", async () => {
+    const browser = openWebAppAt("http://localhost:8787/calendar");
+    const address = "http://localhost:8787/auth/dev/google?state=calendar.x";
+    const startConnecting = vi.fn(async () => ({ address }));
+
+    void connectGoogleCalendar({ startConnecting } as never);
+
+    await vi.waitFor(() => expect(browser.location.assign).toHaveBeenCalledWith(address));
+    expect(startConnecting).toHaveBeenCalledWith({
+      app: App.WEB,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+  });
+
+  it("fails when the backend refuses to start connecting", async () => {
+    const browser = openWebAppAt("http://localhost:8787/calendar");
+    const startConnecting = vi.fn(async () => {
+      throw new Error("Google isn't set up");
+    });
+
+    await expect(connectGoogleCalendar({ startConnecting } as never)).rejects.toThrow(
+      "Google isn't set up",
+    );
+    expect(browser.location.assign).not.toHaveBeenCalled();
+  });
+});
+
+describe("problemFromConnecting on the web", () => {
   it("says why connecting returned without connecting, once", () => {
     const browser = openWebAppAt(
       "http://localhost:8787/?google-calendar-error=other-account&view=day",

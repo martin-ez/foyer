@@ -15,7 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { longestRetryDelay } from "../src/calendars";
 import { fakeGoogle } from "../src/fake-google";
 import { theHousehold } from "../src/household";
-import { backendUrl, locationOf, requestBackend } from "./backend";
+import worker from "../src/index";
+import { backendUrl, localBackendUrl, locationOf, requestBackend } from "./backend";
 import { Device, idOf, signIn, spaceCreate, spaceRename } from "./sync-device";
 
 const alex = "member@example.com";
@@ -47,10 +48,25 @@ async function connect(token: string): Promise<Device> {
   return device;
 }
 
-function calendars(token?: string) {
+/** Calls the backend's calendar service with a session token, at the deployed backend's address
+ *  or another, and with some of the Worker's settings changed. */
+function calendars(
+  token?: string,
+  at: { baseUrl?: string; settings?: Partial<Cloudflare.Env> } = {},
+) {
+  const { baseUrl = backendUrl, settings } = at;
   const transport = createConnectTransport({
-    baseUrl: backendUrl,
-    fetch: (input, init) => requestBackend(input.toString(), init),
+    baseUrl,
+    fetch: (input, init) =>
+      settings
+        ? (withEnv({ ...env, ...settings }, () =>
+            worker.fetch(
+              new Request(input, { ...init, redirect: "manual" }) as Parameters<
+                typeof worker.fetch
+              >[0],
+            ),
+          ) as Promise<Response>)
+        : requestBackend(input.toString(), init),
   });
   const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
   const client = createClient(CalendarService, transport);
@@ -80,6 +96,14 @@ async function connectGoogle(
 
 /** Runs the household's alarm, which does the work that waits on Google, and waits until any run
  *  that started on its own is done too. */
+/** The choices on the fake Google's page at an address, by their label, each with the address it
+ *  returns to. */
+async function choicesAt(address: string): Promise<Map<string, string>> {
+  const page = await (await requestBackend(address)).text();
+  const links = [...page.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)];
+  return new Map(links.map(([, href = "", label = ""]) => [label, href.replaceAll("&amp;", "&")]));
+}
+
 async function work(): Promise<void> {
   await runInDurableObject(theHousehold(), (household) => household.alarm());
 }
@@ -139,6 +163,18 @@ describe("starting to connect Google Calendar", () => {
     await expect(calendars().startConnecting()).rejects.toMatchObject({
       code: Code.Unauthenticated,
     });
+  });
+
+  it("says so when Google isn't set up on the backend", async () => {
+    const { token } = await member(alex);
+    const settings = { DEV_SIGN_IN: "0", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const error = await calendars(token, { settings })
+      .startConnecting()
+      .catch((reason) => ConnectError.from(reason));
+
+    expect(error).toMatchObject({ code: Code.FailedPrecondition });
   });
 
   it("refuses a time zone it doesn't know, and a call that doesn't say which app", async () => {
@@ -239,6 +275,29 @@ describe("connecting Google Calendar", () => {
     expect(connectionIn(await received(device))).toBeUndefined();
   });
 
+  it("returns with an error when Google sends back no code", async () => {
+    const { token, device } = await member(alex);
+
+    const returned = await connectGoogle(token, {
+      returned: (callback) => callback.searchParams.delete("code"),
+    });
+
+    expect(returned.searchParams.get("google-calendar-error")).toBe("failed");
+    expect(connectionIn(await received(device))).toBeUndefined();
+  });
+
+  it("sends the connection at once to the member's connected devices, and nobody else's", async () => {
+    const alexs = await member(alex);
+    const sams = await member(sam);
+
+    await connectGoogle(alexs.token);
+
+    const sent = async (device: Device) =>
+      (await device.all("updates")).flatMap(({ rows }) => rows);
+    expect(connectionIn(await sent(alexs.device))?.state).toBe(GoogleConnectionState.CONNECTED);
+    expect(connectionIn(await sent(sams.device))).toBeUndefined();
+  });
+
   it("refuses a member whose email has left the allowlist", async () => {
     const { memberId, device } = await member(alex);
 
@@ -255,6 +314,58 @@ describe("connecting Google Calendar", () => {
 
     expect(result).toBe("failed");
     expect(connectionIn(await received(device))).toBeUndefined();
+  });
+});
+
+describe("the fake Google, locally", () => {
+  async function choicesFor(token: string) {
+    const local = calendars(token, { baseUrl: localBackendUrl });
+    return choicesAt((await local.startConnecting()).address);
+  }
+
+  async function choose(token: string, label: string) {
+    const address = (await choicesFor(token)).get(label) ?? "";
+    return locationOf(await requestBackend(address));
+  }
+
+  it("asks for access on the backend's own page, which returns as Google would", async () => {
+    const { token, device } = await member(alex);
+
+    const choices = await choicesFor(token);
+    const returned = await choose(token, `Continue as ${alexsAccount}`);
+
+    expect([...choices.keys()]).toEqual([
+      `Continue as ${alexsAccount}`,
+      "Continue with another account",
+      "Continue without calendar access",
+      "Cancel",
+    ]);
+    expect(returned.toString()).toBe(`${localBackendUrl}/`);
+    expect(connectionIn(await received(device))?.state).toBe(GoogleConnectionState.CONNECTED);
+  });
+
+  it("can return as another account, without calendar access, or cancelled", async () => {
+    const { token, device } = await member(alex);
+
+    const other = await choose(token, "Continue with another account");
+    const withoutAccess = await choose(token, "Continue without calendar access");
+    const cancelled = await choose(token, "Cancel");
+
+    expect(other.searchParams.get("google-calendar-error")).toBe("other-account");
+    expect(withoutAccess.searchParams.get("google-calendar-error")).toBe("no-access");
+    expect(cancelled.toString()).toBe(`${localBackendUrl}/`);
+    expect(connectionIn(await received(device))).toBeUndefined();
+  });
+
+  it("isn't there on a deployed backend, and returns only to the backend it's on", async () => {
+    const page = "/auth/dev/google?state=calendar.x&scope=openid";
+    const elsewhere = encodeURIComponent("https://example.com/auth/google/callback");
+
+    const deployed = await requestBackend(`${backendUrl}${page}&redirect_uri=${backendUrl}`);
+    const local = await requestBackend(`${localBackendUrl}${page}&redirect_uri=${elsewhere}`);
+
+    expect(deployed.status).toBe(404);
+    expect(local.status).toBe(400);
   });
 });
 
@@ -308,6 +419,36 @@ describe("making calendars", () => {
       calendarState: CalendarState.NONE,
     });
     expect(calendarNames(alexsAccount)).toEqual([]);
+  });
+
+  it("keeps renaming the other calendars when one was deleted in Google", async () => {
+    const { token, device } = await member(alex);
+    const gardenId = await createShared(device, "Garden");
+    const holidaysId = await createShared(device, "Holidays");
+    await connectGoogle(token);
+    await work();
+
+    for (const [id, calendar] of fakeGoogle.calendars) {
+      if (calendar.name === "Foyer · Garden") fakeGoogle.calendars.delete(id);
+    }
+    await device.push(spaceRename(gardenId, "Allotment"), spaceRename(holidaysId, "Trips"));
+    await work();
+
+    expect(calendarNames(alexsAccount)).toEqual(["Foyer · Personal", "Foyer · Trips"]);
+  });
+
+  it("keeps using the member's access after its access token expires", async () => {
+    const { token, device } = await member(alex);
+    await connectGoogle(token);
+    await work();
+    const personalId = (await spaceNamed(device, "Personal"))?.id ?? "";
+
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 2 * 60 * 60 * 1000 });
+    await device.push(spaceRename(personalId, "Mine"));
+    await work();
+
+    expect(calendarNames(alexsAccount)).toEqual(["Foyer · Mine"]);
+    expect((await spaceNamed(device, "Mine"))?.calendarState).toBe(CalendarState.SYNCING);
   });
 
   it("tries again until Google answers, waiting longer each time", async () => {
@@ -457,6 +598,10 @@ describe("disconnecting", () => {
 
     expect(before).toBe(true);
     expect(fakeGoogle.hasAccess(alexsAccount)).toBe(false);
+  });
+
+  it("needs someone signed in", async () => {
+    await expect(calendars().disconnect()).rejects.toMatchObject({ code: Code.Unauthenticated });
   });
 
   it("does nothing for a member who isn't connected", async () => {

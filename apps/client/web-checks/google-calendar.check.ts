@@ -74,6 +74,9 @@ test("connects Google Calendar, makes a calendar for each space, and disconnects
 
   await openAccount(page);
   await page.getByRole("button", { name: "Disconnect Google Calendar" }).click();
+  await page.getByRole("button", { name: "Stay connected" }).click();
+  await expect(page.getByText("Google Calendar: Connected")).toBeVisible();
+  await page.getByRole("button", { name: "Disconnect Google Calendar" }).click();
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(page.getByText("Google Calendar: Not connected")).toBeVisible();
   await hideAccount(page);

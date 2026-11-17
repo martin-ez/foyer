@@ -81,7 +81,7 @@ export class FakeGoogle {
         .join(".");
       return Response.json({
         access_token: token("access", granted.subject, grant),
-        expires_in: 3600,
+        expires_in: accessLifetimeSeconds,
         refresh_token: token("refresh", granted.subject, grant),
         scope: granted.scope,
         token_type: "Bearer",
@@ -93,7 +93,7 @@ export class FakeGoogle {
       if (!held) return Response.json({ error: "invalid_grant" }, { status: 400 });
       return Response.json({
         access_token: token("access", held.subject, held.grant),
-        expires_in: 3600,
+        expires_in: accessLifetimeSeconds,
         token_type: "Bearer",
       });
     }
@@ -142,7 +142,7 @@ export class FakeGoogle {
   #accepted(text: string, kind: "access" | "refresh"): { subject: string; grant: string } | null {
     const read = readToken(text);
     if (!read || read.kind !== kind || this.#revoked.has(read.grant)) return null;
-    return read;
+    return read.expiresAt > Date.now() ? read : null;
   }
 }
 
@@ -205,17 +205,23 @@ function idClaims(subject: string, clientId: string) {
   return { iss: "https://accounts.google.com", aud: clientId, sub: subject, exp };
 }
 
+const accessLifetimeSeconds = 3600;
+
 function token(kind: "access" | "refresh", subject: string, grant: string): string {
   const parts = [`fake-${kind}`, encode(subject), grant];
-  return (kind === "access" ? [...parts, newId()] : parts).join(".");
+  const expiresAt = Date.now() + accessLifetimeSeconds * 1000;
+  return (kind === "access" ? [...parts, String(expiresAt), newId()] : parts).join(".");
 }
 
-function readToken(text: string): { kind: string; subject: string; grant: string } | null {
-  const [prefix = "", subject = "", grant = ""] = text.split(".");
+function readToken(
+  text: string,
+): { kind: string; subject: string; grant: string; expiresAt: number } | null {
+  const [prefix = "", subject = "", grant = "", expiresAt = ""] = text.split(".");
   const kind = prefix.replace(/^fake-/, "");
   if (!prefix.startsWith("fake-") || !grant) return null;
   const decoded = decode(subject);
-  return decoded === null ? null : { kind, subject: decoded, grant };
+  const expiry = kind === "access" ? Number(expiresAt) : Number.POSITIVE_INFINITY;
+  return decoded === null ? null : { kind, subject: decoded, grant, expiresAt: expiry };
 }
 
 function decodeCode(code: string): { subject: string; scope: string } | null {
