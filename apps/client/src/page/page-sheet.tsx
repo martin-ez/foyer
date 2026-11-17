@@ -1,15 +1,30 @@
 import type { PageSize } from "@foyer/shared";
 import { useState } from "react";
-import { type LayoutChangeEvent, ScrollView, StyleSheet, View } from "react-native";
+import {
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { Canvas } from "react-native-skia";
 import { deskColour } from "./desk-drawing";
 import { PageDrawing } from "./page-drawing";
-import { type Size, zoomLimits } from "./sheet-camera";
+import { type Point, type Size, zoomLimits } from "./sheet-camera";
 
 /** A page lying on the desk, fitted to it at first: a canvas of the page's own size inside a view
  *  that iOS zooms and moves as one sheet, so everything on the page moves with it in every frame of
- *  a pinch, the bounce included. */
-export function PageSheet({ size, label }: { size: PageSize; label: string }) {
+ *  a pinch, the bounce included. A touch on the page, as it starts and moves, is reported to
+ *  `onPoint`, in points from the page's top-left corner. */
+export function PageSheet({
+  size,
+  label,
+  onPoint,
+}: {
+  size: PageSize;
+  label: string;
+  onPoint?: (at: Point) => void;
+}) {
   const [view, setView] = useState<Size | null>(null);
   const onLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -17,6 +32,10 @@ export function PageSheet({ size, label }: { size: PageSize; label: string }) {
   };
   const limits = view && zoomLimits(view, size);
   const sheet = { width: size.width, height: size.height };
+  const touched = ({ nativeEvent }: GestureResponderEvent) => {
+    const at = { x: nativeEvent.locationX, y: nativeEvent.locationY };
+    if (at.x >= 0 && at.y >= 0 && at.x <= size.width && at.y <= size.height) onPoint?.(at);
+  };
 
   return (
     <View style={styles.desk} onLayout={onLayout} accessibilityLabel={label}>
@@ -32,7 +51,7 @@ export function PageSheet({ size, label }: { size: PageSize; label: string }) {
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
         >
-          <View style={[sheet, styles.paper]}>
+          <View style={[sheet, styles.paper]} onTouchStart={touched} onTouchMove={touched}>
             <Canvas style={sheet}>
               <PageDrawing size={size} />
             </Canvas>

@@ -1,7 +1,8 @@
 # Copy this file to .dev.vars, which git ignores, to set the local backend's secrets and settings.
 
-# The emails that may sign in to the local household, as a JSON list.
-HOUSEHOLD_MEMBERS='["you@example.com"]'
+# The emails that may sign in to the local household, as a JSON list. The web checks sign in as the
+# first, and as the second where a check needs two members on the same page.
+HOUSEHOLD_MEMBERS='["you@example.com", "housemate@example.com"]'
 
 # The Google OAuth client that people sign in with. Its authorized redirect URIs must include
 # http://localhost:8787/auth/google/callback. Without it, only DEV_SIGN_IN signs people in.

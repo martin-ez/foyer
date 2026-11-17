@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package foyer.sync.v1;
+
+// The live lane carries short-lived state between devices, over the sync connection: who is on
+// which page, and where they're pointing. The household keeps it in memory with each connection and
+// never stores it, so after a restart devices send Enter again when they connect again. Positions
+// are in points from the page's top-left corner, with y growing downwards.
+
+// This device is now on a page. Sent on opening a page, and again on returning from the background
+// or connecting again. The household answers every device on the page, this one included, with
+// Here. For a page the member can't see, the device is on no page and the household sends nothing.
+message Enter {
+  string page_id = 1;
+}
+
+// This device left its page, or went to the background. The others on the page get a new Here.
+message Leave {}
+
+// Where this device is pointing on its page. Sent only while the household says someone else is on
+// the page, only while the pointer moves, and at most 4 times a second. The household passes it on
+// to the other members' devices on the page as Pointed, and drops positions sent faster than that,
+// or once the day's limit for positions is reached.
+message Point {
+  double x = 1;
+  double y = 2;
+}
+
+// The other members on a page, sent to every device on it whenever someone enters or leaves it. A
+// device the household hasn't heard from for about a minute is taken off its page.
+message Here {
+  string page_id = 1;
+  // Each other member on the page once, however many of their devices are on it. Never the
+  // device's own member.
+  repeated Presence members = 2;
+}
+
+// A member on a page.
+message Presence {
+  string member_id = 1;
+  // Where they last pointed on the page, from whichever of their devices pointed last. Unset until
+  // they point, and while the day's limit for positions is reached.
+  Position position = 2;
+}
+
+// A position on a page.
+message Position {
+  double x = 1;
+  double y = 2;
+}
+
+// Where another member on the device's page is pointing, passed on from their Point. When a member
+// has several devices on the page, the latest position wins.
+message Pointed {
+  string member_id = 1;
+  double x = 2;
+  double y = 3;
+}
+
+// The day's limit for positions is reached, which keeps the live lane within a third of the free
+// plan's daily requests. Stop sending Point until the next day starts, at midnight UTC, when the
+// plan's count starts again. Enter and Leave keep working. Sent to every device when the limit is
+// reached, and to a device that enters a page or points while it is.
+message LiveLimit {}

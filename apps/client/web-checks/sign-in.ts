@@ -6,6 +6,13 @@ const devVars = path.join(__dirname, "../../server/.dev.vars");
 
 /** The first email in `HOUSEHOLD_MEMBERS` in the local backend's `.dev.vars`. */
 export function householdMember(): string {
+  const [email] = householdMembers();
+  if (email === undefined) throw new Error(`${devVars} sets no HOUSEHOLD_MEMBERS.`);
+  return email;
+}
+
+/** The emails in `HOUSEHOLD_MEMBERS` in the local backend's `.dev.vars`. */
+export function householdMembers(): string[] {
   let text: string;
   try {
     text = readFileSync(devVars, "utf8");
@@ -14,9 +21,7 @@ export function householdMember(): string {
   }
   const value = /^\s*HOUSEHOLD_MEMBERS\s*=\s*(.*)$/m.exec(text)?.[1]?.trim() ?? "";
   const emails: unknown = JSON.parse(value.replace(/^(['"])(.*)\1$/, "$2") || "[]");
-  const email = Array.isArray(emails) ? emails[0] : undefined;
-  if (typeof email !== "string") throw new Error(`${devVars} sets no HOUSEHOLD_MEMBERS.`);
-  return email;
+  return Array.isArray(emails) ? emails.filter((email) => typeof email === "string") : [];
 }
 
 /** Signs in to the local backend without Google, as `email`, which returns to the web app. */

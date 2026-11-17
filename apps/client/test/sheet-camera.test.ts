@@ -5,6 +5,7 @@ import {
   fittedCamera,
   largestScale,
   panCamera,
+  pointOnPage,
   resizeCamera,
   zoomCamera,
   zoomLimits,
@@ -122,5 +123,24 @@ describe("resizing the desk", () => {
     expect(resizeCamera(camera, { width: 0, height: 0 }, view, page)).toEqual(
       fittedCamera(view, page),
     );
+  });
+});
+
+describe("pointing at the page", () => {
+  it("finds the point of the page under a point on the screen", () => {
+    const camera = { x: 100, y: 24, scale: 2 };
+
+    expect(pointOnPage(camera, { x: 100, y: 24 })).toEqual({ x: 0, y: 0 });
+    expect(pointOnPage(camera, { x: 300, y: 224 })).toEqual({ x: 100, y: 100 });
+  });
+
+  it("follows the page as it's zoomed, so the point under the focus stays the same", () => {
+    const camera = fittedCamera(view, page);
+    const focus = { x: 400, y: 300 };
+
+    const zoomed = zoomCamera(camera, view, page, 2, focus);
+
+    expect(pointOnPage(zoomed, focus).x).toBeCloseTo(pointOnPage(camera, focus).x);
+    expect(pointOnPage(zoomed, focus).y).toBeCloseTo(pointOnPage(camera, focus).y);
   });
 });

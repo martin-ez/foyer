@@ -8,18 +8,30 @@ import {
   fittedCamera,
   type Point,
   panCamera,
+  pointOnPage,
   resizeCamera,
   type Size,
   zoomCamera,
 } from "./sheet-camera";
 
 /** A page lying on the desk, drawn by Skia in a canvas the size of the view. Pinching, or scrolling
- *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. */
-export function PageSheet({ size, label }: { size: PageSize; label: string }) {
+ *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. A pointer
+ *  moving over the page, with or without a button pressed, is reported to `onPoint`, in points from
+ *  the page's top-left corner. */
+export function PageSheet({
+  size,
+  label,
+  onPoint,
+}: {
+  size: PageSize;
+  label: string;
+  onPoint?: (at: Point) => void;
+}) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   const keepHost = useCallback((view: unknown) => setHost(view as HTMLElement | null), []);
   const page = useRef(size);
   page.current = size;
+  const pointing = useRef<((at: Point) => void) | undefined>(undefined);
   const [desk, setDesk] = useState<{ view: Size; camera: Camera }>({
     view: { width: 0, height: 0 },
     camera: { x: 0, y: 0, scale: 0 },
@@ -46,10 +58,18 @@ export function PageSheet({ size, label }: { size: PageSize; label: string }) {
           view,
           camera: panCamera(camera, view, page.current, by),
         })),
+      point: (at) => pointing.current?.(at),
     });
   }, [host]);
 
   const camera = desk.camera.scale > 0 ? desk.camera : fittedCamera(desk.view, size);
+  pointing.current = (at) => {
+    const onPage = pointOnPage(camera, at);
+    const { width, height } = page.current;
+    if (onPage.x >= 0 && onPage.y >= 0 && onPage.x <= width && onPage.y <= height) {
+      onPoint?.(onPage);
+    }
+  };
   return (
     <View ref={keepHost} style={styles.fill} onLayout={onLayout} accessibilityLabel={label}>
       <Canvas style={styles.fill}>
@@ -62,6 +82,7 @@ export function PageSheet({ size, label }: { size: PageSize; label: string }) {
 type Gestures = {
   zoom(factor: number, focus: Point, pan: Point): void;
   pan(by: Point): void;
+  point(at: Point): void;
 };
 
 type SafariTrackpadPinch = Event & { scale: number; clientX: number; clientY: number };
@@ -87,6 +108,7 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
     [
       "pointermove",
       (event: PointerEvent) => {
+        gestures.point(at(event));
         const before = pointers.get(event.pointerId);
         if (!before) return;
         const now = at(event);

@@ -6,6 +6,7 @@ import { SignedInAs } from "../session/session-screens";
 import type { SyncStatus } from "../sync/household-sync";
 import { SpacesPanel } from "../sync/spaces-panel";
 import { useHouseholdSync } from "../sync/use-household-sync";
+import { useLivePage } from "../sync/use-live-page";
 import { describePage, pageIdOf, sizeOf } from "./open-page";
 import { PageSheet } from "./page-sheet";
 import { useOpenPage } from "./use-open-page";
@@ -19,7 +20,8 @@ const statusLines: Record<SyncStatus, string> = {
 };
 
 /** What the signed-in member sees: the open page, kept in sync with the household, which starts as
- *  today's, with ways to move between days and to open each space's first page. Calls
+ *  today's, with ways to move between days and to open each space's first page. The household
+ *  learns which page is open and where the member points on it, for the others on the page. Calls
  *  `onSignedOut` when the household says the session has ended. */
 export function PagesScreen({
   member,
@@ -32,6 +34,7 @@ export function PagesScreen({
 }) {
   const { state, sync } = useHouseholdSync(member.id, onSignedOut);
   const pages = useOpenPage();
+  useLivePage(sync.live, pageIdOf(pages.page));
   const [showingSpaces, setShowingSpaces] = useState(false);
   const label = describePage(pages.page, state.spaces);
   const unsaved = state.unsaved > 0 ? ` · ${state.unsaved} not saved yet` : "";
@@ -60,6 +63,7 @@ export function PagesScreen({
           key={pageIdOf(pages.page)}
           size={sizeOf(pages.page, state.pages)}
           label={label}
+          onPoint={({ x, y }) => sync.live.point(x, y)}
         />
         {showingSpaces ? (
           <SpacesPanel
