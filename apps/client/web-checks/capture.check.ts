@@ -16,7 +16,7 @@ async function capture(page: Page, title: string) {
   const field = page.getByRole("textbox", { name: "Capture" });
   await field.fill(title);
   await field.press("Enter");
-  await expect(page.getByText("Added to Inbox")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText(`Added “${title}” to Inbox`);
   await expect(field).toHaveValue("");
 }
 
@@ -86,6 +86,23 @@ test("captures several tasks in a row without leaving the field", async ({ page 
   }
 });
 
+test("says which task it added until the next is typed, even when it's the same", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  const title = `Buy stamps ${Date.now()}`;
+  await capture(page, title);
+  const status = page.getByRole("status");
+
+  await page.getByRole("textbox", { name: "Capture" }).pressSequentially(title.slice(0, 3));
+  await expect(status).toHaveText("");
+  await page.getByRole("textbox", { name: "Capture" }).fill(title);
+  await page.keyboard.press("Enter");
+
+  await expect(status).toHaveText(`Added “${title}” to Inbox`);
+});
+
 test("won't capture a blank title", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Capture", exact: true }).click();
@@ -153,7 +170,7 @@ test("adds a task with the Add to Inbox button", async ({ page }) => {
   await page.getByRole("textbox", { name: "Capture" }).fill(title);
   await page.getByRole("button", { name: "Add to Inbox" }).click();
 
-  await expect(page.getByText("Added to Inbox")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText(`Added “${title}” to Inbox`);
   const list = await openInboxList(page);
   await expect(list.getByRole("button", { name: title })).toBeVisible();
 });

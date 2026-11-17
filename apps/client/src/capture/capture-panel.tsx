@@ -4,19 +4,19 @@ import { useState } from "react";
 import { Button, StyleSheet, Text, TextInput, View } from "react-native";
 import { useHousehold } from "../shell/household";
 
-/** One field that adds a task to the member's Inbox with each title entered, then says so and
- *  clears for the next. Nothing asks for a space, a date or a kind. */
+/** One field that adds a task to the member's Inbox with each title entered, then says which it
+ *  added until the next is typed, and clears for it. Nothing asks for a space, a date or a kind. */
 export function CapturePanel({ onClose }: { onClose: () => void }) {
   const { state, sync } = useHousehold();
   const [title, setTitle] = useState("");
-  const [added, setAdded] = useState(false);
+  const [added, setAdded] = useState<string | null>(null);
   const inbox = state.spaces.find(({ kind }) => kind === SpaceKind.INBOX);
   const blocked = !inbox || sync.titleProblem(title) !== null;
   const add = () => {
     if (!inbox || blocked) return;
     sync.addTask(inbox.id, title);
     setTitle("");
-    setAdded(true);
+    setAdded(title.trim());
   };
 
   return (
@@ -24,7 +24,10 @@ export function CapturePanel({ onClose }: { onClose: () => void }) {
       <TextInput
         style={styles.input}
         value={title}
-        onChangeText={(text) => setTitle(limitItemTitle(text))}
+        onChangeText={(text) => {
+          setTitle(limitItemTitle(text));
+          setAdded(null);
+        }}
         onSubmitEditing={add}
         submitBehavior="submit"
         blurOnSubmit={false}
@@ -35,7 +38,11 @@ export function CapturePanel({ onClose }: { onClose: () => void }) {
       <Button title="Add to Inbox" disabled={blocked} onPress={add} />
       <Button title="Close" onPress={onClose} />
       <Text style={styles.line} role="status" accessibilityLiveRegion="polite">
-        {!inbox ? "Waiting for the household's spaces…" : added ? "Added to Inbox" : ""}
+        {!inbox
+          ? "Waiting for the household's spaces…"
+          : added !== null
+            ? `Added “${added}” to Inbox`
+            : ""}
       </Text>
     </View>
   );
