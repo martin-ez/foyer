@@ -5,10 +5,11 @@ import { useState } from "react";
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { HouseholdSync, SyncState } from "../sync/household-sync";
 import { Checkbox } from "./checkbox";
+import { changedFields, shownFields, type TaskEdits } from "./task-edits";
 
-/** A task's title, description and date to edit and save, with a checkbox to tick it, and ways to
- *  move it to another space the member sees, delete it after asking, and show it on its space's
- *  page. */
+/** A task's title, description and date to edit and save, following changes made elsewhere to the
+ *  fields the member hasn't touched, with a checkbox to tick it, and ways to move it to another
+ *  space, delete it after asking, and show it on its space's page. */
 export function TaskEditor({
   task,
   done,
@@ -25,20 +26,21 @@ export function TaskEditor({
   onShowOnPage: (spaceId: string, pageNumber: number) => void;
   onClose: () => void;
 }) {
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description);
-  const [date, setDate] = useState(task.date);
+  const [edits, setEdits] = useState<TaskEdits>({});
   const [deleting, setDeleting] = useState(false);
+  const { title, description, date } = shownFields(task, edits);
+  const changes = changedFields(task, edits);
   const problem =
     sync.titleProblem(title) ??
     (date !== "" && !isIsoDate(date) ? "A date is a day, as in 2026-11-17." : null);
-  const changed =
-    title.trim() !== task.title || description !== task.description || date !== task.date;
+  const edit = (field: keyof TaskEdits, value: string) =>
+    setEdits((before) => ({ ...before, [field]: value }));
   const save = () => {
     if (problem) return;
-    if (title.trim() !== task.title) sync.setTitle(task.id, title);
-    if (description !== task.description) sync.setDescription(task.id, description);
-    if (date !== task.date) sync.setDate(task.id, date);
+    if (changes.title !== undefined) sync.setTitle(task.id, changes.title);
+    if (changes.description !== undefined) sync.setDescription(task.id, changes.description);
+    if (changes.date !== undefined) sync.setDate(task.id, changes.date);
+    setEdits({});
   };
   const others = state.spaces.filter(({ id }) => id !== task.spaceId);
 
@@ -55,13 +57,13 @@ export function TaskEditor({
         <TextInput
           style={styles.input}
           value={title}
-          onChangeText={(text) => setTitle(limitItemTitle(text))}
+          onChangeText={(text) => edit("title", limitItemTitle(text))}
           accessibilityLabel="Title"
         />
         <TextInput
           style={[styles.input, styles.description]}
           value={description}
-          onChangeText={(text) => setDescription(limitItemDescription(text))}
+          onChangeText={(text) => edit("description", limitItemDescription(text))}
           placeholder="Description"
           accessibilityLabel="Description"
           multiline
@@ -69,13 +71,17 @@ export function TaskEditor({
         <TextInput
           style={styles.input}
           value={date}
-          onChangeText={setDate}
+          onChangeText={(text) => edit("date", text)}
           placeholder="Date, as in 2026-11-17"
           accessibilityLabel="Date"
         />
         {problem ? <Text style={styles.problem}>{problem}</Text> : null}
         <View style={styles.row}>
-          <Button title="Save" disabled={!changed || problem !== null} onPress={save} />
+          <Button
+            title="Save"
+            disabled={Object.keys(changes).length === 0 || problem !== null}
+            onPress={save}
+          />
           <Button title="Close" onPress={onClose} />
         </View>
         <Button

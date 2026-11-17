@@ -50,6 +50,27 @@ test("edits a task's title, description and date, on this device and another", a
   await expect(other.getByLabel("Date")).toHaveValue("2026-11-20");
 });
 
+test("keeps a rename made on another device while the task is open here", async ({ page }) => {
+  const title = await addTask(page);
+  const other = await sameMemberOnAnotherDevice(page);
+  const renamed = `${title} renamed`;
+  await stickerOf(page, title).click();
+  await stickerOf(other, title).click();
+
+  await other.getByLabel("Title").fill(renamed);
+  await other.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByLabel("Title")).toHaveValue(renamed);
+  await page.getByLabel("Date").fill("2026-11-20");
+  await page.getByRole("button", { name: "Save" }).click();
+
+  for (const device of [page, other]) {
+    await expect(device.getByLabel("Title")).toHaveValue(renamed);
+    await expect(device.getByLabel("Date")).toHaveValue("2026-11-20");
+  }
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(stickerOf(page, renamed)).toBeVisible();
+});
+
 test("won't save a blank title or a date that isn't a day", async ({ page }) => {
   const title = await addTask(page);
   await stickerOf(page, title).click();
