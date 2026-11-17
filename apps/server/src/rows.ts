@@ -172,6 +172,7 @@ type ItemRow = {
   date: string | null;
   repeat: string | null;
   repeat_from: "schedule" | "completion" | null;
+  parent_id: string | null;
   created_by: string;
   created_at: number;
   seq: number;
@@ -225,8 +226,8 @@ const itemsWithOwner = "items JOIN spaces ON spaces.id = items.space_id";
 const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
 const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
-  items.date, items.repeat, items.repeat_from, items.created_by, items.created_at, items.seq,
-  spaces.owner_id FROM ${itemsWithOwner}`;
+  items.date, items.repeat, items.repeat_from, items.parent_id, items.created_by, items.created_at,
+  items.seq, spaces.owner_id FROM ${itemsWithOwner}`;
 
 const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
@@ -411,6 +412,7 @@ function itemRow(item: ItemRow): VisibleRow {
     date: item.date ?? "",
     repeat: item.repeat ?? "",
     repeatFrom: item.repeat_from ? repeatFroms[item.repeat_from] : RepeatFrom.UNSPECIFIED,
+    parentId: item.parent_id ?? "",
     createdBy: item.created_by,
     createdAt: timestampFromMs(item.created_at),
   });

@@ -1,3 +1,4 @@
+import { itemPageId } from "@foyer/shared";
 import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Space } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
@@ -18,31 +19,97 @@ export function doneTasks(
   return done;
 }
 
-/** A space's tasks in the order of their stickers on its pages: page by page, top to bottom, then
- *  left to right. A task with no sticker on its space's pages comes last. */
+/** A space's tasks in list order: its top-level tasks in the order of their stickers on its pages,
+ *  page by page, top to bottom, then left to right, each followed by the tasks under it, in the
+ *  order of their stickers on its body page. A task with no such sticker comes last among them. */
 export function spaceList(
   spaceId: string,
   items: Iterable<Item>,
   stickers: Iterable<Sticker>,
 ): Item[] {
-  const prefix = `space:${spaceId}:`;
-  const spots = new Map<string, { page: number; y: number; x: number }>();
-  for (const sticker of stickers) {
-    if (!sticker.pageId.startsWith(prefix)) continue;
-    const spot = { page: Number(sticker.pageId.slice(prefix.length)), y: sticker.y, x: sticker.x };
-    const known = spots.get(sticker.itemId);
-    if (!known || compareSpots(spot, known) < 0) spots.set(sticker.itemId, spot);
-  }
+  return spaceTree(spaceId, items, stickers).map(({ item }) => item);
+}
+
+/** A space's tasks in list order, as `spaceList` gives them, each with how deep it is: 0 at the
+ *  top of the space, 1 under a top-level task, and so on. */
+export function spaceTree(
+  spaceId: string,
+  items: Iterable<Item>,
+  stickers: Iterable<Sticker>,
+): { item: Item; depth: number }[] {
   const tasks = [...items].filter(
     (item) => item.kind === ItemKind.TASK && item.spaceId === spaceId,
   );
-  return tasks.sort((a, b) => {
-    const spotA = spots.get(a.id);
-    const spotB = spots.get(b.id);
-    if (spotA && spotB) return compareSpots(spotA, spotB) || compareIds(a.id, b.id);
-    if (spotA || spotB) return spotA ? -1 : 1;
-    return compareIds(a.id, b.id);
+  const inSpace = new Set(tasks.map(({ id }) => id));
+  const parentOf = (item: Item) => (inSpace.has(item.parentId) ? item.parentId : "");
+  const placedOn = new Map(tasks.map((item) => [item.id, placementPage(spaceId, parentOf(item))]));
+  const spots = new Map<string, Spot>();
+  for (const sticker of stickers) {
+    const page = placedOn.get(sticker.itemId)?.(sticker.pageId);
+    if (page === undefined) continue;
+    const spot = { page, y: sticker.y, x: sticker.x };
+    const known = spots.get(sticker.itemId);
+    if (!known || compareSpots(spot, known) < 0) spots.set(sticker.itemId, spot);
+  }
+  const byParent = new Map<string, Item[]>();
+  for (const item of tasks)
+    byParent.set(parentOf(item), [...(byParent.get(parentOf(item)) ?? []), item]);
+  const listed: { item: Item; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (parentId: string, depth: number) => {
+    const children = (byParent.get(parentId) ?? []).sort((a, b) => {
+      const spotA = spots.get(a.id);
+      const spotB = spots.get(b.id);
+      if (spotA && spotB) return compareSpots(spotA, spotB) || compareIds(a.id, b.id);
+      if (spotA || spotB) return spotA ? -1 : 1;
+      return compareIds(a.id, b.id);
+    });
+    for (const item of children) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      listed.push({ item, depth });
+      walk(item.id, depth + 1);
+    }
+  };
+  walk("", 0);
+  return listed;
+}
+
+/** The ids of the items under an item, at any depth. */
+export function itemsUnder(itemId: string, items: Iterable<Item>): string[] {
+  const all = [...items];
+  const under: string[] = [];
+  const queue = [itemId];
+  for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
+    for (const item of all) {
+      if (item.parentId === parent && item.id !== itemId && !under.includes(item.id)) {
+        under.push(item.id);
+        queue.push(item.id);
+      }
+    }
+  }
+  return under;
+}
+
+/** The tasks under an item, at any depth, that aren't done. `done` holds the ids of the tasks that
+ *  are done. */
+export function openTasksUnder(
+  itemId: string,
+  items: ReadonlyMap<string, Item>,
+  done: ReadonlySet<string>,
+): Item[] {
+  return itemsUnder(itemId, items.values()).flatMap((id) => {
+    const item = items.get(id);
+    return item && item.kind === ItemKind.TASK && !done.has(id) ? [item] : [];
   });
+}
+
+type Spot = { page: number; y: number; x: number };
+
+function placementPage(spaceId: string, parentId: string): (pageId: string) => number | undefined {
+  if (parentId !== "") return (pageId) => (pageId === itemPageId(parentId) ? 0 : undefined);
+  const prefix = `space:${spaceId}:`;
+  return (pageId) => (pageId.startsWith(prefix) ? Number(pageId.slice(prefix.length)) : undefined);
 }
 
 /** The open tasks dated `today` or earlier, overdue first, each group in the order of the spaces,
@@ -63,10 +130,7 @@ export function todayList(
     .sort((a, b) => Number(a.date === today) - Number(b.date === today));
 }
 
-function compareSpots(
-  a: { page: number; y: number; x: number },
-  b: { page: number; y: number; x: number },
-): number {
+function compareSpots(a: Spot, b: Spot): number {
   return a.page - b.page || a.y - b.y || a.x - b.x;
 }
 

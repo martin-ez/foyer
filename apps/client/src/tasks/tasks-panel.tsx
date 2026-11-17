@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { localToday } from "../page/calendar-date";
 import type { SyncState } from "../sync/household-sync";
 import { Checkbox } from "./checkbox";
-import { doneTasks, spaceList, todayList } from "./task-lists";
+import { doneTasks, spaceTree, todayList } from "./task-lists";
 
 /** The member's tasks as lists: the Inbox, Today, then each other space they see, or one space's
  *  list alone when `only` names it. Each task can be ticked, and tapping its title opens it. The
@@ -31,7 +31,7 @@ export function TasksPanel({
   const spaces = only === undefined ? state.spaces : state.spaces.filter(({ id }) => id === only);
   const today = todayList(localToday(), state.spaces, items, stickers, done);
   const listOf = (spaceId: string) =>
-    spaceList(spaceId, items, stickers).filter(({ id }) => showDone || !done.has(id));
+    spaceTree(spaceId, items, stickers).filter(({ item }) => showDone || !done.has(item.id));
   const [inbox, ...others] = spaces;
   const list = { done, onOpenTask, onTick };
 
@@ -44,7 +44,9 @@ export function TasksPanel({
           </Checkbox>
         </View>
         {inbox ? <TaskList heading={nameOf(inbox)} tasks={listOf(inbox.id)} {...list} /> : null}
-        {only === undefined ? <TaskList heading="Today" tasks={today} {...list} /> : null}
+        {only === undefined ? (
+          <TaskList heading="Today" tasks={today.map((item) => ({ item, depth: 0 }))} {...list} />
+        ) : null}
         {others.map((space) => (
           <TaskList key={space.id} heading={nameOf(space)} tasks={listOf(space.id)} {...list} />
         ))}
@@ -61,7 +63,7 @@ function TaskList({
   onTick,
 }: {
   heading: string;
-  tasks: Item[];
+  tasks: { item: Item; depth: number }[];
   done: ReadonlySet<string>;
   onOpenTask: (itemId: string) => void;
   onTick: (itemId: string, done: boolean) => void;
@@ -72,8 +74,8 @@ function TaskList({
         {heading}
       </Text>
       {tasks.length === 0 ? <Text style={styles.line}>No tasks</Text> : null}
-      {tasks.map((task) => (
-        <View key={task.id} style={styles.row}>
+      {tasks.map(({ item: task, depth }) => (
+        <View key={task.id} style={[styles.row, { paddingLeft: depth * 16 }]}>
           <Checkbox
             checked={done.has(task.id)}
             label={`Done: ${task.title}`}

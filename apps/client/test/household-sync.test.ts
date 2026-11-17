@@ -150,6 +150,7 @@ function itemRow(
     date?: string;
     repeat?: string;
     repeatFrom?: RepeatFrom;
+    parentId?: string;
   },
 ): RowInit {
   return { seq: BigInt(seq), row: { case: "item", value: { kind: ItemKind.TASK, ...item } } };
@@ -1226,5 +1227,234 @@ describe("repeating tasks", () => {
     household().commit(household().lastPush(), {}, 3);
 
     expect(shownTask().date).toBe(today);
+  });
+});
+
+describe("nesting tasks", () => {
+  const inboxPage = spacePageId(inbox.id, 1);
+  const inboxPageRow = pageRow(3, {
+    id: inboxPage,
+    kind: PageKind.SPACE,
+    spaceId: inbox.id,
+    number: 1,
+  });
+  const party = { id: "019a8f4e-5c00-7000-8000-0000000000c1", spaceId: inbox.id, title: "Party" };
+  const food = { id: "019a8f4e-5c00-7000-8000-0000000000c2", spaceId: inbox.id, title: "Food" };
+  const cake = { id: "019a8f4e-5c00-7000-8000-0000000000c3", spaceId: inbox.id, title: "Cake" };
+  const partyBody = itemPageId(party.id);
+  const foodBody = itemPageId(food.id);
+
+  function bodyPageRow(seq: number, itemId: string) {
+    return pageRow(seq, { id: itemPageId(itemId), kind: PageKind.ITEM, itemId });
+  }
+
+  function stickerId(seq: number) {
+    return `019a8f4e-5c00-7000-8000-0000000000${seq}`;
+  }
+
+  function stuck(seq: number, itemId: string, pageId: string) {
+    return stickerRow(seq, { id: stickerId(seq), pageId, itemId });
+  }
+
+  function changesIn(push: Push) {
+    return push.changes.map(({ change }) => ({ case: change.case, value: change.value }));
+  }
+
+  function shown(itemId: string) {
+    const item = sync.getState().items.get(itemId);
+    return { spaceId: item?.spaceId, parentId: item?.parentId };
+  }
+
+  function itemsStuckOn(pageId: string) {
+    return stickersOn(pageId, sync.getState().stickers.values()).map(({ itemId }) => itemId);
+  }
+
+  const nested = () => [
+    spaceRow(1, inbox),
+    spaceRow(2, home),
+    inboxPageRow,
+    itemRow(4, party),
+    itemRow(5, { ...food, parentId: party.id }),
+    itemRow(6, { ...cake, parentId: food.id }),
+    bodyPageRow(7, party.id),
+    bodyPageRow(8, food.id),
+    stuck(10, party.id, inboxPage),
+    stuck(11, food.id, partyBody),
+    stuck(12, cake.id, foodBody),
+  ];
+
+  it("puts a task under another, moving its sticker to that task's new body page at once", () => {
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        inboxPageRow,
+        itemRow(4, party),
+        itemRow(6, cake),
+        stuck(10, cake.id, inboxPage),
+      ],
+      10,
+    );
+
+    sync.putUnder(cake.id, party.id);
+
+    expect(changesIn(household().lastPush())).toEqual([
+      {
+        case: "itemSetParent",
+        value: expect.objectContaining({ itemId: cake.id, parentId: party.id }),
+      },
+      { case: "stickerRemove", value: expect.objectContaining({ stickerId: stickerId(10) }) },
+      {
+        case: "pageCreate",
+        value: expect.objectContaining({
+          pageId: partyBody,
+          kind: PageKind.ITEM,
+          itemId: party.id,
+        }),
+      },
+      {
+        case: "stickerPlace",
+        value: expect.objectContaining({
+          pageId: partyBody,
+          itemId: cake.id,
+          x: pageMargin,
+          y: pageMargin,
+        }),
+      },
+    ]);
+    expect(shown(cake.id)).toEqual({ spaceId: inbox.id, parentId: party.id });
+    expect(itemsStuckOn(inboxPage)).toEqual([]);
+    expect(itemsStuckOn(partyBody)).toEqual([cake.id]);
+  });
+
+  it("takes a task out, back on its space's newest page at once", () => {
+    startUpToDate(nested(), 12);
+
+    sync.putUnder(food.id, null);
+
+    expect(changesIn(household().lastPush()).map((change) => change.case)).toEqual([
+      "itemSetParent",
+      "stickerRemove",
+      "stickerPlace",
+    ]);
+    expect(shown(food.id)).toEqual({ spaceId: inbox.id, parentId: "" });
+    expect(itemsStuckOn(inboxPage)).toEqual([party.id, food.id]);
+    expect(itemsStuckOn(partyBody)).toEqual([]);
+  });
+
+  it("moves a task put under one in another space there at once, with everything under it", () => {
+    const shopping = {
+      id: "019a8f4e-5c00-7000-8000-0000000000c4",
+      spaceId: home.id,
+      title: "Shop",
+    };
+    startUpToDate([...nested(), itemRow(13, shopping)], 13);
+
+    sync.putUnder(food.id, shopping.id);
+
+    expect(shown(food.id)).toEqual({ spaceId: home.id, parentId: shopping.id });
+    expect(shown(cake.id)).toEqual({ spaceId: home.id, parentId: food.id });
+    expect(itemsStuckOn(itemPageId(shopping.id))).toEqual([food.id]);
+  });
+
+  it("does nothing when a task is already under that parent", () => {
+    startUpToDate(nested(), 12);
+
+    sync.putUnder(food.id, party.id);
+
+    expect(household().pushes()).toEqual([]);
+  });
+
+  it("adds a task under another, in its space, below the last one on its body page", () => {
+    startUpToDate(nested(), 12);
+
+    const added = sync.addTaskUnder(party.id, "  Drinks ");
+
+    expect(changesIn(household().lastPush())).toEqual([
+      {
+        case: "itemCreate",
+        value: expect.objectContaining({ itemId: added, spaceId: inbox.id, title: "Drinks" }),
+      },
+      {
+        case: "itemSetParent",
+        value: expect.objectContaining({ itemId: added, parentId: party.id }),
+      },
+      {
+        case: "stickerPlace",
+        value: expect.objectContaining({
+          pageId: partyBody,
+          itemId: added,
+          y: 48 + taskStickerSize.height + stickerGap,
+        }),
+      },
+    ]);
+    expect(itemsStuckOn(partyBody)).toEqual([food.id, added]);
+  });
+
+  it("takes a task out of its parent before moving it to another space", () => {
+    startUpToDate(nested(), 12);
+
+    sync.moveTask(food.id, home.id);
+
+    expect(changesIn(household().lastPush()).slice(0, 3)).toEqual([
+      { case: "itemSetParent", value: expect.objectContaining({ itemId: food.id, parentId: "" }) },
+      { case: "itemMove", value: expect.objectContaining({ itemId: food.id, spaceId: home.id }) },
+      { case: "stickerRemove", value: expect.anything() },
+    ]);
+    expect(shown(food.id)).toEqual({ spaceId: home.id, parentId: "" });
+    expect(shown(cake.id)).toEqual({ spaceId: home.id, parentId: food.id });
+    expect(itemsStuckOn(partyBody)).toEqual([]);
+  });
+
+  it("moves a task with everything under it at once", () => {
+    startUpToDate(nested(), 12);
+
+    sync.moveTask(party.id, home.id);
+
+    for (const { id } of [party, food, cake]) expect(shown(id).spaceId).toBe(home.id);
+  });
+
+  it("deletes a task with everything under it, the deepest first", () => {
+    startUpToDate(nested(), 12);
+
+    sync.deleteTask(party.id, "delete");
+
+    const deleted = household()
+      .pushes()
+      .flatMap(({ changes }) => changes)
+      .map(({ change }) => (change.case === "itemDelete" ? change.value.itemId : null));
+    expect(deleted).toEqual([cake.id, food.id, party.id]);
+    expect(sync.getState().items.size).toBe(0);
+  });
+
+  it("moves the items under a deleted task up to its own parent, onto that one's body page", () => {
+    startUpToDate(nested(), 12);
+
+    sync.deleteTask(food.id, "move-up");
+
+    expect(shown(cake.id)).toEqual({ spaceId: inbox.id, parentId: party.id });
+    expect(sync.getState().items.has(food.id)).toBe(false);
+    expect(itemsStuckOn(partyBody)).toEqual([cake.id]);
+  });
+
+  it("moves the items under a deleted task to the top of its space, onto its newest page", () => {
+    startUpToDate(nested(), 12);
+
+    sync.deleteTask(food.id, "to-top");
+
+    expect(shown(cake.id)).toEqual({ spaceId: inbox.id, parentId: "" });
+    expect(itemsStuckOn(inboxPage)).toEqual([party.id, cake.id]);
+  });
+
+  it("ticks a task and the tasks under it in one push", () => {
+    startUpToDate(nested(), 12);
+
+    sync.tickTasks([party.id, food.id, cake.id]);
+
+    expect(household().pushes()).toHaveLength(1);
+    expect(
+      changesIn(household().lastPush()).map(({ value }) =>
+        value && "completionId" in value ? value.itemId : null,
+      ),
+    ).toEqual([party.id, food.id, cake.id]);
   });
 });

@@ -182,6 +182,10 @@ export const householdMigrations: readonly Migration[] = [
   ALTER TABLE items ADD COLUMN repeat_at INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE items ADD COLUMN repeat_change_id TEXT NOT NULL DEFAULT '';
   ALTER TABLE completions ADD COLUMN tick_change_id TEXT`,
+  `ALTER TABLE items ADD COLUMN parent_id TEXT;
+  ALTER TABLE items ADD COLUMN parent_at INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE items ADD COLUMN parent_change_id TEXT NOT NULL DEFAULT '';
+  CREATE INDEX items_by_parent ON items (parent_id) WHERE parent_id IS NOT NULL`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

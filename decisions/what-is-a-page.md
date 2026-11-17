@@ -1,5 +1,5 @@
 # What is a page?
-Decided in #10, #16, #17, #23, #24 and #64
+Decided in #10, #16, #17, #23, #24, #64 and #80
 
 **Applies when:** building any view people write on, laying things out on a page, storing or syncing pages, positioning anything on a page, or deciding how people move around pages.
 
@@ -18,7 +18,7 @@ Pinch zooms within a page so people can write in detail. Moving between month, w
 - **What a page belongs to,** which decides who sees it and its ink:
   - **Calendar pages:** every member of the household sees them (`who-can-see-what.md`).
   - **Space pages:** each space's main view, the Inbox included, holds the space's tasks as stickers. Each new task's sticker is placed below the last one and keeps its spot. When a page fills up, the space gets another. Only members who see the space see its pages.
-  - **Item pages:** a task or event can have one body page, and a note has one or more, in the order they were added. They follow their item's space, and are deleted with it.
+  - **Item pages:** a task or event can have one body page, and a note has one or more, in the order they were added. They follow their item's space, and are deleted with it. A body page holds the stickers of the items under its item (`can-items-hold-other-items.md`).
 - **Ids:**
   - Calendar pages are named by their kind and date: `month:2026-11`, `week:2026-11-16` (by the week's Monday) and `day:2026-11-14`. Dates are plain ISO 8601 dates, and each device works out "today" from its own clock and time zone (`how-are-dates-and-times-stored.md`).
   - Weeks start on Monday, as ISO 8601 weeks do, for every household. A week page named by any other day is refused.

@@ -61,18 +61,33 @@ export function createItem(
   return { seq, changed: [{ kind: "item", id: item.itemId }], unchanged: [] };
 }
 
-/** An item that exists, with the space it lives in, or null. */
+/** An item that exists, with the space it lives in and the item it's under, or null. */
 export function findItem(
   sql: SqlStorage,
   itemId: string,
-): { kind: ItemKindName; spaceId: string } | null {
+): { kind: ItemKindName; spaceId: string; parentId: string | null } | null {
   const [item] = sql
-    .exec<{ kind: ItemKindName; space_id: string }>(
-      "SELECT kind, space_id FROM items WHERE id = ?",
+    .exec<{ kind: ItemKindName; space_id: string; parent_id: string | null }>(
+      "SELECT kind, space_id, parent_id FROM items WHERE id = ?",
       itemId,
     )
     .toArray();
-  return item ? { kind: item.kind, spaceId: item.space_id } : null;
+  return item ? { kind: item.kind, spaceId: item.space_id, parentId: item.parent_id } : null;
+}
+
+/** The ids of the items under an item, at any depth. */
+export function itemsUnder(sql: SqlStorage, itemId: string): string[] {
+  return sql
+    .exec<{ id: string }>(
+      `WITH RECURSIVE under (id) AS (
+         SELECT id FROM items WHERE parent_id = ?
+         UNION SELECT items.id FROM items JOIN under ON items.parent_id = under.id
+       )
+       SELECT id FROM under`,
+      itemId,
+    )
+    .toArray()
+    .map(({ id }) => id);
 }
 
 function itemExisted(sql: SqlStorage, itemId: string): boolean {
@@ -91,6 +106,9 @@ type ItemRow = {
   kind: ItemKindName;
   space_id: string;
   owner_id: string | null;
+  parent_id: string | null;
+  parent_at: number;
+  parent_change_id: string;
   date: string | null;
   repeat: string | null;
   repeat_at: number;
@@ -185,9 +203,9 @@ export function setItemRepeat(
   return { seq, changed: [key], unchanged: [] };
 }
 
-/** Moves an item to another space the member sees, unless a later move won, with its completions,
- *  body page and what's on that page. Members who can't see the new space are told to drop them,
- *  and those who see them again receive them. Moving a deleted item has no effect. */
+/** Moves an item at the top of its space to another space the member sees, unless a later move
+ *  won, with everything under it. An item under another moves with it, so it's refused. Moving a
+ *  deleted item has no effect. */
 export function moveItem(
   sql: SqlStorage,
   memberId: string,
@@ -197,32 +215,52 @@ export function moveItem(
   const found = itemFor(sql, memberId, move.itemId);
   if (!("item" in found)) return found.applied;
   if (!canSee(sql, memberId, move.spaceId)) return { refused: "There's no such space." };
+  if (found.item.parent_id !== null) {
+    return { refused: "An item under another moves with it. Take it out first." };
+  }
 
   const key: RowKey = { kind: "item", id: move.itemId };
   const last = { at: found.item.space_at, changeId: found.item.space_change_id };
   if (!isLater(setter, last)) return { seq: nextSeq(sql), changed: [], unchanged: [key] };
+  const seq = nextSeq(sql);
+  const moved = moveIntoSpace(sql, move.itemId, found.item.owner_id, move.spaceId, setter, seq);
+  return { seq, changed: moved, unchanged: [] };
+}
+
+/** Moves an item and everything under it into a space, with their completions, body pages and
+ *  what's on them, as change `seq` made by `setter`. Members who can't see the space are told to
+ *  drop them, and those who see them again receive them. Returns the rows it moved. */
+export function moveIntoSpace(
+  sql: SqlStorage,
+  itemId: string,
+  ownerBefore: string | null,
+  spaceId: string,
+  setter: Setter,
+  seq: number,
+): RowKey[] {
   const [space] = sql
-    .exec<{ owner_id: string | null }>("SELECT owner_id FROM spaces WHERE id = ?", move.spaceId)
+    .exec<{ owner_id: string | null }>("SELECT owner_id FROM spaces WHERE id = ?", spaceId)
     .toArray();
   const ownerAfter = space?.owner_id ?? null;
-  const seq = nextSeq(sql);
-  sql.exec(
-    "UPDATE items SET space_id = ?, space_at = ?, space_change_id = ?, seq = ? WHERE id = ?",
-    move.spaceId,
-    setter.at,
-    setter.changeId,
-    seq,
-    move.itemId,
-  );
-  sql.exec("UPDATE completions SET seq = ? WHERE item_id = ?", seq, move.itemId);
-  sql.exec("UPDATE pages SET seq = ? WHERE item_id = ?", seq, move.itemId);
-  sql.exec(
-    "UPDATE stickers SET seq = ? WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
-    seq,
-    move.itemId,
-  );
+  const items = [itemId, ...itemsUnder(sql, itemId)];
+  for (const id of items) {
+    sql.exec(
+      "UPDATE items SET space_id = ?, space_at = ?, space_change_id = ?, seq = ? WHERE id = ?",
+      spaceId,
+      setter.at,
+      setter.changeId,
+      seq,
+      id,
+    );
+    sql.exec("UPDATE completions SET seq = ? WHERE item_id = ?", seq, id);
+    sql.exec("UPDATE pages SET seq = ? WHERE item_id = ?", seq, id);
+    sql.exec(
+      "UPDATE stickers SET seq = ? WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
+      seq,
+      id,
+    );
+  }
 
-  const ownerBefore = found.item.owner_id;
   const losing =
     ownerAfter === null || ownerBefore === ownerAfter
       ? []
@@ -232,7 +270,7 @@ export function moveItem(
             .toArray()
             .map(({ id }) => id)
         : [ownerBefore];
-  const moved = [key, ...carriedBy(sql, move.itemId)];
+  const moved = items.flatMap((id): RowKey[] => [{ kind: "item", id }, ...carriedBy(sql, id)]);
   for (const row of moved) {
     if (ownerAfter === null) {
       sql.exec("DELETE FROM hidden_rows WHERE kind = ? AND id = ?", row.kind, row.id);
@@ -255,17 +293,36 @@ export function moveItem(
       );
     }
   }
-  return { seq, changed: moved, unchanged: [] };
+  return moved;
 }
 
 /** Deletes an item, its stickers on every page, its completions, and its body page with what's
- *  on it, leaving tombstones that the members who saw them receive. Deleting it again has no
- *  effect. */
-export function deleteItem(sql: SqlStorage, memberId: string, remove: ItemDelete): Applied {
+ *  on it, leaving tombstones that the members who saw them receive. Items still under it move up
+ *  to its parent, or to the top of its space. Deleting it again has no effect. */
+export function deleteItem(
+  sql: SqlStorage,
+  memberId: string,
+  setter: Setter,
+  remove: ItemDelete,
+): Applied {
   const found = itemFor(sql, memberId, remove.itemId);
   if (!("item" in found)) return found.applied;
 
   const seq = nextSeq(sql);
+  const children = sql
+    .exec<{ id: string }>("SELECT id FROM items WHERE parent_id = ?", remove.itemId)
+    .toArray()
+    .map(({ id }): RowKey => ({ kind: "item", id }));
+  for (const { id } of children) {
+    sql.exec(
+      "UPDATE items SET parent_id = ?, parent_at = ?, parent_change_id = ?, seq = ? WHERE id = ?",
+      found.item.parent_id,
+      setter.at,
+      setter.changeId,
+      seq,
+      id,
+    );
+  }
   const owner = found.item.owner_id;
   const bury = (kind: RowKey["kind"], id: string, visibleTo: string | null) =>
     sql.exec(
@@ -299,6 +356,7 @@ export function deleteItem(sql: SqlStorage, memberId: string, remove: ItemDelete
     { kind: "item", id: remove.itemId },
     ...carried,
     ...stickers.map(({ id }): RowKey => ({ kind: "sticker", id })),
+    ...children,
   ];
   return { seq, changed, unchanged: [] };
 }
@@ -346,8 +404,9 @@ export function itemFor(
 ): { item: ItemRow } | { applied: Applied } {
   const [item] = sql
     .exec<ItemRow>(
-      `SELECT items.kind, items.space_id, spaces.owner_id, items.date, items.repeat,
-         items.repeat_at, items.repeat_change_id, items.space_at, items.space_change_id,
+      `SELECT items.kind, items.space_id, spaces.owner_id, items.parent_id, items.parent_at,
+         items.parent_change_id, items.date, items.repeat, items.repeat_at, items.repeat_change_id,
+         items.space_at, items.space_change_id,
          items.title_at, items.title_change_id, items.description_at, items.description_change_id,
          items.date_at, items.date_change_id
        FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,

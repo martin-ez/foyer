@@ -297,6 +297,12 @@ export function itemSetRepeat(
   return { ...madeNow(made), change: { case: "itemSetRepeat", value } };
 }
 
+/** Puts an item under another, or back at the top of its space when `parentId` is empty, made by
+ *  the device now unless `made` says otherwise. */
+export function itemSetParent(itemId: string, parentId: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "itemSetParent", value: { itemId, parentId } } };
+}
+
 /** Moves a task to another space, made by the device now unless `made` says otherwise. */
 export function itemMove(itemId: string, spaceId: string, made: Made = {}): ChangeInit {
   return { ...madeNow(made), change: { case: "itemMove", value: { itemId, spaceId } } };
@@ -350,6 +356,7 @@ export function idOf({ change }: ChangeInit): string {
     case "itemMove":
     case "itemDelete":
     case "itemSetRepeat":
+    case "itemSetParent":
     case "taskUntick":
       return change.value.itemId ?? "";
     case "taskTick":

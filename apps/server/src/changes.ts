@@ -10,6 +10,7 @@ import {
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { tickTask, untickTask } from "./completions";
 import { createItem, deleteItem, moveItem, setItemField, setItemRepeat } from "./items";
+import { setItemParent } from "./nesting";
 import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
 import { namesSeenBy } from "./spaces";
@@ -115,13 +116,15 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
     case "itemMove":
       return moveItem(sql, memberId, setter, change.change.value);
     case "itemDelete":
-      return deleteItem(sql, memberId, change.change.value);
+      return deleteItem(sql, memberId, setter, change.change.value);
     case "taskTick":
       return tickTask(sql, memberId, setter, change.change.value);
     case "taskUntick":
       return untickTask(sql, memberId, setter, change.change.value);
     case "itemSetRepeat":
       return setItemRepeat(sql, memberId, setter, change.change.value);
+    case "itemSetParent":
+      return setItemParent(sql, memberId, setter, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

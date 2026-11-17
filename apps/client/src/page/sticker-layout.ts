@@ -74,6 +74,23 @@ export function spotInSpace(
   return { number: newest + 1, pageId: next, at: top, isNewPage: true };
 }
 
+/** Where a new sticker of `kind` goes on a page such as a task's body page: the next free spot
+ *  below the last one, or the lowest spot on it when it's full. Says whether the page still has to
+ *  be created. */
+export function spotOnPage(
+  pageId: string,
+  kind: StickerKind,
+  pages: ReadonlyMap<string, Page>,
+  stickers: Iterable<Sticker>,
+  newPageSize: PageSize,
+): { at: Point; isNewPage: boolean } {
+  const page = pages.get(pageId) ?? newPageSize;
+  const size = stickerSize(kind);
+  const lowest = { x: pageMargin, y: Math.max(page.height - pageMargin - size.height, 0) };
+  const at = nextFreeSpot(page, stickersOn(pageId, stickers), size) ?? lowest;
+  return { at, isNewPage: !pages.has(pageId) };
+}
+
 /** Where a sticker of `size` ends up when dragged to `at`: as close to it as keeps the whole sticker
  *  on the page. */
 export function keepOnPage(at: Point, size: PageSize, page: PageSize): Point {

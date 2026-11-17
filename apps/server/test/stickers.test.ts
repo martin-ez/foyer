@@ -204,11 +204,11 @@ describe("placing stickers", () => {
     const committed = await device.push(stickerPlace({ pageId: day.pageId, itemId }));
 
     expect(resultOf(committed.results[0])).toEqual({
-      refused: "Stickers can only go on a space's pages for now.",
+      refused: "Stickers can only go on a space's pages or an item's body page for now.",
     });
   });
 
-  it("refuses a sticker on a task's body page, for now", async () => {
+  it("refuses a sticker on a task's body page for a task that isn't under it", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
     const { itemId } = await newTaskWithoutSticker(device, inbox);
@@ -221,7 +221,7 @@ describe("placing stickers", () => {
     );
 
     expect(resultOf(committed.results[0])).toEqual({
-      refused: "Stickers can only go on a space's pages for now.",
+      refused: "An item's body page only holds the items under it.",
     });
   });
 
@@ -363,7 +363,8 @@ describe("removing stickers", () => {
     const committed = await device.push(stickerRemove(stickerId));
 
     expect(resultOf(committed.results[0])).toEqual({
-      refused: "A task's sticker stays on its space's page until the task is deleted or moved.",
+      refused:
+        "A task's sticker stays on its space's page, or its parent's body page, until the task is deleted or moved.",
     });
     expect((await stickersCaughtUpBy(device)).map(({ id }) => id)).toEqual([stickerId]);
   });

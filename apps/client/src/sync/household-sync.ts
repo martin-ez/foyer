@@ -4,6 +4,7 @@ import {
   clashingName,
   formatRepeat,
   freeSpaceName,
+  itemPageId,
   itemTitleProblem,
   newId,
   pageSizeFor,
@@ -36,8 +37,14 @@ import {
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { type Completion, CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { localToday } from "../page/calendar-date";
-import { spotInSpace } from "../page/sticker-layout";
+import { spotInSpace, spotOnPage } from "../page/sticker-layout";
 import { currentOccurrence, firstDateOf, repeatFromKind, tickOf } from "../tasks/repeats";
+import { itemsUnder } from "../tasks/task-lists";
+
+/** What happens to the items under a task when it's deleted: they're deleted too, they move up to
+ *  its own parent, or to the top of its space. */
+export type ItemsUnderDeleted = "delete" | "move-up" | "to-top";
+
 import { LiveLane } from "./live-lane";
 
 /** Where the device stands with the household. */
@@ -256,34 +263,99 @@ export class HouseholdSync {
     this.#make(`making “${title}” repeat`, ...changes);
   }
 
-  /** Moves a task to another space, taking its sticker off the old space's pages and putting one
-   *  on the new space's newest page. Returns the number of that page, or null if nothing moved. */
+  /** Moves a task, with everything under it, to another space, taking it out of its parent first,
+   *  with its sticker going to the new space's newest page. Returns the number of that page, or
+   *  null if nothing moved. */
   moveTask(itemId: string, spaceId: string): { pageNumber: number } | null {
     const item = this.#state.items.get(itemId);
     if (!item || item.spaceId === spaceId) return null;
-    const oldPages = `space:${item.spaceId}:`;
-    const removals = [...this.#state.stickers.values()]
-      .filter((sticker) => sticker.itemId === itemId && sticker.pageId.startsWith(oldPages))
-      .map(({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }));
+    const takeOut: ChangeInit[] = item.parentId
+      ? [{ case: "itemSetParent", value: { itemId, parentId: "" } }]
+      : [];
+    const removals = this.#placedStickers(item).map(
+      ({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }),
+    );
     const { changes, pageNumber } = this.#stickOn(spaceId, itemId);
     const move: ChangeInit = { case: "itemMove", value: { itemId, spaceId } };
-    this.#make(`moving “${item.title}”`, move, ...removals, ...changes);
+    this.#make(`moving “${item.title}”`, ...takeOut, move, ...removals, ...changes);
     return { pageNumber };
   }
 
-  /** Deletes a task, and its stickers on every page. */
-  deleteTask(itemId: string): void {
-    const title = this.#state.items.get(itemId)?.title ?? "a task";
+  /** Puts a task under another task, with its sticker going to that task's body page, or back at
+   *  the top of its space when `parentId` is null, with its sticker on the space's newest page.
+   *  Under a task in another space, it moves there with everything under it. */
+  putUnder(itemId: string, parentId: string | null): void {
+    const item = this.#state.items.get(itemId);
+    if (!item || item.parentId === (parentId ?? "")) return;
+    const parent = parentId === null ? undefined : this.#state.items.get(parentId);
+    if (parentId !== null && !parent) return;
+    const set: ChangeInit = { case: "itemSetParent", value: { itemId, parentId: parentId ?? "" } };
+    const removals = this.#placedStickers(item).map(
+      ({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }),
+    );
+    const placing =
+      parentId === null
+        ? this.#stickOn(item.spaceId, itemId).changes
+        : this.#stickOnBody(parentId, itemId);
+    const describe = parent
+      ? `putting “${item.title}” under “${parent.title}”`
+      : `taking out “${item.title}”`;
+    this.#make(describe, set, ...removals, ...placing);
+  }
+
+  /** Adds a task under another, in its space, with its sticker in the next free spot on that
+   *  task's body page. Spaces at the start and end of the title are dropped. */
+  addTaskUnder(parentId: string, title: string): string | null {
+    const parent = this.#state.items.get(parentId);
+    if (!parent) return null;
+    const itemId = newId();
+    const trimmed = title.trim();
+    const create: ChangeInit = {
+      case: "itemCreate",
+      value: { itemId, kind: ItemKind.TASK, spaceId: parent.spaceId, title: trimmed },
+    };
+    const set: ChangeInit = { case: "itemSetParent", value: { itemId, parentId } };
+    this.#make(`adding “${trimmed}”`, create, set, ...this.#stickOnBody(parentId, itemId));
+    return itemId;
+  }
+
+  /** Deletes a task, and its stickers on every page. The items under it are deleted too, or moved
+   *  up to its own parent or to the top of its space, each with its sticker on its new page. */
+  deleteTask(itemId: string, under: ItemsUnderDeleted = "delete"): void {
+    const item = this.#state.items.get(itemId);
+    const title = item?.title ?? "a task";
+    if (item && under === "delete") {
+      const deletions = itemsUnder(itemId, this.#state.items.values())
+        .reverse()
+        .map((id): ChangeInit => ({ case: "itemDelete", value: { itemId: id } }));
+      if (deletions.length > 0) this.#make(`deleting what's under “${title}”`, ...deletions);
+    } else if (item) {
+      const target = under === "move-up" && item.parentId ? item.parentId : null;
+      for (const child of [...this.#state.items.values()].filter((i) => i.parentId === itemId)) {
+        this.putUnder(child.id, target);
+      }
+    }
     this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
   }
 
   /** Ticks a task, which adds a completion unless it's already done. A repeating task's tick is
    *  for its current occurrence, and moves it to its next date from today. */
   tickTask(itemId: string): void {
-    const item = this.#state.items.get(itemId);
-    const ticks = item ? tickOf(item, this.#today()) : { occurrence: "", nextDate: "" };
-    const value = { completionId: newId(), itemId, ...ticks };
-    this.#make(`ticking “${item?.title ?? "a task"}”`, { case: "taskTick", value });
+    this.tickTasks([itemId]);
+  }
+
+  /** Ticks several tasks at once, as `tickTask` ticks each. */
+  tickTasks(itemIds: readonly string[]): void {
+    const today = this.#today();
+    const ticks = itemIds.map((itemId): ChangeInit => {
+      const item = this.#state.items.get(itemId);
+      const ticked = item ? tickOf(item, today) : { occurrence: "", nextDate: "" };
+      return { case: "taskTick", value: { completionId: newId(), itemId, ...ticked } };
+    });
+    const first = this.#state.items.get(itemIds[0] ?? "")?.title ?? "a task";
+    const describe =
+      itemIds.length > 1 ? `ticking “${first}” and the tasks under it` : `ticking “${first}”`;
+    if (ticks.length > 0) this.#make(describe, ...ticks);
   }
 
   /** Unticks a task's occurrence, whoever ticked it: by default its current one. If ticking a
@@ -303,6 +375,32 @@ export class HouseholdSync {
   dismissProblems(): void {
     this.#problems = [];
     this.#changed();
+  }
+
+  #placedStickers(item: Item): Sticker[] {
+    const spacePages = `space:${item.spaceId}:`;
+    const parentPage = item.parentId ? itemPageId(item.parentId) : null;
+    return [...this.#state.stickers.values()].filter(
+      ({ itemId, pageId }) =>
+        itemId === item.id && (pageId.startsWith(spacePages) || pageId === parentPage),
+    );
+  }
+
+  #stickOnBody(parentId: string, itemId: string): ChangeInit[] {
+    const { pages, stickers } = this.#state;
+    const pageId = itemPageId(parentId);
+    const size = pageSizeFor("item");
+    const spot = spotOnPage(pageId, StickerKind.TASK, pages, stickers.values(), size);
+    const changes: ChangeInit[] = [];
+    if (spot.isNewPage) {
+      changes.push({
+        case: "pageCreate",
+        value: { pageId, kind: PageKind.ITEM, itemId: parentId, ...size },
+      });
+    }
+    const sticker = { stickerId: newId(), pageId, ...spot.at, itemId, kind: StickerKind.TASK };
+    changes.push({ case: "stickerPlace", value: sticker });
+    return changes;
   }
 
   #stickOn(spaceId: string, itemId: string): { changes: ChangeInit[]; pageNumber: number } {
@@ -593,8 +691,24 @@ export class HouseholdSync {
         }
         case "itemMove": {
           const { itemId, spaceId } = change.change.value;
+          for (const id of [itemId, ...itemsUnder(itemId, items.values())]) {
+            const item = items.get(id);
+            if (item) items.set(id, { ...item, spaceId });
+          }
+          break;
+        }
+        case "itemSetParent": {
+          const { itemId, parentId } = change.change.value;
           const item = items.get(itemId);
-          if (item) items.set(itemId, { ...item, spaceId });
+          const parent = items.get(parentId);
+          if (!item || (parentId !== "" && !parent)) break;
+          items.set(itemId, { ...item, parentId });
+          if (parent && parent.spaceId !== item.spaceId) {
+            for (const id of [itemId, ...itemsUnder(itemId, items.values())]) {
+              const moved = items.get(id);
+              if (moved) items.set(id, { ...moved, spaceId: parent.spaceId });
+            }
+          }
           break;
         }
         case "itemDelete": {
