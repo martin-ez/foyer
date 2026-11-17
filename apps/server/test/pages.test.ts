@@ -91,6 +91,21 @@ describe("creating pages", () => {
     }
   });
 
+  it("creates month and week pages, named by their month and their first day", async () => {
+    const device = await connect(alex);
+
+    const committed = await device.push(
+      pageCreate({ pageId: "month:2026-11", kind: PageKind.MONTH, ...a2Landscape }),
+      pageCreate({ pageId: "week:2026-11-16", kind: PageKind.WEEK, ...a2Landscape }),
+    );
+
+    expect(committed.results.map(resultOf)).toEqual([{ committed: true }, { committed: true }]);
+    expect(await pagesCaughtUpBy(device)).toEqual([
+      { id: "month:2026-11", ...a2Landscape },
+      { id: "week:2026-11-16", ...a2Landscape },
+    ]);
+  });
+
   it("keeps one calendar page when two devices create it offline, as the first made it", async () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);

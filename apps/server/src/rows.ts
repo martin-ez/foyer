@@ -114,12 +114,8 @@ const selectMembers = "SELECT id, name, seq FROM members";
 
 const selectSpaces = "SELECT id, kind, owner_id, name, seq FROM spaces";
 
-/** Pages with the owner of the space they belong to, if it's a personal space or an Inbox. Item
- *  pages are left out until items exist, since they follow their item's space. */
 const pagesWithOwner = `pages LEFT JOIN spaces ON spaces.id = pages.space_id WHERE pages.kind != 'item'`;
 
-/** Whether a member sees a page: every member sees calendar pages, and a space's pages are seen by
- *  the members who see the space. Takes the member's id. */
 const pageSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
 const selectPages = `SELECT pages.id, pages.kind, pages.space_id, pages.number, pages.width, pages.height,

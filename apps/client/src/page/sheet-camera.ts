@@ -62,8 +62,6 @@ export function resizeCamera(camera: Camera, from: Size, to: Size, page: PageSiz
   return keepOnDesk({ ...camera, scale }, to, page);
 }
 
-/** Centres a page that fits the desk, and keeps a larger one from leaving more than a margin of
- *  desk at any edge. */
 function keepOnDesk(camera: Camera, view: Size, page: PageSize): Camera {
   const along = (position: number, viewLength: number, pageLength: number) => {
     const length = pageLength * camera.scale;

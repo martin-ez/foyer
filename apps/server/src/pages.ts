@@ -30,7 +30,6 @@ export function createPage(
   if (kind === "space" && !canSee(sql, memberId, page.spaceId)) {
     return { refused: "There's no such space." };
   }
-  // Items don't exist yet, so neither do their pages.
   if (kind === "item") return { refused: "There's no such item." };
 
   const key: RowKey = { kind: "page", id: page.pageId };

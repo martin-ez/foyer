@@ -6,10 +6,9 @@ import { deskColour } from "./desk-drawing";
 import { PageDrawing } from "./page-drawing";
 import { type Size, zoomLimits } from "./sheet-camera";
 
-/** A page lying on the desk, as one sheet that iOS zooms and moves: Skia draws the page in a
- *  canvas of the page's own size, inside the view that zooms. Everything later drawn on the page
- *  goes in the same sheet, so it moves with it in every frame of a pinch, including the bounce. It
- *  opens fitted to the desk. */
+/** A page lying on the desk, fitted to it at first: a canvas of the page's own size inside a view
+ *  that iOS zooms and moves as one sheet, so everything on the page moves with it in every frame of
+ *  a pinch, the bounce included. */
 export function PageSheet({ size, label }: { size: PageSize; label: string }) {
   const [view, setView] = useState<Size | null>(null);
   const onLayout = (event: LayoutChangeEvent) => {

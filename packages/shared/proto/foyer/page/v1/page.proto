@@ -2,10 +2,9 @@ syntax = "proto3";
 
 package foyer.page.v1;
 
-// A paper-like sheet of a fixed size, which ink and stickers are placed on. Positions on a page are
-// in points (1/72 of an inch) from its top-left corner, with y growing downwards. A page belongs to
-// the household, a space or an item, which decides who sees it. Devices receive the pages they can
-// see.
+// A paper-like sheet of a fixed size, which ink and stickers are placed on, at positions in points
+// (1/72 of an inch) from its top-left corner, with y growing downwards. Devices receive the pages
+// they can see: who sees a page follows the household, space or item it belongs to.
 message Page {
   // A calendar page is named by its kind and date: "month:2026-11", "week:2026-11-09" or
   // "day:2026-11-14". A space page is named by its space and number: "space:<space id>:1". An item

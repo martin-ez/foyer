@@ -17,7 +17,6 @@ import {
  *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. */
 export function PageSheet({ size, label }: { size: PageSize; label: string }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  // On the web, a view is drawn as an HTML element.
   const keepHost = useCallback((view: unknown) => setHost(view as HTMLElement | null), []);
   const page = useRef(size);
   page.current = size;
@@ -65,13 +64,10 @@ type Gestures = {
   pan(by: Point): void;
 };
 
-/** Safari's trackpad pinch, which it reports as a gesture rather than a wheel. */
-type SafariGesture = Event & { scale: number; clientX: number; clientY: number };
+type SafariTrackpadPinch = Event & { scale: number; clientX: number; clientY: number };
 
 const still: Point = { x: 0, y: 0 };
 
-/** Turns the element's pointers, wheel and Safari's trackpad pinches into zooming and moving, until
- *  the returned function is called. One pointer moves the page and two pinch it. */
 function followGestures(element: HTMLElement, gestures: Gestures): () => void {
   const pointers = new Map<number, Point>();
   let gestureScale = 1;
@@ -122,14 +118,14 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
     ],
     [
       "gesturestart",
-      (event: SafariGesture) => {
+      (event: SafariTrackpadPinch) => {
         event.preventDefault();
         gestureScale = 1;
       },
     ],
     [
       "gesturechange",
-      (event: SafariGesture) => {
+      (event: SafariTrackpadPinch) => {
         event.preventDefault();
         if (pointers.size > 0) return;
         gestures.zoom(event.scale / gestureScale, at(event), still);
