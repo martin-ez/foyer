@@ -4,9 +4,7 @@ import { unstable_readConfig } from "wrangler";
 
 const wranglerConfigPath = "./wrangler.jsonc";
 
-// Wrangler still loads .dev.vars and says so, but the tests never read it: every setting the
-// backend reads is set here, and overrides the developer's local value.
-const settings: Record<string, string> = {
+const settingsInPlaceOfDevVars: Record<string, string> = {
   HOUSEHOLD_MEMBERS: '["member@example.com", "housemate@example.com"]',
   GOOGLE_CLIENT_ID: "foyer-test.apps.googleusercontent.com",
   GOOGLE_CLIENT_SECRET: "google-client-secret",
@@ -16,7 +14,7 @@ const settings: Record<string, string> = {
 
 const { vars, secrets } = unstable_readConfig({ config: wranglerConfigPath });
 const unset = [...Object.keys(vars), ...(secrets?.required ?? [])].filter(
-  (name) => !(name in settings),
+  (name) => !(name in settingsInPlaceOfDevVars),
 );
 if (unset.length > 0) {
   throw new Error(
@@ -24,13 +22,15 @@ if (unset.length > 0) {
   );
 }
 
+/** Runs the backend's tests in the Workers runtime. Wrangler still loads .dev.vars and says so, but
+ *  every setting the backend reads is set here and overrides it, so the tests never use its values. */
 export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: wranglerConfigPath },
       miniflare: {
         assets: { directory: "./test/web-app" },
-        bindings: settings,
+        bindings: settingsInPlaceOfDevVars,
       },
     }),
   ],
