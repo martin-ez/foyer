@@ -6,14 +6,24 @@ export function Bar({ children }: { children: ReactNode }) {
   return <View style={styles.bar}>{children}</View>;
 }
 
-/** The bar along the top of a view: its controls, then the title of what it shows. */
-export function TitleBar({ title, children }: { title: string; children?: ReactNode }) {
+/** The bar along the top of a view: its controls, then the title of what it shows, then anything
+ *  `after` it. */
+export function TitleBar({
+  title,
+  after,
+  children,
+}: {
+  title: string;
+  after?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <Bar>
       {children}
       <Text style={styles.title} accessibilityRole="header">
         {title}
       </Text>
+      {after}
     </Bar>
   );
 }

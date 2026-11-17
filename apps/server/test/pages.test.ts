@@ -111,7 +111,7 @@ describe("creating pages", () => {
     }
   });
 
-  it("creates month and week pages, named by their month and their first day", async () => {
+  it("creates month and week pages, named by their month and their Monday", async () => {
     const device = await connect(alex);
 
     const committed = await device.push(
@@ -308,7 +308,12 @@ describe("refused pages", () => {
     [
       "a week page not named by a day",
       () => ({ pageId: "week:2026-11", kind: PageKind.WEEK, ...a2Landscape }),
-      "A week's page must be named by its first day, as in “week:2026-11-09”.",
+      "A week's page must be named by its Monday, as in “week:2026-11-16”.",
+    ],
+    [
+      "a week page named by a day that isn't a Monday",
+      () => ({ pageId: "week:2026-11-17", kind: PageKind.WEEK, ...a2Landscape }),
+      "A week's page must be named by its Monday, as in “week:2026-11-16”.",
     ],
     [
       "a month page named by a month that doesn't exist",

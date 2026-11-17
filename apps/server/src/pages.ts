@@ -2,6 +2,7 @@ import {
   isId,
   isIsoDate,
   isIsoMonth,
+  isWeekStart,
   itemPageId,
   type PageKindName,
   spacePageId,
@@ -77,6 +78,7 @@ export function canSeePage(sql: SqlStorage, memberId: string, pageId: string): b
     case "month":
       return isIsoMonth(named);
     case "week":
+      return isWeekStart(named);
     case "day":
       return isIsoDate(named);
     case "space": {
@@ -129,9 +131,9 @@ function idProblem(kind: PageKindName, page: PageCreate): string | null {
         ? null
         : "A month's page must be named by its month, as in “month:2026-11”.";
     case "week":
-      return namedBy(isIsoDate)
+      return namedBy(isWeekStart)
         ? null
-        : "A week's page must be named by its first day, as in “week:2026-11-09”.";
+        : "A week's page must be named by its Monday, as in “week:2026-11-16”.";
     case "day":
       return namedBy(isIsoDate)
         ? null
