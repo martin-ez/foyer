@@ -8,6 +8,7 @@ import {
   spaceNameProblem,
 } from "@foyer/shared";
 import type { Member } from "@foyer/shared/gen/foyer/member/v1/member_pb";
+import type { Page } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { type Space, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
   type Change,
@@ -28,6 +29,9 @@ export type SyncState = {
   /** The spaces the member sees: their Inbox, their personal spaces, then the shared ones, each
    *  kind in the order they were made. */
   spaces: Space[];
+  /** The pages the member sees that have been created, by id. A page is created when something is
+   *  first put on it, so a page that isn't here is empty. */
+  pages: ReadonlyMap<string, Page>;
   /** How many changes the household hasn't saved yet. */
   unsaved: number;
   /** A sentence for each change the household refused, which the device undid. */
@@ -70,6 +74,8 @@ export class HouseholdSync {
   readonly #listeners = new Set<() => void>();
   readonly #members = new Map<string, { seq: bigint; member: Member }>();
   readonly #spaces = new Map<string, { seq: bigint; space: Space }>();
+  readonly #pages = new Map<string, { seq: bigint; page: Page }>();
+  readonly #rowsOfKind = { member: this.#members, space: this.#spaces, page: this.#pages };
   readonly #deleted = new Map<string, bigint>();
   #pending: Pending[] = [];
   #problems: string[] = [];
@@ -249,10 +255,15 @@ export class HouseholdSync {
             this.#spaces.set(row.value.id, { seq, space: row.value });
           }
           break;
+        case "page":
+          if (this.#isNewer("page", row.value.id, seq, this.#pages)) {
+            this.#pages.set(row.value.id, { seq, page: row.value });
+          }
+          break;
         case "deleted": {
-          const kind = row.value.kind === RowKind.MEMBER ? "member" : "space";
-          const rows = kind === "member" ? this.#members : this.#spaces;
-          if (this.#isNewer(kind, row.value.id, seq, rows)) {
+          const kind = rowKindNames[row.value.kind];
+          const rows = kind && this.#rowsOfKind[kind];
+          if (kind && rows && this.#isNewer(kind, row.value.id, seq, rows)) {
             rows.delete(row.value.id);
             this.#deleted.set(`${kind} ${row.value.id}`, seq);
           }
@@ -336,6 +347,7 @@ export class HouseholdSync {
       spaces: [...spaces.values()].sort(
         (a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.id.localeCompare(b.id),
       ),
+      pages: new Map([...this.#pages].map(([id, { page }]) => [id, page])),
       unsaved: this.#pending.length,
       problems: [...this.#problems],
     };
@@ -347,6 +359,12 @@ function namesOf(spaces: Iterable<Space>): string[] {
     .filter(({ kind }) => kind !== SpaceKind.INBOX)
     .map(({ name }) => name);
 }
+
+const rowKindNames: Partial<Record<RowKind, "member" | "space" | "page">> = {
+  [RowKind.MEMBER]: "member",
+  [RowKind.SPACE]: "space",
+  [RowKind.PAGE]: "page",
+};
 
 const kindOrder: Record<SpaceKind, number> = {
   [SpaceKind.INBOX]: 0,

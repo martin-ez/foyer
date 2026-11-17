@@ -3,6 +3,7 @@ syntax = "proto3";
 package foyer.sync.v1;
 
 import "foyer/member/v1/member.proto";
+import "foyer/page/v1/page.proto";
 import "foyer/space/v1/space.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -39,6 +40,7 @@ message Change {
   oneof change {
     foyer.space.v1.SpaceCreate space_create = 3;
     foyer.space.v1.SpaceRename space_rename = 4;
+    foyer.page.v1.PageCreate page_create = 5;
   }
 }
 
@@ -114,6 +116,7 @@ message Row {
     foyer.space.v1.Space space = 3;
     // A row that was deleted, which the device drops.
     RowRef deleted = 4;
+    foyer.page.v1.Page page = 5;
   }
 }
 
@@ -128,4 +131,5 @@ enum RowKind {
   ROW_KIND_UNSPECIFIED = 0;
   ROW_KIND_MEMBER = 1;
   ROW_KIND_SPACE = 2;
+  ROW_KIND_PAGE = 3;
 }

@@ -45,13 +45,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   title: { fontSize: 32 },
   problem: { color: "#9a3b2e", textAlign: "center" },
-  signedInAs: {
-    position: "absolute",
-    top: 8,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  signedInAs: { flexDirection: "row", alignItems: "center", gap: 8 },
   line: { fontSize: 12, color: "#6b6459" },
 });

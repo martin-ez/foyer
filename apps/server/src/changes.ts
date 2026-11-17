@@ -8,6 +8,7 @@ import {
   ChangeResultSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
 import { namesSeenBy } from "./spaces";
 
@@ -63,9 +64,13 @@ function resultOf(changeId: string, outcome: Outcome): ChangeResult {
   });
 }
 
-type Applied = { refused: string } | { seq: number; changed: RowKey[]; unchanged: RowKey[] };
+/** What applying one change did: refused it, or committed it with its number, along with the rows
+ *  it changed and the rows it would have changed if it had had an effect. */
+export type Applied = { refused: string } | { seq: number; changed: RowKey[]; unchanged: RowKey[] };
 
-type Setter = { at: number; changeId: string };
+/** Which change sets a value, and when it was made, by the device's clock but no later than the
+ *  household's. */
+export type Setter = { at: number; changeId: string };
 
 const creatableSpaceKinds: Partial<Record<SpaceKind, "personal" | "shared">> = {
   [SpaceKind.PERSONAL]: "personal",
@@ -82,6 +87,8 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return createSpace(sql, memberId, setter, change.change.value);
     case "spaceRename":
       return renameSpace(sql, memberId, setter, change.change.value);
+    case "pageCreate":
+      return createPage(sql, memberId, setter, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

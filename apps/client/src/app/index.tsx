@@ -1,14 +1,6 @@
-import { StyleSheet, View } from "react-native";
-import { BackendStatus } from "../backend/backend-status";
-import { BlankPage } from "../page/blank-page";
-import {
-  CheckingSession,
-  SessionUnreachable,
-  SignedInAs,
-  SignIn,
-} from "../session/session-screens";
+import { PagesScreen } from "../page/pages-screen";
+import { CheckingSession, SessionUnreachable, SignIn } from "../session/session-screens";
 import { useSession } from "../session/use-session";
-import { SpacesPanel } from "../sync/spaces-panel";
 
 export default function Home() {
   const { session, check, signIn, signOut } = useSession();
@@ -21,17 +13,6 @@ export default function Home() {
     case "signed-out":
       return <SignIn problem={session.problem} onSignIn={signIn} />;
     case "signed-in":
-      return (
-        <View style={styles.fill}>
-          <BlankPage />
-          <SpacesPanel memberId={session.member.id} onSignedOut={check} />
-          <BackendStatus />
-          <SignedInAs member={session.member} onSignOut={signOut} />
-        </View>
-      );
+      return <PagesScreen member={session.member} onSignOut={signOut} onSignedOut={check} />;
   }
 }
-
-const styles = StyleSheet.create({
-  fill: { flex: 1 },
-});

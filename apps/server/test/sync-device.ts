@@ -2,6 +2,7 @@ import { exports } from "cloudflare:workers";
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { newId, syncPath } from "@foyer/shared";
+import type { PageCreateSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
   type ChangeSchema,
@@ -188,6 +189,14 @@ export function spaceCreate(
 /** Renames a space, made by the device now unless `made` says otherwise. */
 export function spaceRename(spaceId: string, name: string, made: Made = {}): ChangeInit {
   return { ...madeNow(made), change: { case: "spaceRename", value: { spaceId, name } } };
+}
+
+/** Creates a page, made by the device now unless `made` says otherwise. */
+export function pageCreate(
+  page: MessageInitShape<typeof PageCreateSchema>,
+  made: Made = {},
+): ChangeInit {
+  return { ...madeNow(made), change: { case: "pageCreate", value: page } };
 }
 
 function madeNow(made: Made): Made {

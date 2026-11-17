@@ -95,6 +95,22 @@ export const householdMigrations: readonly Migration[] = [
     }
     sql.exec("INSERT INTO household (id, seq) VALUES (1, ?)", seq);
   },
+  `CREATE TABLE pages (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('month', 'week', 'day', 'space', 'item')),
+    space_id TEXT REFERENCES spaces (id),
+    number INTEGER,
+    item_id TEXT,
+    width REAL NOT NULL CHECK (width > 0),
+    height REAL NOT NULL CHECK (height > 0),
+    created_by TEXT NOT NULL REFERENCES members (id),
+    created_at INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    CHECK ((space_id IS NULL) = (kind != 'space')),
+    CHECK ((number IS NULL) = (kind != 'space')),
+    CHECK ((item_id IS NULL) = (kind != 'item'))
+  );
+  CREATE INDEX pages_by_seq ON pages (seq)`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package foyer.page.v1;
+
+// A paper-like sheet of a fixed size, which ink and stickers are placed on. Positions on a page are
+// in points (1/72 of an inch) from its top-left corner, with y growing downwards. A page belongs to
+// the household, a space or an item, which decides who sees it. Devices receive the pages they can
+// see.
+message Page {
+  // A calendar page is named by its kind and date: "month:2026-11", "week:2026-11-09" or
+  // "day:2026-11-14". A space page is named by its space and number: "space:<space id>:1". An item
+  // page has a UUID version 7, made by the device that created it.
+  string id = 1;
+  PageKind kind = 2;
+  // The space whose page it is. Only for space pages.
+  string space_id = 3;
+  // Which of its space's pages it is, from 1. Only for space pages.
+  uint32 number = 4;
+  // The task, event or note whose page it is. Only for item pages.
+  string item_id = 5;
+  // The page's width and height in points, set when it's made and never changed: A2 landscape for
+  // month and week pages, A4 portrait for every other page, for now.
+  double width = 6;
+  double height = 7;
+}
+
+// What a page belongs to, which decides who sees it.
+enum PageKind {
+  PAGE_KIND_UNSPECIFIED = 0;
+  // A month of the household's calendar. Every member sees it, and its ink.
+  PAGE_KIND_MONTH = 1;
+  // A week of the household's calendar, named by its first day. Every member sees it, and its ink.
+  PAGE_KIND_WEEK = 2;
+  // A day of the household's calendar. Every member sees it, and its ink.
+  PAGE_KIND_DAY = 3;
+  // One of a space's pages, which holds its tasks as stickers. Seen by the members who see the
+  // space.
+  PAGE_KIND_SPACE = 4;
+  // One of a task's, an event's or a note's pages. Seen by the members who see the item's space.
+  PAGE_KIND_ITEM = 5;
+}
+
+// Creates a page. A device sends it when it first puts something on a page, so looking at an empty
+// page creates nothing. Creating a page that already exists has no effect, so two devices creating
+// the same calendar or space page offline write on one page.
+message PageCreate {
+  // The page's id, as Page.id describes, which must match its kind, space, number and date.
+  string page_id = 1;
+  PageKind kind = 2;
+  // For space pages: the space, which the member must see.
+  string space_id = 3;
+  // For space pages: which of its space's pages it is, from 1.
+  uint32 number = 4;
+  // For item pages: the task, event or note, which the member must see.
+  string item_id = 5;
+  // The page's width and height in points, each a positive number. A page never changes size.
+  double width = 6;
+  double height = 7;
+}

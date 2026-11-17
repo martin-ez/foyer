@@ -1,5 +1,18 @@
 export { isId, newId } from "./id";
 export {
+  a2Landscape,
+  a4Portrait,
+  dayPageId,
+  isIsoDate,
+  isIsoMonth,
+  monthPageId,
+  type PageKindName,
+  type PageSize,
+  pageSizeFor,
+  spacePageId,
+  weekPageId,
+} from "./page";
+export {
   clashingName,
   freeSpaceName,
   limitSpaceName,

@@ -6,10 +6,8 @@ Decided in #54
 **Answer:**
 - **Every id in Foyer is a UUID version 7, written as a lowercase string**, such as `019a8f4e-5c00-7a3b-8c4d-1e2f3a4b5c6d`. `newId()` in `@foyer/shared` makes one, on the Worker and in the apps.
 - **Whoever creates a thing makes its id.** The server makes members' ids. Devices make the ids of what they create, such as tasks and strokes, even offline.
-- **Calendar and space pages are the exception.** They're named by their date or their space, so every device agrees on them offline.
+- **Calendar and space pages are the exception.** They're named by their date or their space, such as `day:2026-11-14` or `space:<space id>:1`, so every device agrees on them offline (`what-is-a-page.md`).
 - Ids sort by when they were made, by the clock of whoever made them, to the millisecond.
-
-Naming calendar and space pages is built by #16.
 
 **Why:**
 - Unique without asking the server, so devices can create things offline and resend them safely.
