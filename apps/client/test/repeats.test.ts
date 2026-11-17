@@ -5,6 +5,7 @@ import {
   chooseFrequency,
   chooseFrom,
   currentOccurrence,
+  describeMonthly,
   describeRepeat,
   firstDateOf,
   monthlyOptions,
@@ -182,6 +183,19 @@ describe("repeatProblem", () => {
     expect(repeatProblem({ rule, from: "schedule" }, "2026-11-30", tuesday)).toBe(
       "This rule never falls on a day.",
     );
+  });
+});
+
+describe("describeMonthly", () => {
+  it("names a day of the month, or the last day", () => {
+    expect(describeMonthly({ day: 17 })).toBe("on day 17");
+    expect(describeMonthly({ day: -1 })).toBe("on the last day");
+  });
+
+  it("names a weekday's place in the month, from first to fifth, or the last", () => {
+    expect(describeMonthly({ weekday: "MO", nth: 1 })).toBe("on the first Monday");
+    expect(describeMonthly({ weekday: "SU", nth: 5 })).toBe("on the fifth Sunday");
+    expect(describeMonthly({ weekday: "FR", nth: -1 })).toBe("on the last Friday");
   });
 });
 

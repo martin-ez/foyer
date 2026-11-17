@@ -56,14 +56,23 @@ test("repeats a task weekly, moves it to its next date when ticked, and unticks 
   await saveScreenshot(page, testInfo, "repeating-task-ticked");
 
   const other = await sameMemberOnAnotherDevice(page);
-  await expect(stickerOf(other, `${title}, repeats, next on ${nextWeek}`)).toBeVisible();
-  await saveScreenshot(other, testInfo, "repeating-sticker");
+  await other.getByRole("button", { name: "List", exact: true }).click();
+  const otherList = other.getByRole("list", { name: "Inbox" });
+  await expect(
+    otherList.getByRole("button", { name: `${title} · ${nextWeek}, repeats` }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(stickerOf(page, `${title}, repeats, next on ${nextWeek}`)).toBeVisible();
+  await saveScreenshot(page, testInfo, "repeating-sticker");
+  await stickerOf(page, title).click();
 
   await doneBefore.getByRole("button", { name: `Untick ${today}` }).click();
 
   await expect(page.getByLabel("Date")).toHaveValue(today);
   await expect(doneBefore).toBeHidden();
-  await expect(stickerOf(other, `${title}, repeats, next on ${today}`)).toBeVisible();
+  await expect(
+    otherList.getByRole("button", { name: `${title} · ${today}, repeats` }),
+  ).toBeVisible();
 });
 
 test("repeats a task from when it's done, skipping the days it was overdue", async ({
@@ -84,6 +93,49 @@ test("repeats a task from when it's done, skipping the days it was overdue", asy
 
   await expect(page.getByLabel("Date")).toHaveValue(addDays(today, 3));
   await expect(page.getByText(/not saved yet|Couldn't save/)).toBeHidden();
+});
+
+test("chooses the days a task repeats on, moving its date to the first of them", async ({
+  page,
+}) => {
+  const today = await todayInBrowser(page);
+  const tomorrow = addDays(today, 1);
+  const title = await openNewTask(page, today);
+  const save = page.getByRole("button", { name: "Save" });
+  await page.getByRole("radio", { name: "Weekly" }).click();
+
+  await page.getByRole("checkbox", { name: weekdayOf(tomorrow) }).click();
+  await page.getByRole("checkbox", { name: weekdayOf(today) }).click();
+
+  await expect(page.getByText(`Every week on ${weekdayOf(tomorrow)}`)).toBeVisible();
+  await expect(page.getByLabel("Date")).toHaveValue(tomorrow);
+
+  await page.getByRole("checkbox", { name: weekdayOf(tomorrow) }).click();
+
+  await expect(page.getByText("Choose the days it repeats on.")).toBeVisible();
+  await expect(save).toBeDisabled();
+
+  const day = Number(tomorrow.slice(8));
+  const place = ["first", "second", "third", "fourth", "fifth"][Math.ceil(day / 7) - 1];
+  const weekdayInMonth = `on the ${place} ${weekdayOf(tomorrow)}`;
+  await page.getByRole("radio", { name: "Monthly" }).click();
+  await page.getByRole("radio", { name: weekdayInMonth }).click();
+
+  await expect(page.getByText(`Every month ${weekdayInMonth}`)).toBeVisible();
+
+  await page.getByRole("radio", { name: "After it's done" }).click();
+
+  await expect(page.getByRole("radio", { name: weekdayInMonth })).toBeHidden();
+  await expect(page.getByText("Every month after it's done")).toBeVisible();
+
+  await page.getByRole("radio", { name: "On its schedule" }).click();
+
+  await expect(page.getByText(`Every month on day ${day}`)).toBeVisible();
+  await save.click();
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  const list = page.getByRole("list", { name: "Inbox" });
+  await expect(list.getByRole("button", { name: `${title} · ${tomorrow}, repeats` })).toBeVisible();
 });
 
 test("stops a task repeating, keeping its date", async ({ page }) => {
