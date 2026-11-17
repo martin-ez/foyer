@@ -102,8 +102,6 @@ export function readRows(sql: SqlStorage, keys: RowKey[]): VisibleRow[] {
   });
 }
 
-/** A row as it is now, for the members who see it, along with the row as deleted for the members
- *  who stopped seeing it in its last change. */
 function readRow(sql: SqlStorage, key: RowKey): VisibleRow[] {
   const found = readCurrentRow(sql, key);
   const hidden = found.flatMap(({ row }) =>

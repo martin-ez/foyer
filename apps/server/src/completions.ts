@@ -79,8 +79,6 @@ function taskFor(
   return { ownerId: found.item.owner_id };
 }
 
-/** Settles a tick or untick of an occurrence against the last one, which it replaces when it was
- *  made later. Returns whether it won, and the occurrence's completion as it was before. */
 function settle(
   sql: SqlStorage,
   itemId: string,

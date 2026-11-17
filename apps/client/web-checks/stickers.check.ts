@@ -76,6 +76,18 @@ test("opens a sticker's task by tapping it, with its body page below", async ({
   await expect(stickerOf(page, title)).toBeVisible();
 });
 
+test("leaves an open task for the day's page", async ({ page }) => {
+  const title = await addTask(page);
+  await stickerOf(page, title).click();
+  await expect(pageTitle(page)).toHaveText(title);
+
+  await page.getByRole("button", { name: "Today" }).click();
+
+  await expect(page.getByLabel("Title")).toBeHidden();
+  await expect(pageTitle(page)).not.toHaveText(title);
+  await expect(pageTitle(page)).not.toHaveText(/page \d+$/);
+});
+
 test("puts a task on the space's next page once its newest page is full", async ({
   page,
 }, testInfo) => {

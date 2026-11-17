@@ -164,6 +164,17 @@ describe("ticking tasks", () => {
     expect(committed.results.map(resultOf)).toEqual([refused, refused]);
   });
 
+  it("refuses a completion whose id isn't a UUID version 7", async () => {
+    const device = await connect(alex);
+    const itemId = await newTask(device, await spaceOwnedBy(device, SpaceKind.INBOX));
+
+    const committed = await device.push(taskTick({ itemId, completionId: "not-an-id" }));
+
+    expect(resultOf(committed.results[0])).toEqual({
+      refused: "A completion's id must be a UUID version 7.",
+    });
+  });
+
   it("refuses a completion whose id another completion has, even one that was unticked", async () => {
     const device = await connect(alex);
     const itemId = await newTask(device, await spaceOwnedBy(device, SpaceKind.INBOX));
@@ -229,6 +240,23 @@ describe("unticking tasks", () => {
 
     expect(resultOf(committed.results[0])).toEqual({ committed: true });
     expect(await device.updates()).toEqual([]);
+  });
+});
+
+describe("unticking personal tasks", () => {
+  it("sends a personal task's untick only to its owner's devices", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const itemId = await newTask(alexDevice, await spaceOwnedBy(alexDevice, SpaceKind.PERSONAL));
+    const tick = taskTick({ itemId }, secondsAgo(10));
+    await alexDevice.push(tick);
+    await alexDevice.updates();
+
+    await alexDevice.push(taskUntick({ itemId }));
+
+    expect(deletedIn(await alexDevice.updates(), RowKind.COMPLETION)).toEqual([idOf(tick)]);
+    expect(await samDevice.updates()).toEqual([]);
+    expect(deletedIn(await rowsCaughtUpBy(samDevice), RowKind.COMPLETION)).toEqual([]);
   });
 });
 

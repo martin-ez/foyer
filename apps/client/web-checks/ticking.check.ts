@@ -15,7 +15,6 @@ test.beforeEach(async ({ page }) => {
   await openInbox(page);
 });
 
-/** A task's checkbox on its sticker, on the open page. */
 function stickerCheckbox(page: Page, title: string) {
   return page.getByRole("checkbox", { name: `Done: ${title}` });
 }
@@ -70,9 +69,14 @@ test("ticks a task from its full view, which leaves Today", async ({ page }, tes
 
   await page.getByRole("checkbox", { name: "Done", exact: true }).click();
 
-  await expect(page.getByRole("checkbox", { name: "Done", exact: true })).toBeChecked();
+  const doneBox = page.getByRole("checkbox", { name: "Done", exact: true });
+  await expect(doneBox).toBeChecked();
   await expect(pageTitle(page)).toHaveText(title);
   await saveScreenshot(page, testInfo, "ticked-task-view");
+  await doneBox.click();
+  await expect(doneBox).not.toBeChecked();
+  await doneBox.click();
+  await expect(doneBox).toBeChecked();
   await page.getByRole("button", { name: "Close" }).click();
   await expect(stickerCheckbox(page, title)).toBeChecked();
   await page.getByRole("button", { name: "Tasks", exact: true }).click();

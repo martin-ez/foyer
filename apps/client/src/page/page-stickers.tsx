@@ -121,8 +121,6 @@ function StickerView({
 
 const checkboxSize = 32;
 
-/** A task sticker's checkbox, beside its sticker rather than in it, so that tapping it ticks the
- *  task instead of opening it, and screen readers find it on its own. */
 function StickerCheckbox({
   title,
   done,

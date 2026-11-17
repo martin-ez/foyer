@@ -27,10 +27,9 @@ const statusLines: Record<SyncStatus, string> = {
   "signed-out": "Signed out",
 };
 
-/** What the signed-in member sees: the open page, starting as today's, kept in sync with the
- *  household, with its stickers and others' markers, ways to move between pages, and their tasks
- *  to add, list, tick and edit. An open task shows its fields above its body page. Calls
- *  `onSignedOut` when the household says the session has ended. */
+/** What the signed-in member sees, kept in sync with the household: the open page, starting as
+ *  today's, or an open task's fields above its body page, with ways to move between pages and to
+ *  add, list, tick and edit tasks. Calls `onSignedOut` when the session has ended. */
 export function PagesScreen({
   member,
   onSignOut,

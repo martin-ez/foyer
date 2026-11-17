@@ -124,10 +124,9 @@ export function setItemField(
   return { seq, changed: [key], unchanged: [] };
 }
 
-/** Moves an item to another space the member sees, unless a later move won. Its completions, its
- *  body page and what's on that page move with it. Members who saw them before and can't see the
- *  new space are told to drop them, and those who can see them again receive them as they now are.
- *  Moving a deleted item has no effect. */
+/** Moves an item to another space the member sees, unless a later move won, with its completions,
+ *  body page and what's on that page. Members who can't see the new space are told to drop them,
+ *  and those who see them again receive them. Moving a deleted item has no effect. */
 export function moveItem(
   sql: SqlStorage,
   memberId: string,
@@ -243,8 +242,6 @@ export function deleteItem(sql: SqlStorage, memberId: string, remove: ItemDelete
   return { seq, changed, unchanged: [] };
 }
 
-/** The rows that go where an item goes, so that whoever sees the item sees them: its completions,
- *  its body page, and the stickers on that page. */
 function carriedBy(sql: SqlStorage, itemId: string): RowKey[] {
   const ids = (query: string) =>
     sql
