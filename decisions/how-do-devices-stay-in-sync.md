@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14
+Decided in #14 and #21
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -8,6 +8,7 @@ Decided in #14
   - Devices send changes, such as `SpaceRename`, each with an id the device makes, a UUID version 7 (`what-does-an-id-look-like.md`).
   - The household applies each change to the rows it affects and gives it the next number in its one sequence, kept in the `household` table. Each row keeps that number as `seq`. A change that loses a conflict gets a number too. A refused change gets none.
   - A deleted row leaves a tombstone in `tombstones`: its kind, its id, its `seq` and who could see it (`visible_to`, empty for every member), without its contents.
+  - A row that moves out of a member's sight, such as a task moved from a shared space to someone's Inbox, leaves a row in `hidden_rows` for each member who could see it before and can't now: its kind, its id, the member and the move's `seq`. Each member receives theirs as the row deleted. Moving it back where they see it sends them the row again and removes their hidden rows for it.
   - The household remembers what became of each change, by its id, for 90 days, as long as an unused session lasts, in `changes`. A change sent again is answered as it was the first time, and has no further effect.
   - Catching up sends the current version of every row changed after the device's cursor, not the changes that led there.
 - **The change made last wins, by the device's clock.**
@@ -26,7 +27,6 @@ Decided in #14
 - **What devices store:** what they receive, in memory. They catch up in full when the app starts.
 
 Pulling a page's ink, from a cursor for each page, is built by #18.
-Telling devices that an item moved to a space their member can't see, so that they drop it, is built by #21.
 Keeping what the iPad receives between launches is built by #20.
 
 **Why:**

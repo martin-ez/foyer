@@ -55,7 +55,10 @@ export function pullRows(
     ...seqsOf(
       `SELECT items.seq FROM ${itemsWithOwner} WHERE items.seq > ? AND ${itemSeenBy}
        UNION ALL SELECT stickers.seq FROM ${stickersWithOwner} AND stickers.seq > ? AND ${pageSeenBy}
-       UNION ALL SELECT seq FROM tombstones WHERE seq > ? AND (visible_to IS NULL OR visible_to = ?)`,
+       UNION ALL SELECT seq FROM tombstones WHERE seq > ? AND (visible_to IS NULL OR visible_to = ?)
+       UNION ALL SELECT seq FROM hidden_rows WHERE seq > ? AND member_id = ?`,
+      cursor,
+      memberId,
       cursor,
       memberId,
       cursor,
@@ -99,8 +102,19 @@ function readRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
       return sql.exec<SpaceRow>(`${selectSpaces} WHERE id = ?`, id).toArray().map(spaceRow);
     case "page":
       return sql.exec<PageRow>(`${selectPages} AND pages.id = ?`, id).toArray().map(pageRow);
-    case "item":
-      return sql.exec<ItemRow>(`${selectItems} WHERE items.id = ?`, id).toArray().map(itemRow);
+    case "item": {
+      const items = sql.exec<ItemRow>(`${selectItems} WHERE items.id = ?`, id).toArray();
+      const hidden = items.flatMap(({ seq }) =>
+        sql
+          .exec<Tombstone>(
+            `${selectHiddenRows} WHERE kind = 'item' AND id = ? AND seq = ?`,
+            id,
+            seq,
+          )
+          .toArray(),
+      );
+      return [...items.map(itemRow), ...hidden.map(deletedRow)];
+    }
     case "sticker":
       return sql
         .exec<StickerRow>(`${selectStickers} AND stickers.id = ?`, id)
@@ -185,6 +199,8 @@ const selectStickers = `SELECT stickers.id, stickers.page_id, stickers.x, sticke
 
 const selectTombstones = "SELECT kind, id, visible_to, seq FROM tombstones";
 
+const selectHiddenRows = "SELECT kind, id, member_id AS visible_to, seq FROM hidden_rows";
+
 const spaceKinds = {
   inbox: SpaceKind.INBOX,
   personal: SpaceKind.PERSONAL,
@@ -264,7 +280,16 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(deletedRow);
-  return [...members, ...spaces, ...pages, ...items, ...stickers, ...tombstones]
+  const hidden = sql
+    .exec<Tombstone>(
+      `${selectHiddenRows} WHERE seq > ? AND seq <= ? AND member_id = ?`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(deletedRow);
+  return [...members, ...spaces, ...pages, ...items, ...stickers, ...tombstones, ...hidden]
     .map(({ row }) => row)
     .sort((a, b) => Number(a.seq - b.seq));
 }

@@ -151,6 +151,14 @@ export const householdMigrations: readonly Migration[] = [
   CREATE INDEX stickers_by_seq ON stickers (seq);
   CREATE INDEX stickers_by_page ON stickers (page_id);
   CREATE INDEX stickers_by_item ON stickers (item_id)`,
+  `CREATE TABLE hidden_rows (
+    kind TEXT NOT NULL,
+    id TEXT NOT NULL,
+    member_id TEXT NOT NULL REFERENCES members (id),
+    seq INTEGER NOT NULL,
+    PRIMARY KEY (kind, id, member_id)
+  );
+  CREATE INDEX hidden_rows_by_seq ON hidden_rows (seq)`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

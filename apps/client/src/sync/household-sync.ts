@@ -185,40 +185,13 @@ export class HouseholdSync {
   addTask(spaceId: string, title: string): { itemId: string; pageNumber: number } {
     const itemId = newId();
     const trimmed = title.trim();
-    const { pages, stickers } = this.#state;
-    const newPageSize = pageSizeFor("space");
-    const spot = spotInSpace(spaceId, StickerKind.TASK, pages, stickers.values(), newPageSize);
-    const changes: ChangeInit[] = [];
-    if (spot.isNewPage) {
-      changes.push({
-        case: "pageCreate",
-        value: {
-          pageId: spot.pageId,
-          kind: PageKind.SPACE,
-          spaceId,
-          number: spot.number,
-          ...newPageSize,
-        },
-      });
-    }
-    changes.push(
-      {
-        case: "itemCreate",
-        value: { itemId, kind: ItemKind.TASK, spaceId, title: trimmed },
-      },
-      {
-        case: "stickerPlace",
-        value: {
-          stickerId: newId(),
-          pageId: spot.pageId,
-          ...spot.at,
-          kind: StickerKind.TASK,
-          itemId,
-        },
-      },
-    );
-    this.#make(`adding “${trimmed}”`, ...changes);
-    return { itemId, pageNumber: spot.number };
+    const create: ChangeInit = {
+      case: "itemCreate",
+      value: { itemId, kind: ItemKind.TASK, spaceId, title: trimmed },
+    };
+    const { changes, pageNumber } = this.#stickOn(spaceId, itemId);
+    this.#make(`adding “${trimmed}”`, create, ...changes);
+    return { itemId, pageNumber };
   }
 
   /** Why the household would refuse this title for a task, or null if it wouldn't: one that's
@@ -227,20 +200,68 @@ export class HouseholdSync {
     return itemTitleProblem(title.trim());
   }
 
+  /** Changes a task's title. Spaces at its start and end are dropped. */
+  setTitle(itemId: string, title: string): void {
+    const value = { itemId, title: title.trim() };
+    this.#make(`renaming a task to “${value.title}”`, { case: "itemSetTitle", value });
+  }
+
+  /** Changes a task's description. */
+  setDescription(itemId: string, description: string): void {
+    const value = { itemId, description };
+    this.#make("changing a task's description", { case: "itemSetDescription", value });
+  }
+
+  /** Changes a task's date, a plain ISO 8601 date, or clears it when empty. */
+  setDate(itemId: string, date: string): void {
+    this.#make("changing a task's date", { case: "itemSetDate", value: { itemId, date } });
+  }
+
+  /** Moves a task to another space, taking its sticker off the old space's pages and putting one
+   *  on the new space's newest page. Returns the number of that page, or null if nothing moved. */
+  moveTask(itemId: string, spaceId: string): { pageNumber: number } | null {
+    const item = this.#state.items.get(itemId);
+    if (!item || item.spaceId === spaceId) return null;
+    const oldPages = `space:${item.spaceId}:`;
+    const removals = [...this.#state.stickers.values()]
+      .filter((sticker) => sticker.itemId === itemId && sticker.pageId.startsWith(oldPages))
+      .map(({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }));
+    const { changes, pageNumber } = this.#stickOn(spaceId, itemId);
+    const move: ChangeInit = { case: "itemMove", value: { itemId, spaceId } };
+    this.#make(`moving “${item.title}”`, move, ...removals, ...changes);
+    return { pageNumber };
+  }
+
+  /** Deletes a task, and its stickers on every page. */
+  deleteTask(itemId: string): void {
+    const title = this.#state.items.get(itemId)?.title ?? "a task";
+    this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
+  }
+
   /** Moves a sticker within its page, which brings it to the top. */
   moveSticker(stickerId: string, x: number, y: number): void {
     this.#make("moving a sticker", { case: "stickerMove", value: { stickerId, x, y } });
-  }
-
-  /** Peels a sticker off its page. Its item stays. */
-  removeSticker(stickerId: string): void {
-    this.#make("removing a sticker", { case: "stickerRemove", value: { stickerId } });
   }
 
   /** Forgets the refused changes the state reports. */
   dismissProblems(): void {
     this.#problems = [];
     this.#changed();
+  }
+
+  #stickOn(spaceId: string, itemId: string): { changes: ChangeInit[]; pageNumber: number } {
+    const { pages, stickers } = this.#state;
+    const newPageSize = pageSizeFor("space");
+    const spot = spotInSpace(spaceId, StickerKind.TASK, pages, stickers.values(), newPageSize);
+    const changes: ChangeInit[] = [];
+    if (spot.isNewPage) {
+      const { pageId, number } = spot;
+      const value = { pageId, kind: PageKind.SPACE, spaceId, number, ...newPageSize };
+      changes.push({ case: "pageCreate", value });
+    }
+    const sticker = { stickerId: newId(), pageId: spot.pageId, ...spot.at, itemId };
+    changes.push({ case: "stickerPlace", value: { ...sticker, kind: StickerKind.TASK } });
+    return { changes, pageNumber: spot.number };
   }
 
   #make(describe: string, ...changes: ChangeInit[]): void {
@@ -482,6 +503,36 @@ export class HouseholdSync {
         case "stickerRemove":
           stickers.delete(change.change.value.stickerId);
           break;
+        case "itemSetTitle": {
+          const { itemId, title } = change.change.value;
+          const item = items.get(itemId);
+          if (item) items.set(itemId, { ...item, title });
+          break;
+        }
+        case "itemSetDescription": {
+          const { itemId, description } = change.change.value;
+          const item = items.get(itemId);
+          if (item) items.set(itemId, { ...item, description });
+          break;
+        }
+        case "itemSetDate": {
+          const { itemId, date } = change.change.value;
+          const item = items.get(itemId);
+          if (item) items.set(itemId, { ...item, date });
+          break;
+        }
+        case "itemMove": {
+          const { itemId, spaceId } = change.change.value;
+          const item = items.get(itemId);
+          if (item) items.set(itemId, { ...item, spaceId });
+          break;
+        }
+        case "itemDelete": {
+          const { itemId } = change.change.value;
+          items.delete(itemId);
+          for (const [id, sticker] of stickers) if (sticker.itemId === itemId) stickers.delete(id);
+          break;
+        }
       }
     }
     return {

@@ -100,11 +100,17 @@ export function moveSticker(
 }
 
 /** Peels a sticker off its page, leaving a tombstone that the members who see the page receive.
- *  Only a member who sees its item can remove it. Removing it again has no effect. */
+ *  Only a member who sees its item can remove it, and a task's sticker stays on its own space's
+ *  page. Removing it again has no effect. */
 export function removeSticker(sql: SqlStorage, memberId: string, remove: StickerRemove): Applied {
   const found = stickerFor(sql, memberId, remove.stickerId, "remove");
   if ("refused" in found || "removed" in found) return found.applied;
   const { sticker } = found;
+  if (sticker.kind === "task" && sticker.page_space_id === sticker.item_space_id) {
+    return {
+      refused: "A task's sticker stays on its space's page until the task is deleted or moved.",
+    };
+  }
 
   const seq = nextSeq(sql);
   sql.exec("DELETE FROM stickers WHERE id = ?", remove.stickerId);
@@ -119,6 +125,8 @@ export function removeSticker(sql: SqlStorage, memberId: string, remove: Sticker
 
 type StickerRow = {
   page_id: string;
+  page_space_id: string | null;
+  kind: ItemKindName;
   width: number;
   height: number;
   item_space_id: string;
@@ -140,7 +148,8 @@ function stickerFor(
 ): Found {
   const [sticker] = sql
     .exec<StickerRow>(
-      `SELECT stickers.page_id, pages.width, pages.height, items.space_id AS item_space_id,
+      `SELECT stickers.page_id, pages.space_id AS page_space_id, stickers.kind, pages.width,
+         pages.height, items.space_id AS item_space_id,
          spaces.owner_id AS page_owner_id, stickers.placed_at, stickers.placed_change_id
        FROM stickers
        JOIN pages ON pages.id = stickers.page_id

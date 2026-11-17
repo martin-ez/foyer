@@ -11,6 +11,7 @@ import {
   Device,
   idOf,
   itemCreate,
+  itemMove,
   madeAt,
   pageCreate,
   signIn,
@@ -235,8 +236,9 @@ describe("placing stickers", () => {
   it("refuses a sticker whose id another sticker has, even one that was removed", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const personal = await spaceOwnedBy(device, SpaceKind.PERSONAL);
     const { itemId, pageId, stickerId } = await newTaskWithSticker(device, inbox);
-    await device.push(stickerRemove(stickerId));
+    await device.push(itemMove(itemId, personal), stickerRemove(stickerId));
 
     const committed = await device.push(stickerPlace({ pageId, itemId, stickerId }));
 
@@ -313,9 +315,10 @@ describe("moving stickers", () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
     const spaceId = await newSharedSpace(alexDevice);
-    const { stickerId } = await newTaskWithSticker(alexDevice, spaceId);
+    const otherSpaceId = await newSharedSpace(alexDevice);
+    const { itemId, stickerId } = await newTaskWithSticker(alexDevice, spaceId);
     await samDevice.updates();
-    await alexDevice.push(stickerRemove(stickerId));
+    await alexDevice.push(itemMove(itemId, otherSpaceId), stickerRemove(stickerId));
     await Promise.all([alexDevice.updates(), samDevice.updates()]);
 
     const committed = await samDevice.push(stickerMove(stickerId, 200, 200));
@@ -335,16 +338,33 @@ describe("moving stickers", () => {
 });
 
 describe("removing stickers", () => {
-  it("peels a sticker off for every device that sees its page, and keeps its task", async () => {
+  it("refuses peeling a task's sticker off its own space's page", async () => {
+    const device = await connect(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const { stickerId } = await newTaskWithSticker(device, inbox);
+
+    const committed = await device.push(stickerRemove(stickerId));
+
+    expect(resultOf(committed.results[0])).toEqual({
+      refused: "A task's sticker stays on its space's page until the task is deleted or moved.",
+    });
+    expect((await stickersCaughtUpBy(device)).map(({ id }) => id)).toEqual([stickerId]);
+  });
+
+  it("peels a moved task's sticker off its old space's page for every device that sees it, and keeps the task", async () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
     const spaceId = await newSharedSpace(alexDevice);
+    const otherSpaceId = await newSharedSpace(alexDevice);
     const { itemId, stickerId } = await newTaskWithSticker(alexDevice, spaceId);
     await samDevice.updates();
 
-    const committed = await samDevice.push(stickerRemove(stickerId));
+    const committed = await samDevice.push(
+      itemMove(itemId, otherSpaceId),
+      stickerRemove(stickerId),
+    );
 
-    expect(resultOf(committed.results[0])).toEqual({ committed: true });
+    expect(committed.results.map(resultOf)).toEqual([{ committed: true }, { committed: true }]);
     for (const device of [alexDevice, samDevice]) {
       expect(removedIn(await device.updates())).toEqual([stickerId]);
       const rows = (await device.catchUp()).flatMap(({ rows }) => rows);
@@ -357,10 +377,11 @@ describe("removing stickers", () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
     const personal = await spaceOwnedBy(alexDevice, SpaceKind.PERSONAL);
-    const { stickerId } = await newTaskWithSticker(alexDevice, personal);
+    const inbox = await spaceOwnedBy(alexDevice, SpaceKind.INBOX);
+    const { itemId, stickerId } = await newTaskWithSticker(alexDevice, personal);
     await samDevice.updates();
 
-    await alexDevice.push(stickerRemove(stickerId));
+    await alexDevice.push(itemMove(itemId, inbox), stickerRemove(stickerId));
 
     expect(removedIn(await alexDevice.updates())).toEqual([stickerId]);
     expect(await samDevice.updates()).toEqual([]);
@@ -370,8 +391,9 @@ describe("removing stickers", () => {
   it("has no effect when the sticker was already removed", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
-    const { stickerId } = await newTaskWithSticker(device, inbox);
-    await device.push(stickerRemove(stickerId));
+    const personal = await spaceOwnedBy(device, SpaceKind.PERSONAL);
+    const { itemId, stickerId } = await newTaskWithSticker(device, inbox);
+    await device.push(itemMove(itemId, personal), stickerRemove(stickerId));
     await device.updates();
 
     const committed = await device.push(stickerRemove(stickerId));
@@ -386,7 +408,9 @@ describe("who can move and remove stickers", () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
     const spaceId = await newSharedSpace(alexDevice);
+    const otherSpaceId = await newSharedSpace(alexDevice);
     const first = await newTaskWithSticker(alexDevice, spaceId);
+    await alexDevice.push(itemMove(first.itemId, otherSpaceId));
     await samDevice.updates();
 
     const committed = await samDevice.push(
@@ -421,8 +445,9 @@ describe("who can move and remove stickers", () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
     const personal = await spaceOwnedBy(alexDevice, SpaceKind.PERSONAL);
-    const { stickerId } = await newTaskWithSticker(alexDevice, personal);
-    await alexDevice.push(stickerRemove(stickerId));
+    const inbox = await spaceOwnedBy(alexDevice, SpaceKind.INBOX);
+    const { itemId, stickerId } = await newTaskWithSticker(alexDevice, personal);
+    await alexDevice.push(itemMove(itemId, inbox), stickerRemove(stickerId));
 
     const committed = await samDevice.push(stickerMove(stickerId, 50, 50));
 
