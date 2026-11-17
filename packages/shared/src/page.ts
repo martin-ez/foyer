@@ -36,6 +36,11 @@ export function spacePageId(spaceId: string, number: number): string {
   return `space:${spaceId}:${number}`;
 }
 
+/** The id of a task's or an event's body page, such as "item:<item id>", named by its item. */
+export function itemPageId(itemId: string): string {
+  return `item:${itemId}`;
+}
+
 /** Whether a value is a plain ISO 8601 date, such as "2026-11-14", of a day that exists. */
 export function isIsoDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

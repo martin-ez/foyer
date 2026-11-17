@@ -7,8 +7,8 @@ package foyer.page.v1;
 // they can see: who sees a page follows the household, space or item it belongs to.
 message Page {
   // A calendar page is named by its kind and date: "month:2026-11", "week:2026-11-09" or
-  // "day:2026-11-14". A space page is named by its space and number: "space:<space id>:1". An item
-  // page has a UUID version 7, made by the device that created it.
+  // "day:2026-11-14". A space page is named by its space and number: "space:<space id>:1". A task's
+  // or an event's body page is named by its item: "item:<item id>".
   string id = 1;
   PageKind kind = 2;
   // The space whose page it is. Only for space pages.
@@ -35,22 +35,24 @@ enum PageKind {
   // One of a space's pages, which holds its tasks as stickers. Seen by the members who see the
   // space.
   PAGE_KIND_SPACE = 4;
-  // One of a task's, an event's or a note's pages. Seen by the members who see the item's space.
+  // One of a task's, an event's or a note's pages. Seen by the members who see the item's space,
+  // and deleted with the item.
   PAGE_KIND_ITEM = 5;
 }
 
 // Creates a page. A device sends it when it first puts something on a page, so looking at an empty
 // page creates nothing. Creating a page that already exists has no effect, so two devices creating
-// the same calendar or space page offline write on one page.
+// the same calendar, space or body page offline write on one page.
 message PageCreate {
-  // The page's id, as Page.id describes, which must match its kind, space, number and date.
+  // The page's id, as Page.id describes, which must match its kind, space, number, date and item.
   string page_id = 1;
   PageKind kind = 2;
   // For space pages: the space, which the member must see.
   string space_id = 3;
   // For space pages: which of its space's pages it is, from 1.
   uint32 number = 4;
-  // For item pages: the task, event or note, which the member must see.
+  // For item pages: the task, event or note, which the member must see. Only a task's body page
+  // can be created for now.
   string item_id = 5;
   // The page's width and height in points, each a positive number. A page never changes size.
   double width = 6;

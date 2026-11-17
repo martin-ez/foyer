@@ -300,7 +300,25 @@ export function stickerRemove(stickerId: string, made: Made = {}): ChangeInit {
   return { ...madeNow(made), change: { case: "stickerRemove", value: { stickerId } } };
 }
 
-/** The id of what a change creates or acts on: a space, a page, an item or a sticker. */
+/** Ticks a task, made by the device now unless `made` says otherwise. */
+export function taskTick(
+  tick: { itemId: string; completionId?: string; occurrence?: string },
+  made: Made = {},
+): ChangeInit {
+  const value = { completionId: newId(), ...tick };
+  return { ...madeNow(made), change: { case: "taskTick", value } };
+}
+
+/** Unticks a task, made by the device now unless `made` says otherwise. */
+export function taskUntick(
+  untick: { itemId: string; occurrence?: string },
+  made: Made = {},
+): ChangeInit {
+  return { ...madeNow(made), change: { case: "taskUntick", value: untick } };
+}
+
+/** The id of what a change creates or acts on: a space, a page, an item, a sticker or a
+ *  completion. A tick names the completion it adds. */
 export function idOf({ change }: ChangeInit): string {
   switch (change?.case) {
     case "spaceCreate":
@@ -314,7 +332,10 @@ export function idOf({ change }: ChangeInit): string {
     case "itemSetDate":
     case "itemMove":
     case "itemDelete":
+    case "taskUntick":
       return change.value.itemId ?? "";
+    case "taskTick":
+      return change.value.completionId ?? "";
     case "stickerPlace":
     case "stickerMove":
     case "stickerRemove":

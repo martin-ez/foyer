@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { saveScreenshot } from "./screenshot";
 import {
   addTask,
@@ -7,6 +7,7 @@ import {
   pageTitle,
   sameMemberOnAnotherDevice,
   stickerOf,
+  todayInBrowser,
 } from "./tasks";
 
 test.beforeEach(async ({ page }) => {
@@ -40,6 +41,8 @@ test("edits a task's title, description and date, on this device and another", a
   await page.getByLabel("Date").fill("2026-11-20");
   await page.getByRole("button", { name: "Save" }).click();
 
+  await expect(pageTitle(page)).toHaveText(renamed);
+  await page.getByRole("button", { name: "Close" }).click();
   await expect(stickerOf(page, renamed)).toBeVisible();
   await expect(stickerOf(other, renamed)).toBeVisible();
   await stickerOf(other, renamed).click();
@@ -103,18 +106,10 @@ test("deletes a task after asking, on this device and another", async ({ page })
 
   await page.getByRole("button", { name: "Delete task" }).click();
   await page.getByRole("button", { name: "Keep it" }).click();
-  await expect(stickerOf(page, title)).toBeVisible();
+  await expect(page.getByLabel("Title")).toHaveValue(title);
   await page.getByRole("button", { name: "Delete task" }).click();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
 
   await expect(stickerOf(page, title)).toBeHidden();
   await expect(stickerOf(other, title)).toBeHidden();
 });
-
-function todayInBrowser(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const now = new Date();
-    const two = (value: number) => String(value).padStart(2, "0");
-    return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
-  });
-}

@@ -1,6 +1,6 @@
 import { reset } from "cloudflare:test";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, newId, spacePageId } from "@foyer/shared";
+import { a4Portrait, itemPageId, newId, spacePageId } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
@@ -20,6 +20,7 @@ import {
   signIn,
   spaceCreate,
   stickerPlace,
+  taskTick,
 } from "./sync-device";
 
 const alex = "member@example.com";
@@ -190,6 +191,14 @@ function deletedIn(rows: Row[], kind: RowKind) {
 
 async function rowsCaughtUpBy(device: Device, cursor = 0) {
   return (await device.catchUp(cursor)).flatMap(({ rows }) => rows);
+}
+
+function bodyPage(itemId: string) {
+  return pageCreate({ pageId: itemPageId(itemId), kind: PageKind.ITEM, itemId, ...a4Portrait });
+}
+
+function kindsIn(rows: Row[]) {
+  return rows.map(({ row }) => row.case);
 }
 
 async function newTask(device: Device, spaceId: string, title = "Buy milk") {
@@ -410,6 +419,41 @@ describe("moving tasks", () => {
     expect(deletedIn(caughtUp, RowKind.ITEM)).toEqual([]);
   });
 
+  it("takes a task's completions and body page with it, out of other members' sight and back", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const shared = await newSharedSpace(alexDevice);
+    const inbox = await spaceOwnedBy(alexDevice, SpaceKind.INBOX);
+    const itemId = await newTask(alexDevice, shared);
+    const tick = taskTick({ itemId });
+    await alexDevice.push(tick, bodyPage(itemId));
+    await alexDevice.updates();
+    await samDevice.updates();
+    const [before] = (await samDevice.catchUp()).slice(-1);
+
+    await alexDevice.push(itemMove(itemId, inbox, { at: madeAt(Date.now() - 20_000) }));
+
+    expect(kindsIn(await alexDevice.updates()).sort()).toEqual(["completion", "item", "page"]);
+    for (const rows of [
+      await samDevice.updates(),
+      await rowsCaughtUpBy(samDevice, Number(before?.cursor)),
+    ]) {
+      expect(kindsIn(rows)).toEqual(["deleted", "deleted", "deleted"]);
+      expect(deletedIn(rows, RowKind.COMPLETION)).toEqual([idOf(tick)]);
+      expect(deletedIn(rows, RowKind.PAGE)).toEqual([itemPageId(itemId)]);
+    }
+
+    await alexDevice.push(itemMove(itemId, shared));
+
+    expect(kindsIn(await samDevice.updates()).sort()).toEqual(["completion", "item", "page"]);
+    const caughtUp = kindsIn(await rowsCaughtUpBy(samDevice));
+    expect(caughtUp.filter((kind) => kind !== "member" && kind !== "space").sort()).toEqual([
+      "completion",
+      "item",
+      "page",
+    ]);
+  });
+
   it("refuses moving a task to a space the member doesn't see", async () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
@@ -465,6 +509,26 @@ describe("deleting tasks", () => {
       const rows = await rowsCaughtUpBy(device);
       expect(itemsIn(rows)).toEqual([]);
       expect(rows.some(({ row }) => row.case === "sticker")).toBe(false);
+    }
+  });
+
+  it("deletes a task's completions and body page with it", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const itemId = await newTask(alexDevice, await newSharedSpace(alexDevice));
+    const tick = taskTick({ itemId });
+    await alexDevice.push(tick, bodyPage(itemId));
+    await samDevice.updates();
+
+    await samDevice.push(itemDelete(itemId));
+
+    for (const device of [alexDevice, samDevice]) {
+      const live = await device.updates();
+      expect(deletedIn(live, RowKind.COMPLETION)).toEqual([idOf(tick)]);
+      expect(deletedIn(live, RowKind.PAGE)).toEqual([itemPageId(itemId)]);
+      const kinds = kindsIn(await rowsCaughtUpBy(device));
+      expect(kinds).not.toContain("completion");
+      expect(kinds).not.toContain("page");
     }
   });
 

@@ -1,6 +1,12 @@
 import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Space } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
+import type { Completion } from "@foyer/shared/gen/foyer/task/v1/task_pb";
+
+/** The ids of the tasks that are done: those with a completion, since no task repeats yet. */
+export function doneTasks(completions: Iterable<Completion>): Set<string> {
+  return new Set(Array.from(completions, ({ itemId }) => itemId));
+}
 
 /** A space's tasks in the order of their stickers on its pages: page by page, top to bottom, then
  *  left to right. A task with no sticker on its space's pages comes last. */
@@ -29,19 +35,21 @@ export function spaceList(
   });
 }
 
-/** The tasks dated `today` or earlier, overdue first, each group in the order of the spaces, then
- *  of their space's list. `today` is a plain ISO 8601 date, from the device's own clock and zone. */
+/** The open tasks dated `today` or earlier, overdue first, each group in the order of the spaces,
+ *  then of their space's list. `today` is a plain ISO 8601 date, from the device's own clock and
+ *  zone, and `done` holds the ids of the tasks that are done. */
 export function todayList(
   today: string,
   spaces: readonly Space[],
   items: Iterable<Item>,
   stickers: Iterable<Sticker>,
+  done: ReadonlySet<string>,
 ): Item[] {
   const all = [...items];
   const stuck = [...stickers];
   return spaces
     .flatMap((space) => spaceList(space.id, all, stuck))
-    .filter(({ date }) => date !== "" && date <= today)
+    .filter(({ id, date }) => date !== "" && date <= today && !done.has(id))
     .sort((a, b) => Number(a.date === today) - Number(b.date === today));
 }
 

@@ -3,41 +3,46 @@ import type { Item } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Sticker, StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { CheckMark } from "../tasks/checkbox";
 import { describeSticker } from "./describe-sticker";
 import type { Point } from "./sheet-camera";
 import { useStickerDrag } from "./sticker-drag";
 import { keepOnPage, stickerSize } from "./sticker-layout";
 
 /** The stickers on a page, stacked bottom first, in its own points, for a `PageSheet` to hold. One
- *  whose item the member sees can be dragged and tapped; one whose item they can't see is drawn
- *  hidden, in its spot and shape, and stays put. */
+ *  whose item the member sees can be dragged and tapped, and a task's can be ticked; one whose item
+ *  they can't see is drawn hidden, in its spot and shape, and stays put. */
 export function PageStickers({
   stickers,
   items,
+  done,
   page,
-  selected,
   onSelect,
   onMove,
+  onTick,
 }: {
   stickers: readonly Sticker[];
   items: ReadonlyMap<string, Item>;
+  /** The ids of the tasks that are done. */
+  done: ReadonlySet<string>;
   page: PageSize;
-  /** The selected sticker's id, if any. */
-  selected: string | null;
   /** Called when a sticker is tapped. */
   onSelect: (stickerId: string) => void;
   /** Called when a sticker is let go somewhere else, with its new top-left corner. */
   onMove: (stickerId: string, to: Point) => void;
+  /** Called when a task's checkbox is tapped, with whether the task should now be done. */
+  onTick: (itemId: string, done: boolean) => void;
 }) {
   return stickers.map((sticker) => (
     <StickerView
       key={sticker.id}
       sticker={sticker}
       item={items.get(sticker.itemId)}
+      done={done.has(sticker.itemId)}
       page={page}
-      selected={sticker.id === selected}
       onSelect={() => onSelect(sticker.id)}
       onMove={(to) => onMove(sticker.id, to)}
+      onTick={() => onTick(sticker.itemId, !done.has(sticker.itemId))}
     />
   ));
 }
@@ -45,17 +50,19 @@ export function PageStickers({
 function StickerView({
   sticker,
   item,
+  done,
   page,
-  selected,
   onSelect,
   onMove,
+  onTick,
 }: {
   sticker: Sticker;
   item: Item | undefined;
+  done: boolean;
   page: PageSize;
-  selected: boolean;
   onSelect: () => void;
   onMove: (to: Point) => void;
+  onTick: () => void;
 }) {
   const size = stickerSize(sticker.kind);
   const [dragged, setDragged] = useState<Point | null>(null);
@@ -79,28 +86,68 @@ function StickerView({
   const task = sticker.kind === StickerKind.TASK;
 
   return (
-    <View
-      {...drag}
-      accessible
-      accessibilityRole="button"
-      accessibilityLabel={describeSticker(sticker, item)}
-      accessibilityState={{ selected, disabled: item === undefined }}
-      style={[
-        styles.sticker,
-        { left: at.x, top: at.y, width: size.width, height: size.height },
-        !task ? styles.outline : item ? styles.task : styles.hidden,
-        selected ? styles.selected : null,
-        dragged ? styles.lifted : null,
-      ]}
-    >
-      {task && item ? (
-        <>
-          <View style={styles.checkbox} />
-          <Text style={styles.title} numberOfLines={2}>
+    <>
+      <View
+        {...drag}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={describeSticker(sticker, item)}
+        accessibilityState={{ disabled: item === undefined }}
+        style={[
+          styles.sticker,
+          { left: at.x, top: at.y, width: size.width, height: size.height },
+          !task ? styles.outline : item ? styles.task : styles.hidden,
+          dragged ? styles.lifted : null,
+        ]}
+      >
+        {task && item ? (
+          <Text style={[styles.title, done ? styles.done : null]} numberOfLines={2}>
             {item.title}
           </Text>
-        </>
+        ) : null}
+      </View>
+      {task && item ? (
+        <StickerCheckbox
+          title={item.title}
+          done={done}
+          at={{ x: at.x, y: at.y + (size.height - checkboxSize) / 2 }}
+          lifted={dragged !== null}
+          onTick={onTick}
+        />
       ) : null}
+    </>
+  );
+}
+
+const checkboxSize = 32;
+
+function StickerCheckbox({
+  title,
+  done,
+  at,
+  lifted,
+  onTick,
+}: {
+  title: string;
+  done: boolean;
+  at: Point;
+  lifted: boolean;
+  onTick: () => void;
+}) {
+  const press = useStickerDrag(
+    { dragged: () => {}, dropped: () => {}, tapped: onTick, cancelled: () => {} },
+    true,
+  );
+  return (
+    <View
+      {...press}
+      accessible
+      accessibilityRole="checkbox"
+      accessibilityLabel={`Done: ${title}`}
+      aria-checked={done}
+      style={[styles.checkbox, { left: at.x, top: at.y }, lifted ? styles.aboveLifted : null]}
+    >
+      <CheckMark checked={done} />
     </View>
   );
 }
@@ -110,8 +157,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
+    paddingLeft: checkboxSize,
+    paddingRight: 10,
     borderRadius: 4,
     pointerEvents: "auto",
   },
@@ -123,8 +170,16 @@ const styles = StyleSheet.create({
   },
   hidden: { backgroundColor: "#d9d6cf", borderColor: "#bdb8ad", borderWidth: 1 },
   outline: { borderColor: "#8f887a", borderWidth: 1, borderStyle: "dashed" },
-  selected: { borderColor: "#2f6fb5", borderWidth: 2 },
   lifted: { zIndex: 1, boxShadow: "0 4px 10px rgba(0, 0, 0, 0.25)" },
-  checkbox: { width: 16, height: 16, borderColor: "#6b6459", borderWidth: 1.5, borderRadius: 3 },
+  aboveLifted: { zIndex: 2 },
+  checkbox: {
+    position: "absolute",
+    width: checkboxSize,
+    height: checkboxSize,
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "auto",
+  },
   title: { flex: 1, fontSize: 13, color: "#2b2620" },
+  done: { color: "#8f887a", textDecorationLine: "line-through" },
 });

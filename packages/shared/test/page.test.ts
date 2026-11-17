@@ -4,6 +4,7 @@ import {
   dayPageId,
   isIsoDate,
   isIsoMonth,
+  itemPageId,
   monthPageId,
   pageSizeFor,
   spacePageId,
@@ -37,6 +38,12 @@ describe("page ids", () => {
     const spaceId = "019a8f4e-5c00-7a3b-8c4d-1e2f3a4b5c6d";
 
     expect(spacePageId(spaceId, 2)).toBe(`space:${spaceId}:2`);
+  });
+
+  it("names a body page by its item", () => {
+    const itemId = "019a8f4e-5c00-7a3b-8c4d-1e2f3a4b5c6d";
+
+    expect(itemPageId(itemId)).toBe(`item:${itemId}`);
   });
 });
 

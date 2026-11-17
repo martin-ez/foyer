@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package foyer.task.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// A record that a task was done: every tick adds one, and a task is done when it has one for its
+// current occurrence. For a task that doesn't repeat, that's any completion. Completions belong to
+// their task's space, so they reach the same members, move with the task and are deleted with it.
+message Completion {
+  // A UUID version 7, made by the device that ticked the task.
+  string id = 1;
+  // The task it completes.
+  string item_id = 2;
+  // The occurrence it completes, as a plain ISO 8601 date such as "2026-11-17". Empty for a task
+  // that doesn't repeat.
+  string occurrence = 3;
+  // When the task was ticked, by the clock of the device that ticked it.
+  google.protobuf.Timestamp done_at = 4;
+  // The member who ticked it.
+  string done_by = 5;
+}
+
+// Ticks a task, adding a completion for an occurrence. If that occurrence already has one, nothing
+// changes. A tick and an untick of the same occurrence settle by when they were made: the one made
+// last wins, by the device's clock. Anyone who can see the task can tick it.
+message TaskTick {
+  // A new UUID version 7, made by the device.
+  string completion_id = 1;
+  // A task the member sees.
+  string item_id = 2;
+  // The occurrence, as a plain ISO 8601 date, or empty for a task that doesn't repeat. Tasks don't
+  // repeat yet, so it must be empty.
+  string occurrence = 3;
+}
+
+// Unticks a task, removing the completion of an occurrence, whoever ticked it. Anyone who can see
+// the task can untick it.
+message TaskUntick {
+  // A task the member sees.
+  string item_id = 1;
+  // As in TaskTick.
+  string occurrence = 2;
+}

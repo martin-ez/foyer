@@ -8,7 +8,7 @@ import {
 import { type Applied, isLater, type Setter } from "./changes";
 import { findItem, type ItemKindName } from "./items";
 import { canSeePage } from "./pages";
-import { nextSeq, type RowKey } from "./rows";
+import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
 
 const stickerKinds: Partial<Record<StickerKind, ItemKindName>> = {
@@ -152,9 +152,8 @@ function stickerFor(
          pages.height, items.space_id AS item_space_id,
          spaces.owner_id AS page_owner_id, stickers.placed_at, stickers.placed_change_id
        FROM stickers
-       JOIN pages ON pages.id = stickers.page_id
        JOIN items ON items.id = stickers.item_id
-       LEFT JOIN spaces ON spaces.id = pages.space_id
+       JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
        WHERE stickers.id = ?`,
       stickerId,
     )

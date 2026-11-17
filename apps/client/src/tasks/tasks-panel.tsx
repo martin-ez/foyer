@@ -3,45 +3,50 @@ import { type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { localToday } from "../page/calendar-date";
 import type { SyncState } from "../sync/household-sync";
-import { spaceList, todayList } from "./task-lists";
+import { Checkbox } from "./checkbox";
+import { doneTasks, spaceList, todayList } from "./task-lists";
 
 /** The member's tasks as lists: the Inbox, Today, then each other space they see, or one space's
- *  list alone when `only` names it. Tapping a task opens it. */
+ *  list alone when `only` names it. Each task can be ticked, and tapping its title opens it. The
+ *  lists leave out tasks that are done unless `showDone` is on, and Today always does. */
 export function TasksPanel({
   state,
   only,
+  showDone,
+  onShowDone,
   onOpenTask,
+  onTick,
 }: {
   state: SyncState;
   only?: string;
+  showDone: boolean;
+  onShowDone: (showDone: boolean) => void;
   onOpenTask: (itemId: string) => void;
+  /** Called when a task's checkbox is tapped, with whether the task should now be done. */
+  onTick: (itemId: string, done: boolean) => void;
 }) {
   const items = [...state.items.values()];
   const stickers = [...state.stickers.values()];
+  const done = doneTasks(state.completions.values());
   const spaces = only === undefined ? state.spaces : state.spaces.filter(({ id }) => id === only);
-  const today = todayList(localToday(), state.spaces, items, stickers);
+  const today = todayList(localToday(), state.spaces, items, stickers, done);
+  const listOf = (spaceId: string) =>
+    spaceList(spaceId, items, stickers).filter(({ id }) => showDone || !done.has(id));
   const [inbox, ...others] = spaces;
+  const list = { done, onOpenTask, onTick };
 
   return (
     <View style={styles.panel}>
       <ScrollView>
-        {inbox ? (
-          <TaskList
-            heading={nameOf(inbox)}
-            tasks={spaceList(inbox.id, items, stickers)}
-            onOpenTask={onOpenTask}
-          />
-        ) : null}
-        {only === undefined ? (
-          <TaskList heading="Today" tasks={today} onOpenTask={onOpenTask} />
-        ) : null}
+        <View style={styles.list}>
+          <Checkbox checked={showDone} label="Show done" onChange={onShowDone}>
+            <Text style={styles.line}>Show done</Text>
+          </Checkbox>
+        </View>
+        {inbox ? <TaskList heading={nameOf(inbox)} tasks={listOf(inbox.id)} {...list} /> : null}
+        {only === undefined ? <TaskList heading="Today" tasks={today} {...list} /> : null}
         {others.map((space) => (
-          <TaskList
-            key={space.id}
-            heading={nameOf(space)}
-            tasks={spaceList(space.id, items, stickers)}
-            onOpenTask={onOpenTask}
-          />
+          <TaskList key={space.id} heading={nameOf(space)} tasks={listOf(space.id)} {...list} />
         ))}
       </ScrollView>
     </View>
@@ -51,11 +56,15 @@ export function TasksPanel({
 function TaskList({
   heading,
   tasks,
+  done,
   onOpenTask,
+  onTick,
 }: {
   heading: string;
   tasks: Item[];
+  done: ReadonlySet<string>;
   onOpenTask: (itemId: string) => void;
+  onTick: (itemId: string, done: boolean) => void;
 }) {
   return (
     <View style={styles.list} accessibilityRole="list" accessibilityLabel={heading}>
@@ -64,15 +73,21 @@ function TaskList({
       </Text>
       {tasks.length === 0 ? <Text style={styles.line}>No tasks</Text> : null}
       {tasks.map((task) => (
-        <Text
-          key={task.id}
-          style={styles.task}
-          accessibilityRole="button"
-          onPress={() => onOpenTask(task.id)}
-        >
-          {task.title}
-          {task.date ? <Text style={styles.line}> · {task.date}</Text> : null}
-        </Text>
+        <View key={task.id} style={styles.row}>
+          <Checkbox
+            checked={done.has(task.id)}
+            label={`Done: ${task.title}`}
+            onChange={(ticked) => onTick(task.id, ticked)}
+          />
+          <Text
+            style={[styles.task, done.has(task.id) ? styles.done : null]}
+            accessibilityRole="button"
+            onPress={() => onOpenTask(task.id)}
+          >
+            {task.title}
+            {task.date ? <Text style={styles.line}> · {task.date}</Text> : null}
+          </Text>
+        </View>
       ))}
     </View>
   );
@@ -96,6 +111,8 @@ const styles = StyleSheet.create({
   },
   list: { gap: 4, marginBottom: 12 },
   heading: { fontSize: 15, fontWeight: "600" },
-  task: { fontSize: 14, paddingVertical: 4 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8 },
+  task: { flex: 1, fontSize: 14, paddingVertical: 4 },
+  done: { color: "#8f887a", textDecorationLine: "line-through" },
   line: { fontSize: 12, color: "#6b6459" },
 });

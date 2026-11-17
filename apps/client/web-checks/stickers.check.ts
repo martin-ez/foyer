@@ -60,16 +60,32 @@ test("keeps a dragged sticker under the pointer on a zoomed page", async ({ page
   await expect.poll(async () => (await boxOf(sticker)).x - zoomed.x).toBeCloseTo(50, 0);
 });
 
-test("opens a sticker's task by tapping it", async ({ page }, testInfo) => {
+test("opens a sticker's task by tapping it, with its body page below", async ({
+  page,
+}, testInfo) => {
   const title = await addTask(page);
 
   await stickerOf(page, title).click();
 
+  await expect(pageTitle(page)).toHaveText(title);
   await expect(page.getByLabel("Title")).toHaveValue(title);
+  await expect(page.getByLabel(title, { exact: true })).toBeVisible();
   await saveScreenshot(page, testInfo, "open-task");
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByLabel("Title")).toBeHidden();
   await expect(stickerOf(page, title)).toBeVisible();
+});
+
+test("leaves an open task for the day's page", async ({ page }) => {
+  const title = await addTask(page);
+  await stickerOf(page, title).click();
+  await expect(pageTitle(page)).toHaveText(title);
+
+  await page.getByRole("button", { name: "Today" }).click();
+
+  await expect(page.getByLabel("Title")).toBeHidden();
+  await expect(pageTitle(page)).not.toHaveText(title);
+  await expect(pageTitle(page)).not.toHaveText(/page \d+$/);
 });
 
 test("puts a task on the space's next page once its newest page is full", async ({

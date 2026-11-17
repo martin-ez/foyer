@@ -6,7 +6,7 @@ import {
   type ItemMove,
 } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Applied, isLater, type Setter } from "./changes";
-import { nextSeq, type RowKey } from "./rows";
+import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
 
 const badDate = "A task's date must be a day, as in “2026-11-17”.";
@@ -78,6 +78,7 @@ function itemExisted(sql: SqlStorage, itemId: string): boolean {
 }
 
 type ItemRow = {
+  kind: ItemKindName;
   space_id: string;
   owner_id: string | null;
   space_at: number;
@@ -123,9 +124,9 @@ export function setItemField(
   return { seq, changed: [key], unchanged: [] };
 }
 
-/** Moves an item to another space the member sees, unless a later move won. Members who saw it
- *  before and can't see the new space are told to drop it, and those who can see it again are told
- *  nothing more than the item as it now is. Moving a deleted item has no effect. */
+/** Moves an item to another space the member sees, unless a later move won, with its completions,
+ *  body page and what's on that page. Members who can't see the new space are told to drop them,
+ *  and those who see them again receive them. Moving a deleted item has no effect. */
 export function moveItem(
   sql: SqlStorage,
   memberId: string,
@@ -152,74 +153,110 @@ export function moveItem(
     seq,
     move.itemId,
   );
-  if (ownerAfter === null) {
-    sql.exec("DELETE FROM hidden_rows WHERE kind = 'item' AND id = ?", move.itemId);
-  } else {
-    sql.exec(
-      "DELETE FROM hidden_rows WHERE kind = 'item' AND id = ? AND member_id = ?",
-      move.itemId,
-      ownerAfter,
-    );
-    const ownerBefore = found.item.owner_id;
-    const losing =
-      ownerBefore === null
+  sql.exec("UPDATE completions SET seq = ? WHERE item_id = ?", seq, move.itemId);
+  sql.exec("UPDATE pages SET seq = ? WHERE item_id = ?", seq, move.itemId);
+  sql.exec(
+    "UPDATE stickers SET seq = ? WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
+    seq,
+    move.itemId,
+  );
+
+  const ownerBefore = found.item.owner_id;
+  const losing =
+    ownerAfter === null || ownerBefore === ownerAfter
+      ? []
+      : ownerBefore === null
         ? sql
             .exec<{ id: string }>("SELECT id FROM members WHERE id != ?", ownerAfter)
             .toArray()
             .map(({ id }) => id)
-        : ownerBefore === ownerAfter
-          ? []
-          : [ownerBefore];
+        : [ownerBefore];
+  const moved = [key, ...carriedBy(sql, move.itemId)];
+  for (const row of moved) {
+    if (ownerAfter === null) {
+      sql.exec("DELETE FROM hidden_rows WHERE kind = ? AND id = ?", row.kind, row.id);
+    } else {
+      sql.exec(
+        "DELETE FROM hidden_rows WHERE kind = ? AND id = ? AND member_id = ?",
+        row.kind,
+        row.id,
+        ownerAfter,
+      );
+    }
     for (const member of losing) {
       sql.exec(
-        `INSERT INTO hidden_rows (kind, id, member_id, seq) VALUES ('item', ?, ?, ?)
+        `INSERT INTO hidden_rows (kind, id, member_id, seq) VALUES (?, ?, ?, ?)
          ON CONFLICT (kind, id, member_id) DO UPDATE SET seq = excluded.seq`,
-        move.itemId,
+        row.kind,
+        row.id,
         member,
         seq,
       );
     }
   }
-  return { seq, changed: [key], unchanged: [] };
+  return { seq, changed: moved, unchanged: [] };
 }
 
-/** Deletes an item and its stickers on every page, leaving tombstones that the members who saw
- *  them receive. Deleting it again has no effect. */
+/** Deletes an item, its stickers on every page, its completions, and its body page with what's
+ *  on it, leaving tombstones that the members who saw them receive. Deleting it again has no
+ *  effect. */
 export function deleteItem(sql: SqlStorage, memberId: string, remove: ItemDelete): Applied {
   const found = itemFor(sql, memberId, remove.itemId);
   if (!("item" in found)) return found.applied;
 
   const seq = nextSeq(sql);
+  const owner = found.item.owner_id;
+  const bury = (kind: RowKey["kind"], id: string, visibleTo: string | null) =>
+    sql.exec(
+      "INSERT INTO tombstones (kind, id, visible_to, seq) VALUES (?, ?, ?, ?)",
+      kind,
+      id,
+      visibleTo,
+      seq,
+    );
   const stickers = sql
     .exec<{ id: string; owner_id: string | null }>(
       `SELECT stickers.id, spaces.owner_id FROM stickers
-       JOIN pages ON pages.id = stickers.page_id
-       LEFT JOIN spaces ON spaces.id = pages.space_id
-       WHERE stickers.item_id = ?`,
+       JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
+       WHERE stickers.item_id = ? OR pages.item_id = ?`,
+      remove.itemId,
       remove.itemId,
     )
     .toArray();
   for (const sticker of stickers) {
     sql.exec("DELETE FROM stickers WHERE id = ?", sticker.id);
-    sql.exec(
-      "INSERT INTO tombstones (kind, id, visible_to, seq) VALUES ('sticker', ?, ?, ?)",
-      sticker.id,
-      sticker.owner_id,
-      seq,
-    );
+    bury("sticker", sticker.id, sticker.owner_id);
   }
+  const carried = carriedBy(sql, remove.itemId).filter(({ kind }) => kind !== "sticker");
+  for (const row of carried) bury(row.kind, row.id, owner);
+  sql.exec("DELETE FROM completions WHERE item_id = ?", remove.itemId);
+  sql.exec("DELETE FROM last_ticks WHERE item_id = ?", remove.itemId);
+  sql.exec("DELETE FROM pages WHERE item_id = ?", remove.itemId);
   sql.exec("DELETE FROM items WHERE id = ?", remove.itemId);
-  sql.exec(
-    "INSERT INTO tombstones (kind, id, visible_to, seq) VALUES ('item', ?, ?, ?)",
-    remove.itemId,
-    found.item.owner_id,
-    seq,
-  );
+  bury("item", remove.itemId, owner);
   const changed: RowKey[] = [
     { kind: "item", id: remove.itemId },
+    ...carried,
     ...stickers.map(({ id }): RowKey => ({ kind: "sticker", id })),
   ];
   return { seq, changed, unchanged: [] };
+}
+
+function carriedBy(sql: SqlStorage, itemId: string): RowKey[] {
+  const ids = (query: string) =>
+    sql
+      .exec<{ id: string }>(query, itemId)
+      .toArray()
+      .map(({ id }) => id);
+  return [
+    ...ids("SELECT id FROM completions WHERE item_id = ?").map(
+      (id): RowKey => ({ kind: "completion", id }),
+    ),
+    ...ids("SELECT id FROM pages WHERE item_id = ?").map((id): RowKey => ({ kind: "page", id })),
+    ...ids("SELECT id FROM stickers WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)").map(
+      (id): RowKey => ({ kind: "sticker", id }),
+    ),
+  ];
 }
 
 function checkField(field: Field, value: string): { value: string | null } | { refused: string } {
@@ -239,14 +276,16 @@ function checkField(field: Field, value: string): { value: string | null } | { r
   }
 }
 
-function itemFor(
+/** An item the member sees, or else what a change to it does: nothing for a deleted item, and a
+ *  refusal for one that never existed or that the member doesn't see. */
+export function itemFor(
   sql: SqlStorage,
   memberId: string,
   itemId: string,
 ): { item: ItemRow } | { applied: Applied } {
   const [item] = sql
     .exec<ItemRow>(
-      `SELECT items.space_id, spaces.owner_id, items.space_at, items.space_change_id,
+      `SELECT items.kind, items.space_id, spaces.owner_id, items.space_at, items.space_change_id,
          items.title_at, items.title_change_id, items.description_at, items.description_change_id,
          items.date_at, items.date_change_id
        FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,

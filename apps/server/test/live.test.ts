@@ -4,13 +4,13 @@ import {
   runDurableObjectAlarm,
   runInDurableObject,
 } from "cloudflare:test";
-import { liveLimitLiftsAt } from "@foyer/shared";
+import { itemPageId, liveLimitLiftsAt } from "@foyer/shared";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import type { Here, Pointed } from "@foyer/shared/gen/foyer/sync/v1/live_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { theHousehold } from "../src/household";
 import { dailyPointLimit, silenceLimit, unsavedPointLimit } from "../src/live";
-import { Device, signIn, spaceCreate } from "./sync-device";
+import { Device, idOf, itemCreate, signIn, spaceCreate } from "./sync-device";
 
 const alex = "member@example.com";
 const sam = "housemate@example.com";
@@ -35,6 +35,19 @@ async function sharedSpacePage(device: Device): Promise<string> {
   await device.push(space);
   const spaceId = space.change?.case === "spaceCreate" ? space.change.value.spaceId : "";
   return `space:${spaceId}:1`;
+}
+
+async function bodyPageOfTask(device: Device, kind: "shared" | "inbox"): Promise<string> {
+  const spaceId =
+    kind === "shared"
+      ? (await sharedSpacePage(device)).split(":")[1]
+      : (await device.catchUp())
+          .flatMap(({ rows }) => rows)
+          .flatMap(({ row }) => (row.case === "space" ? [row.value] : []))
+          .find((space) => space.kind === SpaceKind.INBOX)?.id;
+  const task = itemCreate({ spaceId: spaceId ?? "" });
+  await device.push(task);
+  return itemPageId(idOf(task));
 }
 
 async function onPage<Emails extends string[]>(
@@ -214,6 +227,31 @@ describe("who can be seen on a page", () => {
     expect(describeHere(await sams.next("here")).members).toEqual([{ memberId: alexs.memberId }]);
   });
 
+  it("shows members on the body page of a task they see to each other, before anything is on it", async () => {
+    const alexs = await connect(alex);
+    const page = await bodyPageOfTask(alexs, "shared");
+    alexs.enter(page);
+    await alexs.next("here");
+    const sams = await connect(sam);
+
+    sams.enter(page);
+
+    expect(describeHere(await sams.next("here")).members).toEqual([{ memberId: alexs.memberId }]);
+  });
+
+  it("puts nobody on the body page of a task their member can't see", async () => {
+    const alexs = await connect(alex);
+    const page = await bodyPageOfTask(alexs, "inbox");
+    alexs.enter(page);
+    await alexs.next("here");
+    const sams = await connect(sam);
+
+    sams.enter(page);
+
+    expect(await sams.all("here")).toEqual([]);
+    expect(await alexs.all("here")).toEqual([]);
+  });
+
   it("puts nobody on a page their member can't see, and tells nobody", async () => {
     const alexs = await connect(alex);
     const inbox = (await alexs.catchUp())
@@ -237,7 +275,15 @@ describe("who can be seen on a page", () => {
     const [alexs] = await onPage(today, alex);
     const sams = await connect(sam);
 
-    for (const page of ["day:2026-02-30", "space:not-a-space:1", "notebook", ""]) sams.enter(page);
+    for (const page of [
+      "day:2026-02-30",
+      "space:not-a-space:1",
+      "item:not-an-item",
+      "notebook",
+      "",
+    ]) {
+      sams.enter(page);
+    }
 
     expect(await sams.all("here")).toEqual([]);
     expect(await alexs.all("here")).toEqual([]);

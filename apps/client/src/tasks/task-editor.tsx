@@ -4,17 +4,21 @@ import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { HouseholdSync, SyncState } from "../sync/household-sync";
+import { Checkbox } from "./checkbox";
 
-/** A task's title, description and date to edit and save, with ways to move it to another space
- *  the member sees, delete it after asking, and show it on its space's page. */
+/** A task's title, description and date to edit and save, with a checkbox to tick it, and ways to
+ *  move it to another space the member sees, delete it after asking, and show it on its space's
+ *  page. */
 export function TaskEditor({
   task,
+  done,
   state,
   sync,
   onShowOnPage,
   onClose,
 }: {
   task: Item;
+  done: boolean;
   state: SyncState;
   sync: HouseholdSync;
   /** Opens the page of the space the task is in, numbered from 1. */
@@ -41,9 +45,13 @@ export function TaskEditor({
   return (
     <View style={styles.panel} accessibilityLabel={`Task: ${task.title}`}>
       <ScrollView contentContainerStyle={styles.form}>
-        <Text style={styles.heading} accessibilityRole="header">
-          {task.title}
-        </Text>
+        <Checkbox
+          checked={done}
+          label="Done"
+          onChange={(ticked) => (ticked ? sync.tickTask(task.id) : sync.untickTask(task.id))}
+        >
+          <Text style={styles.line}>Done</Text>
+        </Checkbox>
         <TextInput
           style={styles.input}
           value={title}
@@ -117,17 +125,12 @@ export function TaskEditor({
 
 const styles = StyleSheet.create({
   panel: {
-    position: "absolute",
-    top: 8,
-    right: 12,
-    width: 340,
-    maxHeight: "90%",
+    maxHeight: "45%",
     backgroundColor: "#fffdf8",
-    borderColor: "#d8d2c4",
-    borderWidth: 1,
+    borderBottomColor: "#d8d2c4",
+    borderBottomWidth: 1,
   },
   form: { gap: 8, padding: 12 },
-  heading: { fontSize: 15, fontWeight: "600" },
   input: { borderColor: "#d8d2c4", borderWidth: 1, paddingHorizontal: 6, paddingVertical: 4 },
   description: { minHeight: 80, textAlignVertical: "top" },
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
