@@ -1,25 +1,28 @@
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { type PageSize, spacePageId } from "@foyer/shared";
+import {
+  nextStickerSpot,
+  type PageSize,
+  pageMargin,
+  type StickerKindName,
+  type StickerOnPage,
+  spacePageId,
+  stickerSizeOf,
+  stickerSpotInSpace,
+} from "@foyer/shared";
 import { type Page, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { type Sticker, StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import type { Point } from "./sheet-camera";
 
-/** The size of a task's sticker, in points: room for a checkbox and two lines of its title. */
-export const taskStickerSize: PageSize = { width: 240, height: 48 };
-
-/** The size an app draws a sticker of a kind it doesn't know yet, as a plain outline. */
-export const unknownStickerSize: PageSize = { width: 160, height: 48 };
-
-/** The space automatic placement leaves between stickers and the page's edges, in points. */
-export const pageMargin = 36;
-
-/** The space automatic placement leaves between one sticker and the next, in points. */
-export const stickerGap = 12;
+const kindNames: Partial<Record<StickerKind, StickerKindName>> = {
+  [StickerKind.TASK]: "task",
+  [StickerKind.EVENT]: "event",
+  [StickerKind.NOTE]: "note",
+};
 
 /** The size of a sticker of a kind, in points. Each kind has a fixed size, the same on every page
  *  for now. */
 export function stickerSize(kind: StickerKind): PageSize {
-  return kind === StickerKind.TASK ? taskStickerSize : unknownStickerSize;
+  return stickerSizeOf(kindNames[kind] ?? null);
 }
 
 /** The stickers on a page, in the order they stack, bottom first: by when they were placed or last
@@ -28,19 +31,6 @@ export function stickersOn(pageId: string, stickers: Iterable<Sticker>): Sticker
   return [...stickers]
     .filter((sticker) => sticker.pageId === pageId)
     .sort((a, b) => placedAt(a) - placedAt(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-}
-
-function nextFreeSpot(
-  page: PageSize,
-  stickers: readonly Pick<Sticker, "y" | "kind">[],
-  size: PageSize,
-): Point | null {
-  const lowest = Math.max(
-    pageMargin - stickerGap,
-    ...stickers.map(({ y, kind }) => y + stickerSize(kind).height),
-  );
-  const at = { x: pageMargin, y: lowest + stickerGap };
-  return at.y + size.height <= page.height - pageMargin ? at : null;
 }
 
 /** The number of a space's newest page the device knows, or 1 when none has been made. */
@@ -63,15 +53,11 @@ export function spotInSpace(
   stickers: Iterable<Sticker>,
   newPageSize: PageSize,
 ): { number: number; pageId: string; at: Point; isNewPage: boolean } {
-  const size = stickerSize(kind);
-  const newest = newestSpacePage(spaceId, pages);
-  const pageId = spacePageId(spaceId, newest);
-  const page = pages.get(pageId);
-  const spot = nextFreeSpot(page ?? newPageSize, stickersOn(pageId, stickers), size);
-  if (spot) return { number: newest, pageId, at: spot, isNewPage: !page };
-  const next = spacePageId(spaceId, newest + 1);
-  const top = nextFreeSpot(newPageSize, [], size) ?? { x: 0, y: 0 };
-  return { number: newest + 1, pageId: next, at: top, isNewPage: true };
+  const number = newestSpacePage(spaceId, pages);
+  const page = pages.get(spacePageId(spaceId, number));
+  const newest = page ? { number, size: page, stickers: onPage(page.id, stickers) } : null;
+  const spot = stickerSpotInSpace(newest, kindNames[kind] ?? null, newPageSize);
+  return { ...spot, pageId: spacePageId(spaceId, spot.number) };
 }
 
 /** Where a new sticker of `kind` goes on a page such as a task's body page: the next free spot
@@ -87,7 +73,7 @@ export function spotOnPage(
   const page = pages.get(pageId) ?? newPageSize;
   const size = stickerSize(kind);
   const lowest = { x: pageMargin, y: Math.max(page.height - pageMargin - size.height, 0) };
-  const at = nextFreeSpot(page, stickersOn(pageId, stickers), size) ?? lowest;
+  const at = nextStickerSpot(page, onPage(pageId, stickers), kindNames[kind] ?? null) ?? lowest;
   return { at, isNewPage: !pages.has(pageId) };
 }
 
@@ -98,6 +84,10 @@ export function keepOnPage(at: Point, size: PageSize, page: PageSize): Point {
     x: Math.min(Math.max(at.x, 0), Math.max(page.width - size.width, 0)),
     y: Math.min(Math.max(at.y, 0), Math.max(page.height - size.height, 0)),
   };
+}
+
+function onPage(pageId: string, stickers: Iterable<Sticker>): StickerOnPage[] {
+  return stickersOn(pageId, stickers).map(({ y, kind }) => ({ y, kind: kindNames[kind] ?? null }));
 }
 
 function placedAt(sticker: Sticker): number {
