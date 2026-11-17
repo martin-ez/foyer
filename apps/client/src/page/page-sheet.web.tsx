@@ -15,9 +15,7 @@ import {
 } from "./sheet-camera";
 
 /** A page lying on the desk, drawn by Skia in a canvas the size of the view. Pinching, or scrolling
- *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. `children`
- *  are views above the page, laid out in its own coordinates, which never take the pointer. A
- *  pointer moving over the page is reported to `onPoint`, in points from the page's top-left corner. */
+ *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. */
 export function PageSheet({
   size,
   label,
@@ -26,7 +24,9 @@ export function PageSheet({
 }: {
   size: PageSize;
   label: string;
+  /** Called as the pointer moves over the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
+  /** Views above the page, laid out in its own points, which never take the pointer. */
   children?: ReactNode;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);

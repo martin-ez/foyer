@@ -13,9 +13,7 @@ import { PageDrawing } from "./page-drawing";
 import { type Point, type Size, zoomLimits } from "./sheet-camera";
 
 /** A page lying on the desk, fitted to it at first, in a view that iOS zooms and moves as one sheet,
- *  so everything on the page moves with it in every frame of a pinch. `children` are views above
- *  the page, laid out in its own coordinates, which never take touches. A touch on the page is
- *  reported to `onPoint`, in points from the page's top-left corner. */
+ *  so everything on the page moves with it in every frame of a pinch. */
 export function PageSheet({
   size,
   label,
@@ -24,7 +22,9 @@ export function PageSheet({
 }: {
   size: PageSize;
   label: string;
+  /** Called with each touch on the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
+  /** Views above the page, laid out in its own points, which never take touches. */
   children?: ReactNode;
 }) {
   const [view, setView] = useState<Size | null>(null);
