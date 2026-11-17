@@ -8,7 +8,8 @@ import type { HouseholdSync, SyncState, SyncStatus } from "../sync/household-syn
 import { SpacesPanel } from "../sync/spaces-panel";
 import { useHouseholdSync } from "../sync/use-household-sync";
 import { useLivePage } from "../sync/use-live-page";
-import { describeSticker } from "./describe-sticker";
+import { TaskEditor } from "../tasks/task-editor";
+import { TasksPanel } from "../tasks/tasks-panel";
 import { describePage, pageIdOf, sizeOf } from "./open-page";
 import { PageSheet } from "./page-sheet";
 import { PageStickers } from "./page-stickers";
@@ -26,8 +27,8 @@ const statusLines: Record<SyncStatus, string> = {
 };
 
 /** What the signed-in member sees: the open page, starting as today's, kept in sync with the
- *  household, with its stickers and others' markers, ways to move between pages, and to add tasks
- *  to a space. Calls `onSignedOut` when the household says the session has ended. */
+ *  household, with its stickers and others' markers, ways to move between pages, and their tasks
+ *  to add, list and edit. Calls `onSignedOut` when the household says the session has ended. */
 export function PagesScreen({
   member,
   onSignOut,
@@ -43,14 +44,18 @@ export function PagesScreen({
   useLivePage(sync.live, pageId);
   const live = useSyncExternalStore(sync.live.subscribe, sync.live.getState);
   const markers = live.pageId === pageId ? markersOn(live.here, state.members) : [];
-  const [showingSpaces, setShowingSpaces] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [panel, setPanel] = useState<"spaces" | "tasks" | "list" | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const label = describePage(pages.page, state.spaces);
   const unsaved = state.unsaved > 0 ? ` · ${state.unsaved} not saved yet` : "";
   const size = sizeOf(pages.page, state.pages);
   const stickers = stickersOn(pageId, state.stickers.values());
-  const selectedSticker = stickers.find(({ id }) => id === selected);
   const space = pages.page.kind === "space" ? pages.page : null;
+  const openTask = openTaskId === null ? undefined : state.items.get(openTaskId);
+  const toggle = (shown: typeof panel) => {
+    setOpenTaskId(null);
+    setPanel(panel === shown ? null : shown);
+  };
 
   return (
     <View style={styles.fill}>
@@ -59,8 +64,12 @@ export function PagesScreen({
         <Button title="Today" onPress={pages.today} />
         <Button title="Next day" onPress={pages.nextDay} />
         <Button
-          title={showingSpaces ? "Hide spaces" : "Spaces"}
-          onPress={() => setShowingSpaces(!showingSpaces)}
+          title={panel === "spaces" ? "Hide spaces" : "Spaces"}
+          onPress={() => toggle("spaces")}
+        />
+        <Button
+          title={panel === "tasks" ? "Hide tasks" : "Tasks"}
+          onPress={() => toggle("tasks")}
         />
         <Text style={styles.title} accessibilityRole="header">
           {label}
@@ -77,23 +86,10 @@ export function PagesScreen({
           number={space.number}
           newest={newestSpacePage(space.spaceId, state.pages)}
           sync={sync}
+          showingList={panel === "list"}
+          onToggleList={() => toggle("list")}
           onOpen={(number) => pages.openSpace(space.spaceId, number)}
         />
-      ) : null}
-      {selectedSticker ? (
-        <View style={styles.bar}>
-          <Text style={styles.grow}>
-            Selected: {describeSticker(selectedSticker, state.items.get(selectedSticker.itemId))}
-          </Text>
-          <Button
-            title="Remove from page"
-            onPress={() => {
-              sync.removeSticker(selectedSticker.id);
-              setSelected(null);
-            }}
-          />
-          <Button title="Done" onPress={() => setSelected(null)} />
-        </View>
       ) : null}
       <Problems state={state} sync={sync} />
       <View style={styles.fill}>
@@ -107,20 +103,38 @@ export function PagesScreen({
             stickers={stickers}
             items={state.items}
             page={size}
-            selected={selected}
-            onSelect={(stickerId) => setSelected(stickerId === selected ? null : stickerId)}
+            selected={stickers.find(({ itemId }) => itemId === openTaskId)?.id ?? null}
+            onSelect={(stickerId) => setOpenTaskId(state.stickers.get(stickerId)?.itemId ?? null)}
             onMove={(stickerId, { x, y }) => sync.moveSticker(stickerId, x, y)}
           />
           <PresenceMarkers markers={markers} />
         </PageSheet>
-        {showingSpaces ? (
+        {openTask ? (
+          <TaskEditor
+            key={openTask.id}
+            task={openTask}
+            state={state}
+            sync={sync}
+            onShowOnPage={(spaceId, number) => {
+              pages.openSpace(spaceId, number);
+              setOpenTaskId(null);
+            }}
+            onClose={() => setOpenTaskId(null)}
+          />
+        ) : panel === "spaces" ? (
           <SpacesPanel
             state={state}
             sync={sync}
             onOpen={(spaceId) => {
               pages.openSpace(spaceId, newestSpacePage(spaceId, state.pages));
-              setShowingSpaces(false);
+              setPanel(null);
             }}
+          />
+        ) : panel === "tasks" || (panel === "list" && space) ? (
+          <TasksPanel
+            state={state}
+            only={panel === "list" ? space?.spaceId : undefined}
+            onOpenTask={setOpenTaskId}
           />
         ) : null}
         <BackendStatus />
@@ -134,12 +148,16 @@ function SpacePageBar({
   number,
   newest,
   sync,
+  showingList,
+  onToggleList,
   onOpen,
 }: {
   spaceId: string;
   number: number;
   newest: number;
   sync: HouseholdSync;
+  showingList: boolean;
+  onToggleList: () => void;
   onOpen: (number: number) => void;
 }) {
   const [title, setTitle] = useState("");
@@ -155,6 +173,7 @@ function SpacePageBar({
     <View style={styles.bar}>
       <Button title="Previous page" disabled={number <= 1} onPress={() => onOpen(number - 1)} />
       <Button title="Next page" disabled={number >= newest} onPress={() => onOpen(number + 1)} />
+      <Button title={showingList ? "Hide list" : "List"} onPress={onToggleList} />
       <TextInput
         style={[styles.input, styles.grow]}
         value={title}

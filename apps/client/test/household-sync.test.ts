@@ -730,7 +730,7 @@ describe("tasks and stickers", () => {
     expect(sync.getState().items.has(task.id)).toBe(true);
   });
 
-  it("adds a task on a space's first page, creating the page, the task and its sticker in one push", () => {
+  it("adds a task on a space's first page, creating the task, the page and its sticker in one push", () => {
     startUpToDate([spaceRow(1, inbox)], 1);
 
     const { itemId, pageNumber } = sync.addTask(inbox.id, "  Buy milk ");
@@ -739,21 +739,21 @@ describe("tasks and stickers", () => {
     const push = household().lastPush();
     expect(changesIn(push)).toEqual([
       {
-        case: "pageCreate",
-        value: expect.objectContaining({
-          pageId: inboxPage,
-          kind: PageKind.SPACE,
-          number: 1,
-          ...a4Portrait,
-        }),
-      },
-      {
         case: "itemCreate",
         value: expect.objectContaining({
           itemId,
           kind: ItemKind.TASK,
           spaceId: inbox.id,
           title: "Buy milk",
+        }),
+      },
+      {
+        case: "pageCreate",
+        value: expect.objectContaining({
+          pageId: inboxPage,
+          kind: PageKind.SPACE,
+          number: 1,
+          ...a4Portrait,
         }),
       },
       {
@@ -800,7 +800,7 @@ describe("tasks and stickers", () => {
 
     expect(pageNumber).toBe(2);
     const placed = changesIn(household().lastPush());
-    expect(placed[0]).toEqual({
+    expect(placed[1]).toEqual({
       case: "pageCreate",
       value: expect.objectContaining({ pageId: spacePageId(inbox.id, 2), number: 2 }),
     });
@@ -844,16 +844,112 @@ describe("tasks and stickers", () => {
     ]);
   });
 
-  it("removes a sticker at once, and keeps its task", () => {
+  it("changes a task's title, description and date at once, and undoes a refused change", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+
+    sync.setTitle(task.id, " Buy oat milk ");
+    sync.setDescription(task.id, "From the corner shop");
+    sync.setDate(task.id, "2026-11-20");
+
+    expect(household().pushes().flatMap(changesIn)).toEqual([
+      {
+        case: "itemSetTitle",
+        value: expect.objectContaining({ itemId: task.id, title: "Buy oat milk" }),
+      },
+      {
+        case: "itemSetDescription",
+        value: expect.objectContaining({ itemId: task.id, description: "From the corner shop" }),
+      },
+      {
+        case: "itemSetDate",
+        value: expect.objectContaining({ itemId: task.id, date: "2026-11-20" }),
+      },
+    ]);
+    expect(sync.getState().items.get(task.id)).toMatchObject({
+      title: "Buy oat milk",
+      description: "From the corner shop",
+      date: "2026-11-20",
+    });
+
+    const push = household().lastPush();
+    household().commit(push, { [push.changes[0]?.changeId ?? ""]: "There's no such item." });
+
+    expect(sync.getState().items.get(task.id)).toMatchObject({ date: "" });
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save changing a task's date: There's no such item.",
+    ]);
+  });
+
+  it("moves a task to another space, with its sticker going to that space's newest page", () => {
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        spaceRow(2, home),
+        inboxPageRow,
+        itemRow(3, task),
+        stickerRow(4, sticker),
+      ],
+      4,
+    );
+
+    const moved = sync.moveTask(task.id, home.id);
+
+    expect(moved).toEqual({ pageNumber: 1 });
+    const homePage = spacePageId(home.id, 1);
+    expect(changesIn(household().lastPush())).toEqual([
+      { case: "itemMove", value: expect.objectContaining({ itemId: task.id, spaceId: home.id }) },
+      { case: "stickerRemove", value: expect.objectContaining({ stickerId: sticker.id }) },
+      {
+        case: "pageCreate",
+        value: expect.objectContaining({ pageId: homePage, spaceId: home.id }),
+      },
+      {
+        case: "stickerPlace",
+        value: expect.objectContaining({
+          pageId: homePage,
+          itemId: task.id,
+          x: pageMargin,
+          y: pageMargin,
+        }),
+      },
+    ]);
+    const state = sync.getState();
+    expect(state.items.get(task.id)).toMatchObject({ spaceId: home.id });
+    expect(stickersOn(inboxPage, state.stickers.values())).toEqual([]);
+    expect(stickersOn(homePage, state.stickers.values())).toEqual([
+      expect.objectContaining({ itemId: task.id }),
+    ]);
+  });
+
+  it("moves nothing when a task is already in the space", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+
+    expect(sync.moveTask(task.id, inbox.id)).toBe(null);
+    expect(household().pushes()).toEqual([]);
+  });
+
+  it("deletes a task and its stickers at once", () => {
     startUpToDate([spaceRow(1, inbox), inboxPageRow, itemRow(3, task), stickerRow(4, sticker)], 4);
 
-    sync.removeSticker(sticker.id);
+    sync.deleteTask(task.id);
 
     expect(changesIn(household().lastPush())).toEqual([
-      { case: "stickerRemove", value: expect.objectContaining({ stickerId: sticker.id }) },
+      { case: "itemDelete", value: expect.objectContaining({ itemId: task.id }) },
     ]);
+    expect(sync.getState().items.size).toBe(0);
     expect(sync.getState().stickers.size).toBe(0);
-    expect(sync.getState().items.has(task.id)).toBe(true);
+  });
+
+  it("drops a task the household says the member no longer sees, keeping its stickers hidden", () => {
+    startUpToDate([spaceRow(1, inbox), inboxPageRow, itemRow(3, task), stickerRow(4, sticker)], 4);
+
+    household().update({
+      seq: 5n,
+      row: { case: "deleted", value: { kind: RowKind.ITEM, id: task.id } },
+    });
+
+    expect(sync.getState().items.has(task.id)).toBe(false);
+    expect(sync.getState().stickers.has(sticker.id)).toBe(true);
   });
 
   it("says why a task's title would be refused", () => {
