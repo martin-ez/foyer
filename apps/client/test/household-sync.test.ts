@@ -1,7 +1,10 @@
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { a2Landscape, a4Portrait, newId, signedOutCloseCode } from "@foyer/shared";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { a2Landscape, a4Portrait, newId, signedOutCloseCode, spacePageId } from "@foyer/shared";
+import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import {
   type Change,
   type DeviceMessage,
@@ -12,6 +15,7 @@ import {
   type RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pageMargin, stickerGap, stickersOn, taskStickerSize } from "../src/page/sticker-layout";
 import {
   type Connect,
   type ConnectionEvents,
@@ -114,9 +118,45 @@ function spaceRow(
   return { seq: BigInt(seq), row: { case: "space", value } };
 }
 
-function pageRow(seq: number, page: { id: string; width?: number; height?: number }): RowInit {
+function pageRow(
+  seq: number,
+  page: {
+    id: string;
+    kind?: PageKind;
+    spaceId?: string;
+    number?: number;
+    width?: number;
+    height?: number;
+  },
+): RowInit {
   const value = { kind: PageKind.DAY, ...a4Portrait, ...page };
   return { seq: BigInt(seq), row: { case: "page", value } };
+}
+
+function itemRow(seq: number, item: { id: string; spaceId: string; title: string }): RowInit {
+  return { seq: BigInt(seq), row: { case: "item", value: { kind: ItemKind.TASK, ...item } } };
+}
+
+function stickerRow(
+  seq: number,
+  sticker: {
+    id: string;
+    pageId: string;
+    itemId: string;
+    x?: number;
+    y?: number;
+    placedAt?: number;
+  },
+): RowInit {
+  const { placedAt = 0, ...rest } = sticker;
+  const value = {
+    kind: StickerKind.TASK,
+    x: 36,
+    y: 48,
+    placedAt: timestampFromMs(placedAt),
+    ...rest,
+  };
+  return { seq: BigInt(seq), row: { case: "sticker", value } };
 }
 
 function memberRow(seq: number, member: { id: string; name: string }): RowInit {
@@ -653,5 +693,171 @@ describe("the live lane", () => {
 
     household().closeWith(1006);
     expect(sync.live.getState().here).toEqual([]);
+  });
+});
+
+describe("tasks and stickers", () => {
+  const inboxPage = spacePageId(inbox.id, 1);
+  const task = { id: "019a8f4e-5c00-7000-8000-0000000000c1", spaceId: inbox.id, title: "Buy milk" };
+  const sticker = {
+    id: "019a8f4e-5c00-7000-8000-0000000000d1",
+    pageId: inboxPage,
+    itemId: task.id,
+  };
+  const inboxPageRow = pageRow(2, {
+    id: inboxPage,
+    kind: PageKind.SPACE,
+    spaceId: inbox.id,
+    number: 1,
+  });
+
+  function changesIn(push: Push) {
+    return push.changes.map(({ change }) => ({ case: change.case, value: change.value }));
+  }
+
+  it("keeps the tasks and stickers the household sends, and drops a removed sticker", () => {
+    startUpToDate([spaceRow(1, inbox), inboxPageRow, itemRow(3, task), stickerRow(4, sticker)], 4);
+
+    expect(sync.getState().items.get(task.id)).toMatchObject({ title: "Buy milk" });
+    expect(sync.getState().stickers.get(sticker.id)).toMatchObject({ pageId: inboxPage, x: 36 });
+
+    household().update({
+      seq: 5n,
+      row: { case: "deleted", value: { kind: RowKind.STICKER, id: sticker.id } },
+    });
+
+    expect(sync.getState().stickers.size).toBe(0);
+    expect(sync.getState().items.has(task.id)).toBe(true);
+  });
+
+  it("adds a task on a space's first page, creating the page, the task and its sticker in one push", () => {
+    startUpToDate([spaceRow(1, inbox)], 1);
+
+    const { itemId, pageNumber } = sync.addTask(inbox.id, "  Buy milk ");
+
+    expect(pageNumber).toBe(1);
+    const push = household().lastPush();
+    expect(changesIn(push)).toEqual([
+      {
+        case: "pageCreate",
+        value: expect.objectContaining({
+          pageId: inboxPage,
+          kind: PageKind.SPACE,
+          number: 1,
+          ...a4Portrait,
+        }),
+      },
+      {
+        case: "itemCreate",
+        value: expect.objectContaining({
+          itemId,
+          kind: ItemKind.TASK,
+          spaceId: inbox.id,
+          title: "Buy milk",
+        }),
+      },
+      {
+        case: "stickerPlace",
+        value: expect.objectContaining({
+          pageId: inboxPage,
+          x: pageMargin,
+          y: pageMargin,
+          kind: StickerKind.TASK,
+          itemId,
+        }),
+      },
+    ]);
+    const state = sync.getState();
+    expect(state.pages.has(inboxPage)).toBe(true);
+    expect(state.items.get(itemId)).toMatchObject({ title: "Buy milk", createdBy: me });
+    expect(stickersOn(inboxPage, state.stickers.values())).toEqual([
+      expect.objectContaining({ itemId, placedBy: me }),
+    ]);
+    expect(state.unsaved).toBe(3);
+  });
+
+  it("places each new task's sticker below the last one, on a page that already exists", () => {
+    startUpToDate([spaceRow(1, inbox), inboxPageRow, itemRow(3, task), stickerRow(4, sticker)], 4);
+
+    sync.addTask(inbox.id, "Water the plants");
+
+    const placed = changesIn(household().lastPush());
+    expect(placed.map((change) => change.case)).toEqual(["itemCreate", "stickerPlace"]);
+    expect(placed[1]?.value).toMatchObject({
+      x: pageMargin,
+      y: 48 + taskStickerSize.height + stickerGap,
+    });
+  });
+
+  it("puts a task on the space's next page when its newest page is full", () => {
+    const low = a4Portrait.height - pageMargin - taskStickerSize.height;
+    startUpToDate(
+      [spaceRow(1, inbox), inboxPageRow, itemRow(3, task), stickerRow(4, { ...sticker, y: low })],
+      4,
+    );
+
+    const { pageNumber } = sync.addTask(inbox.id, "Water the plants");
+
+    expect(pageNumber).toBe(2);
+    const placed = changesIn(household().lastPush());
+    expect(placed[0]).toEqual({
+      case: "pageCreate",
+      value: expect.objectContaining({ pageId: spacePageId(inbox.id, 2), number: 2 }),
+    });
+    expect(placed[2]?.value).toMatchObject({ pageId: spacePageId(inbox.id, 2), y: pageMargin });
+  });
+
+  it("moves a sticker at once, bringing it to the top, until the household says otherwise", () => {
+    vi.setSystemTime(Date.UTC(2026, 10, 17, 9));
+    const other = { ...sticker, id: "019a8f4e-5c00-7000-8000-0000000000d2", placedAt: 1000 };
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        inboxPageRow,
+        itemRow(3, task),
+        stickerRow(4, sticker),
+        stickerRow(5, other),
+      ],
+      5,
+    );
+
+    sync.moveSticker(sticker.id, 120, 200);
+
+    const push = household().lastPush();
+    expect(changesIn(push)).toEqual([
+      {
+        case: "stickerMove",
+        value: expect.objectContaining({ stickerId: sticker.id, x: 120, y: 200 }),
+      },
+    ]);
+    const stacked = stickersOn(inboxPage, sync.getState().stickers.values());
+    expect(stacked.map(({ id, x, y }) => ({ id, x, y }))).toEqual([
+      { id: other.id, x: 36, y: 48 },
+      { id: sticker.id, x: 120, y: 200 },
+    ]);
+
+    household().commit(push, { [push.changes[0]?.changeId ?? ""]: "There's no such sticker." });
+
+    expect(sync.getState().stickers.get(sticker.id)).toMatchObject({ x: 36, y: 48 });
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save moving a sticker: There's no such sticker.",
+    ]);
+  });
+
+  it("removes a sticker at once, and keeps its task", () => {
+    startUpToDate([spaceRow(1, inbox), inboxPageRow, itemRow(3, task), stickerRow(4, sticker)], 4);
+
+    sync.removeSticker(sticker.id);
+
+    expect(changesIn(household().lastPush())).toEqual([
+      { case: "stickerRemove", value: expect.objectContaining({ stickerId: sticker.id }) },
+    ]);
+    expect(sync.getState().stickers.size).toBe(0);
+    expect(sync.getState().items.has(task.id)).toBe(true);
+  });
+
+  it("says why a task's title would be refused", () => {
+    expect(sync.titleProblem("   ")).toBe("A task's title can't be blank.");
+    expect(sync.titleProblem(" Buy milk ")).toBe(null);
   });
 });

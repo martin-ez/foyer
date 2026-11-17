@@ -115,6 +115,42 @@ export const householdMigrations: readonly Migration[] = [
     day TEXT PRIMARY KEY,
     points INTEGER NOT NULL
   )`,
+  `CREATE TABLE items (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('task', 'event', 'note')),
+    space_id TEXT NOT NULL REFERENCES spaces (id),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    date TEXT,
+    created_by TEXT NOT NULL REFERENCES members (id),
+    created_at INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    space_at INTEGER NOT NULL,
+    space_change_id TEXT NOT NULL,
+    title_at INTEGER NOT NULL,
+    title_change_id TEXT NOT NULL,
+    description_at INTEGER NOT NULL,
+    description_change_id TEXT NOT NULL,
+    date_at INTEGER NOT NULL,
+    date_change_id TEXT NOT NULL
+  );
+  CREATE INDEX items_by_seq ON items (seq);
+  CREATE INDEX items_by_space ON items (space_id);
+  CREATE TABLE stickers (
+    id TEXT PRIMARY KEY,
+    page_id TEXT NOT NULL REFERENCES pages (id),
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('task', 'event', 'note')),
+    item_id TEXT NOT NULL REFERENCES items (id),
+    placed_at INTEGER NOT NULL,
+    placed_change_id TEXT NOT NULL,
+    placed_by TEXT NOT NULL REFERENCES members (id),
+    seq INTEGER NOT NULL
+  );
+  CREATE INDEX stickers_by_seq ON stickers (seq);
+  CREATE INDEX stickers_by_page ON stickers (page_id);
+  CREATE INDEX stickers_by_item ON stickers (item_id)`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

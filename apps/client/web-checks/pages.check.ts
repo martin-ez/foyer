@@ -25,12 +25,14 @@ test("moves between days, and back to today", async ({ page }) => {
   await expect(title).toHaveText(await describeDayInBrowser(page, 0));
 });
 
-test("opens a space's first page", async ({ page }, testInfo) => {
+test("opens a space on its newest page", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Spaces" }).click();
   await page.getByRole("button", { name: "Open Inbox" }).click();
 
-  await expect(page.getByRole("heading")).toHaveText("Inbox, page 1");
-  await expect(page.getByLabel("Inbox, page 1")).toBeVisible();
+  const heading = page.getByRole("heading");
+  await expect(heading).toHaveText(/^Inbox, page \d+$/);
+  await expect(page.getByLabel((await heading.textContent()) ?? "")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next page" })).toBeDisabled();
   await saveScreenshot(page, testInfo, "space-page");
 
   await page.getByRole("button", { name: "Next day" }).click();

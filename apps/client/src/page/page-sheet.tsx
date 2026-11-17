@@ -1,8 +1,10 @@
 import type { PageSize } from "@foyer/shared";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   ScrollView,
   StyleSheet,
   View,
@@ -10,6 +12,7 @@ import {
 import { Canvas } from "react-native-skia";
 import { deskColour } from "./desk-drawing";
 import { PageDrawing } from "./page-drawing";
+import { PageScale } from "./page-scale";
 import { type Point, type Size, zoomLimits } from "./sheet-camera";
 
 /** A page lying on the desk, fitted to it at first, in a view that iOS zooms and moves as one sheet,
@@ -24,7 +27,8 @@ export function PageSheet({
   label: string;
   /** Called with each touch on the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
-  /** Views above the page, laid out in its own points, which never take touches. */
+  /** Views above the page, laid out in its own points. Only those that ask for touches, such as
+   *  stickers, take them. */
   children?: ReactNode;
 }) {
   const [view, setView] = useState<Size | null>(null);
@@ -33,6 +37,14 @@ export function PageSheet({
     setView({ width, height });
   };
   const limits = view && zoomLimits(view, size);
+  const fitted = useRef(1);
+  fitted.current = limits?.smallest || 1;
+  const zoomed = useRef<number | null>(null);
+  const scale = useCallback(() => zoomed.current ?? fitted.current, []);
+  const followZoom = ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { zoomScale } = nativeEvent;
+    if (zoomScale !== undefined && zoomScale > 0) zoomed.current = zoomScale;
+  };
   const sheet = { width: size.width, height: size.height };
   const touched = ({ nativeEvent }: GestureResponderEvent) => {
     const at = { x: nativeEvent.locationX, y: nativeEvent.locationY };
@@ -50,6 +62,8 @@ export function PageSheet({
           zoomScale={limits.smallest}
           centerContent
           bouncesZoom
+          onScroll={followZoom}
+          scrollEventThrottle={16}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
         >
@@ -57,7 +71,9 @@ export function PageSheet({
             <Canvas style={sheet}>
               <PageDrawing size={size} />
             </Canvas>
-            <View style={[sheet, styles.above]}>{children}</View>
+            <View style={[sheet, styles.above]}>
+              <PageScale value={scale}>{children}</PageScale>
+            </View>
           </View>
         </ScrollView>
       ) : null}
@@ -68,5 +84,5 @@ export function PageSheet({
 const styles = StyleSheet.create({
   desk: { flex: 1, backgroundColor: deskColour },
   paper: { boxShadow: "0 2px 8px rgba(0, 0, 0, 0.18)" },
-  above: { position: "absolute", left: 0, top: 0, pointerEvents: "none" },
+  above: { position: "absolute", left: 0, top: 0, pointerEvents: "box-none" },
 });

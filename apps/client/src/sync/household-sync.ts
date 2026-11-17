@@ -3,13 +3,21 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   clashingName,
   freeSpaceName,
+  itemTitleProblem,
   newId,
+  pageSizeFor,
   signedOutCloseCode,
   spaceNameProblem,
 } from "@foyer/shared";
+import { type Item, ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Member } from "@foyer/shared/gen/foyer/member/v1/member_pb";
-import type { Page } from "@foyer/shared/gen/foyer/page/v1/page_pb";
+import { type Page, PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { type Space, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import {
+  type Sticker,
+  StickerKind,
+  StickerSchema,
+} from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import {
   type Change,
   ChangeSchema,
@@ -18,6 +26,7 @@ import {
   type Row,
   RowKind,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { spotInSpace } from "../page/sticker-layout";
 import { LiveLane } from "./live-lane";
 
 /** Where the device stands with the household. */
@@ -33,6 +42,11 @@ export type SyncState = {
   /** The pages the member sees that have been created, by id. A page is created when something is
    *  first put on it, so a page that isn't here is empty. */
   pages: ReadonlyMap<string, Page>;
+  /** The tasks, events and notes the member sees, by id. */
+  items: ReadonlyMap<string, Item>;
+  /** The stickers on the pages the member sees, by id, including those whose item they can't see,
+   *  which are drawn with their contents hidden. */
+  stickers: ReadonlyMap<string, Sticker>;
   /** How many changes the household hasn't saved yet. */
   unsaved: number;
   /** A sentence for each change the household refused, which the device undid. */
@@ -79,7 +93,15 @@ export class HouseholdSync {
   readonly #members = new Map<string, { seq: bigint; member: Member }>();
   readonly #spaces = new Map<string, { seq: bigint; space: Space }>();
   readonly #pages = new Map<string, { seq: bigint; page: Page }>();
-  readonly #rowsOfKind = { member: this.#members, space: this.#spaces, page: this.#pages };
+  readonly #items = new Map<string, { seq: bigint; item: Item }>();
+  readonly #stickers = new Map<string, { seq: bigint; sticker: Sticker }>();
+  readonly #rowsOfKind = {
+    member: this.#members,
+    space: this.#spaces,
+    page: this.#pages,
+    item: this.#items,
+    sticker: this.#stickers,
+  };
   readonly #deleted = new Map<string, bigint>();
   #pending: Pending[] = [];
   #problems: string[] = [];
@@ -129,7 +151,7 @@ export class HouseholdSync {
   createSpace(kind: SpaceKind.PERSONAL | SpaceKind.SHARED, name: string): string {
     const spaceId = newId();
     const trimmed = name.trim();
-    this.#change(`creating “${trimmed}”`, {
+    this.#make(`creating “${trimmed}”`, {
       case: "spaceCreate",
       value: { spaceId, kind, name: trimmed },
     });
@@ -139,7 +161,7 @@ export class HouseholdSync {
   /** Renames a personal or shared space. Spaces at the start and end of the name are dropped. */
   renameSpace(spaceId: string, name: string): void {
     const trimmed = name.trim();
-    this.#change(`renaming a space to “${trimmed}”`, {
+    this.#make(`renaming a space to “${trimmed}”`, {
       case: "spaceRename",
       value: { spaceId, name: trimmed },
     });
@@ -157,19 +179,77 @@ export class HouseholdSync {
     return clash === undefined ? null : `Another space you see is called “${clash}”.`;
   }
 
+  /** Adds a task to a space, with its sticker in the next free spot on the space's newest page, or
+   *  at the top of a new page when that one is full. Spaces at the start and end of the title are
+   *  dropped. Returns the number of the page its sticker went on. */
+  addTask(spaceId: string, title: string): { itemId: string; pageNumber: number } {
+    const itemId = newId();
+    const trimmed = title.trim();
+    const { pages, stickers } = this.#state;
+    const newPageSize = pageSizeFor("space");
+    const spot = spotInSpace(spaceId, StickerKind.TASK, pages, stickers.values(), newPageSize);
+    const changes: ChangeInit[] = [];
+    if (spot.isNewPage) {
+      changes.push({
+        case: "pageCreate",
+        value: {
+          pageId: spot.pageId,
+          kind: PageKind.SPACE,
+          spaceId,
+          number: spot.number,
+          ...newPageSize,
+        },
+      });
+    }
+    changes.push(
+      {
+        case: "itemCreate",
+        value: { itemId, kind: ItemKind.TASK, spaceId, title: trimmed },
+      },
+      {
+        case: "stickerPlace",
+        value: {
+          stickerId: newId(),
+          pageId: spot.pageId,
+          ...spot.at,
+          kind: StickerKind.TASK,
+          itemId,
+        },
+      },
+    );
+    this.#make(`adding “${trimmed}”`, ...changes);
+    return { itemId, pageNumber: spot.number };
+  }
+
+  /** Why the household would refuse this title for a task, or null if it wouldn't: one that's
+   *  blank or too long once trimmed. */
+  titleProblem(title: string): string | null {
+    return itemTitleProblem(title.trim());
+  }
+
+  /** Moves a sticker within its page, which brings it to the top. */
+  moveSticker(stickerId: string, x: number, y: number): void {
+    this.#make("moving a sticker", { case: "stickerMove", value: { stickerId, x, y } });
+  }
+
+  /** Peels a sticker off its page. Its item stays. */
+  removeSticker(stickerId: string): void {
+    this.#make("removing a sticker", { case: "stickerRemove", value: { stickerId } });
+  }
+
   /** Forgets the refused changes the state reports. */
   dismissProblems(): void {
     this.#problems = [];
     this.#changed();
   }
 
-  #change(describe: string, change: MessageInitShape<typeof ChangeSchema>["change"]): void {
-    const made = create(ChangeSchema, {
-      changeId: newId(),
-      at: timestampFromMs(Date.now()),
-      change,
-    });
-    this.#pending.push({ change: made, describe });
+  /** Makes changes, which go to the household in one push when it's connected. */
+  #make(describe: string, ...changes: ChangeInit[]): void {
+    const at = timestampFromMs(Date.now());
+    for (const change of changes) {
+      const made = create(ChangeSchema, { changeId: newId(), at, change });
+      this.#pending.push({ change: made, describe });
+    }
     this.#pushUnsent();
     this.#changed();
   }
@@ -266,6 +346,16 @@ export class HouseholdSync {
             this.#pages.set(row.value.id, { seq, page: row.value });
           }
           break;
+        case "item":
+          if (this.#isNewer("item", row.value.id, seq, this.#items)) {
+            this.#items.set(row.value.id, { seq, item: row.value });
+          }
+          break;
+        case "sticker":
+          if (this.#isNewer("sticker", row.value.id, seq, this.#stickers)) {
+            this.#stickers.set(row.value.id, { seq, sticker: row.value });
+          }
+          break;
         case "deleted": {
           const kind = rowKindNames[row.value.kind];
           const rows = kind && this.#rowsOfKind[kind];
@@ -332,18 +422,67 @@ export class HouseholdSync {
 
   #currentState(): SyncState {
     const spaces = new Map([...this.#spaces].map(([id, { space }]) => [id, space]));
+    const pages = new Map([...this.#pages].map(([id, { page }]) => [id, page]));
+    const items = new Map([...this.#items].map(([id, { item }]) => [id, item]));
+    const stickers = new Map([...this.#stickers].map(([id, { sticker }]) => [id, sticker]));
     for (const { change } of this.#pending) {
-      if (change.change.case === "spaceCreate") {
-        const { spaceId, kind, name } = change.change.value;
-        const ownerId = kind === SpaceKind.PERSONAL ? this.#memberId : "";
-        if (!spaces.has(spaceId)) {
-          const numbered = freeSpaceName(name, namesOf(spaces.values()));
-          spaces.set(spaceId, create(SpaceSchema, { id: spaceId, kind, ownerId, name: numbered }));
+      const { at } = change;
+      switch (change.change.case) {
+        case "spaceCreate": {
+          const { spaceId, kind, name } = change.change.value;
+          const ownerId = kind === SpaceKind.PERSONAL ? this.#memberId : "";
+          if (!spaces.has(spaceId)) {
+            const numbered = freeSpaceName(name, namesOf(spaces.values()));
+            spaces.set(
+              spaceId,
+              create(SpaceSchema, { id: spaceId, kind, ownerId, name: numbered }),
+            );
+          }
+          break;
         }
-      } else if (change.change.case === "spaceRename") {
-        const { spaceId, name } = change.change.value;
-        const space = spaces.get(spaceId);
-        if (space) spaces.set(spaceId, { ...space, name });
+        case "spaceRename": {
+          const { spaceId, name } = change.change.value;
+          const space = spaces.get(spaceId);
+          if (space) spaces.set(spaceId, { ...space, name });
+          break;
+        }
+        case "pageCreate": {
+          const { pageId, kind, spaceId, number, itemId, width, height } = change.change.value;
+          if (!pages.has(pageId)) {
+            const page = { id: pageId, kind, spaceId, number, itemId, width, height };
+            pages.set(pageId, create(PageSchema, page));
+          }
+          break;
+        }
+        case "itemCreate": {
+          const { itemId, kind, spaceId, title, description, date } = change.change.value;
+          if (!items.has(itemId)) {
+            const item = { id: itemId, kind, spaceId, title, description, date };
+            const created = { createdBy: this.#memberId, createdAt: at };
+            items.set(itemId, create(ItemSchema, { ...item, ...created }));
+          }
+          break;
+        }
+        case "stickerPlace": {
+          const { stickerId, pageId, x, y, kind, itemId } = change.change.value;
+          if (!stickers.has(stickerId) && !this.#deleted.has(`sticker ${stickerId}`)) {
+            const sticker = { id: stickerId, pageId, x, y, kind, itemId };
+            const placed = { placedAt: at, placedBy: this.#memberId };
+            stickers.set(stickerId, create(StickerSchema, { ...sticker, ...placed }));
+          }
+          break;
+        }
+        case "stickerMove": {
+          const { stickerId, x, y } = change.change.value;
+          const sticker = stickers.get(stickerId);
+          if (sticker) {
+            stickers.set(stickerId, { ...sticker, x, y, placedAt: at, placedBy: this.#memberId });
+          }
+          break;
+        }
+        case "stickerRemove":
+          stickers.delete(change.change.value.stickerId);
+          break;
       }
     }
     return {
@@ -354,7 +493,9 @@ export class HouseholdSync {
       spaces: [...spaces.values()].sort(
         (a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.id.localeCompare(b.id),
       ),
-      pages: new Map([...this.#pages].map(([id, { page }]) => [id, page])),
+      pages,
+      items,
+      stickers,
       unsaved: this.#pending.length,
       problems: [...this.#problems],
     };
@@ -367,10 +508,14 @@ function namesOf(spaces: Iterable<Space>): string[] {
     .map(({ name }) => name);
 }
 
-const rowKindNames: Partial<Record<RowKind, "member" | "space" | "page">> = {
+type ChangeInit = MessageInitShape<typeof ChangeSchema>["change"];
+
+const rowKindNames: Partial<Record<RowKind, "member" | "space" | "page" | "item" | "sticker">> = {
   [RowKind.MEMBER]: "member",
   [RowKind.SPACE]: "space",
   [RowKind.PAGE]: "page",
+  [RowKind.ITEM]: "item",
+  [RowKind.STICKER]: "sticker",
 };
 
 const kindOrder: Record<SpaceKind, number> = {

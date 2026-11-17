@@ -8,9 +8,11 @@ import {
   ChangeResultSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { createItem } from "./items";
 import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
 import { namesSeenBy } from "./spaces";
+import { moveSticker, placeSticker, removeSticker } from "./stickers";
 
 /** What a push did: what became of each change, the rows it changed, and the rows that changes
  *  with no effect would have changed, which only the device that pushed them receives. */
@@ -89,6 +91,14 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return renameSpace(sql, memberId, setter, change.change.value);
     case "pageCreate":
       return createPage(sql, memberId, setter, change.change.value);
+    case "itemCreate":
+      return createItem(sql, memberId, setter, change.change.value);
+    case "stickerPlace":
+      return placeSticker(sql, memberId, setter, change.change.value);
+    case "stickerMove":
+      return moveSticker(sql, memberId, setter, change.change.value);
+    case "stickerRemove":
+      return removeSticker(sql, memberId, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }
@@ -165,7 +175,9 @@ function renameSpace(
   return { seq, changed: [key], unchanged: [] };
 }
 
-function isLater(change: Setter, than: Setter): boolean {
+/** Whether a change was made after another, by the device's clock, with equal times settled by the
+ *  larger change id. */
+export function isLater(change: Setter, than: Setter): boolean {
   return change.at > than.at || (change.at === than.at && change.changeId > than.changeId);
 }
 

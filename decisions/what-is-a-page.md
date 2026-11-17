@@ -1,11 +1,13 @@
 # What is a page?
-Decided in #10, #16 and #64
+Decided in #10, #16, #17 and #64
 
 **Applies when:** building any view people write on, laying things out on a page, storing or syncing pages, positioning anything on a page, or deciding how people move around pages.
 
 **Answer:** A paper-like sheet with a fixed shape, and the unit everything in Foyer happens on: calendar pages (month, week and day), notebook pages and items' body pages. A page never stretches, and it looks the same on every device, so ink and stickers land in the same place everywhere. A long note gets more pages.
 
 Things on a page stack in the order they were added, as on paper: a scribble made after a sticker sits on top of it, and a sticker added after a scribble sits on top of the scribble. Moving something brings it to the top, like peeling it off and sticking it down again. The eraser only removes ink. Until #40 is built, ink is drawn above stickers and text.
+
+- **Stacking order:** by when each thing was placed or last moved, by the device's clock, with equal times settled by id. A sticker keeps that time as `placed_at`, the time of the change that placed or moved it, and strokes and text store the same time, so stacking them together needs no conversion.
 
 Pinch zooms within a page so people can write in detail. Moving between month, week and day pages has its own control. While zooming, everything on a page moves with it as one sheet, in every frame of a pinch, including while the view settles or bounces after it. On the iPad, the page and its ink are one zoomable sheet that iOS moves.
 
@@ -28,7 +30,7 @@ Pinch zooms within a page so people can write in detail. Moving between month, w
   - An item's pages are in the order of their ids. Zoom and scroll position belong to each device and aren't stored.
   - Calendar pages are never deleted.
 
-Month and week pages are built by #24, and tasks on space pages by #21.
+Month and week pages are built by #24.
 Item pages are built by #23 and #29, which also decides how a note's page is deleted.
 
 **Why:**
@@ -36,6 +38,7 @@ Item pages are built by #23 and #29, which also decides how a note's page is del
 - Paper sizes and points keep handwriting at its real size on every device. Text is already sized in points, and PDF uses them, so exporting a page (#56) needs no conversion.
 - A size stored with each page travels with it, so an older app still draws a page of a size added after it was built.
 - Each page has one owner, so who sees it follows one rule, as for ink.
+- Stacking by the device's clock follows the order things were put down in real life, even on a device that was offline, and it's the time sync already keeps to settle conflicts.
 - Every device can name a calendar or space page without asking the household, so writing on the same day offline, or adding tasks to the same space, lands on one page rather than two copies.
 - When the page and its ink were separate views on the iPad, they drifted apart while iOS animated the zoom (#2).
 
@@ -46,4 +49,5 @@ Item pages are built by #23 and #29, which also decides how a note's page is del
 - Storing a size's name, such as `A4`, which an older app couldn't draw once a new size is added.
 - Loose pages in a space, attached to no item, which would be another kind of thing with rules of their own.
 - Tasks on a space's page laid out as a list drawn in order, where ink would no longer line up with its task once tasks are added, ticked or reordered.
+- For stacking: the household's change numbers, which put everything made offline on top once it syncs; and a separate layer number, which two devices offline could both claim.
 - UUIDs for calendar and space pages, where two devices offline would each create their own copy of the same page.
