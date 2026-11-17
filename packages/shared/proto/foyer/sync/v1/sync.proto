@@ -8,6 +8,7 @@ import "foyer/page/v1/page.proto";
 import "foyer/space/v1/space.proto";
 import "foyer/sticker/v1/sticker.proto";
 import "foyer/sync/v1/live.proto";
+import "foyer/task/v1/task.proto";
 import "google/protobuf/timestamp.proto";
 
 // Sync keeps devices up to date over a WebSocket at the backend's /sync address, which carries the
@@ -56,6 +57,8 @@ message Change {
     foyer.item.v1.ItemSetDate item_set_date = 12;
     foyer.item.v1.ItemMove item_move = 13;
     foyer.item.v1.ItemDelete item_delete = 14;
+    foyer.task.v1.TaskTick task_tick = 15;
+    foyer.task.v1.TaskUntick task_untick = 16;
   }
 }
 
@@ -137,6 +140,7 @@ message Row {
     foyer.page.v1.Page page = 5;
     foyer.item.v1.Item item = 6;
     foyer.sticker.v1.Sticker sticker = 7;
+    foyer.task.v1.Completion completion = 8;
   }
 }
 
@@ -154,4 +158,5 @@ enum RowKind {
   ROW_KIND_PAGE = 3;
   ROW_KIND_ITEM = 4;
   ROW_KIND_STICKER = 5;
+  ROW_KIND_COMPLETION = 6;
 }

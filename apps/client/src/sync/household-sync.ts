@@ -26,6 +26,7 @@ import {
   type Row,
   RowKind,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { type Completion, CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { spotInSpace } from "../page/sticker-layout";
 import { LiveLane } from "./live-lane";
 
@@ -47,6 +48,8 @@ export type SyncState = {
   /** The stickers on the pages the member sees, by id, including those whose item they can't see,
    *  which are drawn with their contents hidden. */
   stickers: ReadonlyMap<string, Sticker>;
+  /** The completions of the tasks the member sees, by id: one each time a task was ticked. */
+  completions: ReadonlyMap<string, Completion>;
   /** How many changes the household hasn't saved yet. */
   unsaved: number;
   /** A sentence for each change the household refused, which the device undid. */
@@ -95,12 +98,14 @@ export class HouseholdSync {
   readonly #pages = new Map<string, { seq: bigint; page: Page }>();
   readonly #items = new Map<string, { seq: bigint; item: Item }>();
   readonly #stickers = new Map<string, { seq: bigint; sticker: Sticker }>();
+  readonly #completions = new Map<string, { seq: bigint; completion: Completion }>();
   readonly #rowsOfKind = {
     member: this.#members,
     space: this.#spaces,
     page: this.#pages,
     item: this.#items,
     sticker: this.#stickers,
+    completion: this.#completions,
   };
   readonly #deleted = new Map<string, bigint>();
   #pending: Pending[] = [];
@@ -236,6 +241,19 @@ export class HouseholdSync {
   deleteTask(itemId: string): void {
     const title = this.#state.items.get(itemId)?.title ?? "a task";
     this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
+  }
+
+  /** Ticks a task, which adds a completion unless it's already done. */
+  tickTask(itemId: string): void {
+    const title = this.#state.items.get(itemId)?.title ?? "a task";
+    const value = { completionId: newId(), itemId };
+    this.#make(`ticking “${title}”`, { case: "taskTick", value });
+  }
+
+  /** Unticks a task, whoever ticked it. */
+  untickTask(itemId: string): void {
+    const title = this.#state.items.get(itemId)?.title ?? "a task";
+    this.#make(`unticking “${title}”`, { case: "taskUntick", value: { itemId } });
   }
 
   /** Moves a sticker within its page, which brings it to the top. */
@@ -376,6 +394,11 @@ export class HouseholdSync {
             this.#stickers.set(row.value.id, { seq, sticker: row.value });
           }
           break;
+        case "completion":
+          if (this.#isNewer("completion", row.value.id, seq, this.#completions)) {
+            this.#completions.set(row.value.id, { seq, completion: row.value });
+          }
+          break;
         case "deleted": {
           const kind = rowKindNames[row.value.kind];
           const rows = kind && this.#rowsOfKind[kind];
@@ -445,6 +468,9 @@ export class HouseholdSync {
     const pages = new Map([...this.#pages].map(([id, { page }]) => [id, page]));
     const items = new Map([...this.#items].map(([id, { item }]) => [id, item]));
     const stickers = new Map([...this.#stickers].map(([id, { sticker }]) => [id, sticker]));
+    const completions = new Map(
+      [...this.#completions].map(([id, { completion }]) => [id, completion]),
+    );
     for (const { change } of this.#pending) {
       const { at } = change;
       switch (change.change.case) {
@@ -530,7 +556,37 @@ export class HouseholdSync {
         case "itemDelete": {
           const { itemId } = change.change.value;
           items.delete(itemId);
-          for (const [id, sticker] of stickers) if (sticker.itemId === itemId) stickers.delete(id);
+          const itemPages = new Set(
+            [...pages.values()].filter((page) => page.itemId === itemId).map(({ id }) => id),
+          );
+          for (const id of itemPages) pages.delete(id);
+          for (const [id, sticker] of stickers) {
+            if (sticker.itemId === itemId || itemPages.has(sticker.pageId)) stickers.delete(id);
+          }
+          for (const [id, completion] of completions) {
+            if (completion.itemId === itemId) completions.delete(id);
+          }
+          break;
+        }
+        case "taskTick": {
+          const { completionId, itemId, occurrence } = change.change.value;
+          const done = [...completions.values()].some(
+            (each) => each.itemId === itemId && each.occurrence === occurrence,
+          );
+          if (!done && items.has(itemId) && !this.#deleted.has(`completion ${completionId}`)) {
+            const completion = { id: completionId, itemId, occurrence };
+            const ticked = { doneAt: at, doneBy: this.#memberId };
+            completions.set(completionId, create(CompletionSchema, { ...completion, ...ticked }));
+          }
+          break;
+        }
+        case "taskUntick": {
+          const { itemId, occurrence } = change.change.value;
+          for (const [id, completion] of completions) {
+            if (completion.itemId === itemId && completion.occurrence === occurrence) {
+              completions.delete(id);
+            }
+          }
           break;
         }
       }
@@ -546,6 +602,7 @@ export class HouseholdSync {
       pages,
       items,
       stickers,
+      completions,
       unsaved: this.#pending.length,
       problems: [...this.#problems],
     };
@@ -560,12 +617,15 @@ function namesOf(spaces: Iterable<Space>): string[] {
 
 type ChangeInit = MessageInitShape<typeof ChangeSchema>["change"];
 
-const rowKindNames: Partial<Record<RowKind, "member" | "space" | "page" | "item" | "sticker">> = {
+type RowKindName = "member" | "space" | "page" | "item" | "sticker" | "completion";
+
+const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.MEMBER]: "member",
   [RowKind.SPACE]: "space",
   [RowKind.PAGE]: "page",
   [RowKind.ITEM]: "item",
   [RowKind.STICKER]: "sticker",
+  [RowKind.COMPLETION]: "completion",
 };
 
 const kindOrder: Record<SpaceKind, number> = {

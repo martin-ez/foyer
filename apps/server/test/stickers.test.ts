@@ -1,6 +1,6 @@
 import { reset } from "cloudflare:test";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, dayPageId, newId, spacePageId } from "@foyer/shared";
+import { a4Portrait, dayPageId, itemPageId, newId, spacePageId } from "@foyer/shared";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
@@ -202,6 +202,23 @@ describe("placing stickers", () => {
     await device.push(pageCreate(day));
 
     const committed = await device.push(stickerPlace({ pageId: day.pageId, itemId }));
+
+    expect(resultOf(committed.results[0])).toEqual({
+      refused: "Stickers can only go on a space's pages for now.",
+    });
+  });
+
+  it("refuses a sticker on a task's body page, for now", async () => {
+    const device = await connect(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const { itemId } = await newTaskWithoutSticker(device, inbox);
+    const other = await newTaskWithoutSticker(device, inbox);
+    const body = { pageId: itemPageId(itemId), kind: PageKind.ITEM, itemId, ...a4Portrait };
+    await device.push(pageCreate(body));
+
+    const committed = await device.push(
+      stickerPlace({ pageId: body.pageId, itemId: other.itemId }),
+    );
 
     expect(resultOf(committed.results[0])).toEqual({
       refused: "Stickers can only go on a space's pages for now.",

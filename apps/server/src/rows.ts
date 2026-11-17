@@ -6,9 +6,13 @@ import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { type Row, RowKind, RowSchema } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 
 /** Which row devices hold: its kind and its id. */
-export type RowKey = { kind: "member" | "space" | "page" | "item" | "sticker"; id: string };
+export type RowKey = {
+  kind: "member" | "space" | "page" | "item" | "sticker" | "completion";
+  id: string;
+};
 
 /** A row as devices receive it, and who can see it: one member, or every member when null. */
 export type VisibleRow = { row: Row; visibleTo: string | null };
@@ -55,8 +59,12 @@ export function pullRows(
     ...seqsOf(
       `SELECT items.seq FROM ${itemsWithOwner} WHERE items.seq > ? AND ${itemSeenBy}
        UNION ALL SELECT stickers.seq FROM ${stickersWithOwner} AND stickers.seq > ? AND ${pageSeenBy}
+       UNION ALL SELECT completions.seq FROM ${completionsWithOwner}
+         WHERE completions.seq > ? AND ${itemSeenBy}
        UNION ALL SELECT seq FROM tombstones WHERE seq > ? AND (visible_to IS NULL OR visible_to = ?)
        UNION ALL SELECT seq FROM hidden_rows WHERE seq > ? AND member_id = ?`,
+      cursor,
+      memberId,
       cursor,
       memberId,
       cursor,
@@ -94,7 +102,25 @@ export function readRows(sql: SqlStorage, keys: RowKey[]): VisibleRow[] {
   });
 }
 
-function readRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
+/** A row as it is now, for the members who see it, along with the row as deleted for the members
+ *  who stopped seeing it in its last change. */
+function readRow(sql: SqlStorage, key: RowKey): VisibleRow[] {
+  const found = readCurrentRow(sql, key);
+  const hidden = found.flatMap(({ row }) =>
+    sql
+      .exec<Tombstone>(
+        `${selectHiddenRows} WHERE kind = ? AND id = ? AND seq = ?`,
+        key.kind,
+        key.id,
+        Number(row.seq),
+      )
+      .toArray()
+      .map(deletedRow),
+  );
+  return [...found, ...hidden];
+}
+
+function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
   switch (kind) {
     case "member":
       return sql.exec<MemberRow>(`${selectMembers} WHERE id = ?`, id).toArray().map(memberRow);
@@ -102,24 +128,18 @@ function readRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
       return sql.exec<SpaceRow>(`${selectSpaces} WHERE id = ?`, id).toArray().map(spaceRow);
     case "page":
       return sql.exec<PageRow>(`${selectPages} AND pages.id = ?`, id).toArray().map(pageRow);
-    case "item": {
-      const items = sql.exec<ItemRow>(`${selectItems} WHERE items.id = ?`, id).toArray();
-      const hidden = items.flatMap(({ seq }) =>
-        sql
-          .exec<Tombstone>(
-            `${selectHiddenRows} WHERE kind = 'item' AND id = ? AND seq = ?`,
-            id,
-            seq,
-          )
-          .toArray(),
-      );
-      return [...items.map(itemRow), ...hidden.map(deletedRow)];
-    }
+    case "item":
+      return sql.exec<ItemRow>(`${selectItems} WHERE items.id = ?`, id).toArray().map(itemRow);
     case "sticker":
       return sql
         .exec<StickerRow>(`${selectStickers} AND stickers.id = ?`, id)
         .toArray()
         .map(stickerRow);
+    case "completion":
+      return sql
+        .exec<CompletionRow>(`${selectCompletions} WHERE completions.id = ?`, id)
+        .toArray()
+        .map(completionRow);
   }
 }
 
@@ -135,9 +155,10 @@ type SpaceRow = {
 
 type PageRow = {
   id: string;
-  kind: "month" | "week" | "day" | "space";
+  kind: "month" | "week" | "day" | "space" | "item";
   space_id: string | null;
   number: number | null;
+  item_id: string | null;
   width: number;
   height: number;
   seq: number;
@@ -170,18 +191,34 @@ type StickerRow = {
   owner_id: string | null;
 };
 
+type CompletionRow = {
+  id: string;
+  item_id: string;
+  occurrence: string;
+  done_at: number;
+  done_by: string;
+  seq: number;
+  owner_id: string | null;
+};
+
 type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; seq: number };
 
 const selectMembers = "SELECT id, name, seq FROM members";
 
 const selectSpaces = "SELECT id, kind, owner_id, name, seq FROM spaces";
 
-const pagesWithOwner = `pages LEFT JOIN spaces ON spaces.id = pages.space_id WHERE pages.kind != 'item'`;
+/** Joins each of the `pages` to the space whose members see it, as `spaces`: a space page's own,
+ *  or an item page's item's. Calendar pages have none, as every member sees them. */
+export const joinPageSpace = `LEFT JOIN items AS page_items ON page_items.id = pages.item_id
+  LEFT JOIN spaces ON spaces.id = coalesce(pages.space_id, page_items.space_id)`;
+
+const pagesWithOwner = `pages ${joinPageSpace}
+  WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
 
 const pageSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
-const selectPages = `SELECT pages.id, pages.kind, pages.space_id, pages.number, pages.width, pages.height,
-  pages.seq, spaces.owner_id FROM ${pagesWithOwner}`;
+const selectPages = `SELECT pages.id, pages.kind, pages.space_id, pages.number, pages.item_id,
+  pages.width, pages.height, pages.seq, spaces.owner_id FROM ${pagesWithOwner}`;
 
 const itemsWithOwner = "items JOIN spaces ON spaces.id = items.space_id";
 
@@ -190,12 +227,19 @@ const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
   items.date, items.created_by, items.created_at, items.seq, spaces.owner_id FROM ${itemsWithOwner}`;
 
-const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id
-  LEFT JOIN spaces ON spaces.id = pages.space_id WHERE pages.kind != 'item'`;
+const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
+  WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
 
 const selectStickers = `SELECT stickers.id, stickers.page_id, stickers.x, stickers.y, stickers.kind,
   stickers.item_id, stickers.placed_at, stickers.placed_by, stickers.seq, spaces.owner_id
   FROM ${stickersWithOwner}`;
+
+const completionsWithOwner = `completions JOIN items ON items.id = completions.item_id
+  JOIN spaces ON spaces.id = items.space_id`;
+
+const selectCompletions = `SELECT completions.id, completions.item_id, completions.occurrence,
+  completions.done_at, completions.done_by, completions.seq, spaces.owner_id
+  FROM ${completionsWithOwner}`;
 
 const selectTombstones = "SELECT kind, id, visible_to, seq FROM tombstones";
 
@@ -212,6 +256,7 @@ const pageKinds = {
   week: PageKind.WEEK,
   day: PageKind.DAY,
   space: PageKind.SPACE,
+  item: PageKind.ITEM,
 } as const;
 
 const itemKinds = { task: ItemKind.TASK, event: ItemKind.EVENT, note: ItemKind.NOTE } as const;
@@ -228,6 +273,7 @@ const rowKinds = {
   page: RowKind.PAGE,
   item: RowKind.ITEM,
   sticker: RowKind.STICKER,
+  completion: RowKind.COMPLETION,
 } as const;
 
 function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: number): Row[] {
@@ -271,6 +317,15 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(stickerRow);
+  const completions = sql
+    .exec<CompletionRow>(
+      `${selectCompletions} WHERE completions.seq > ? AND completions.seq <= ? AND ${itemSeenBy}`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(completionRow);
   const tombstones = sql
     .exec<Tombstone>(
       `${selectTombstones} WHERE seq > ? AND seq <= ? AND (visible_to IS NULL OR visible_to = ?)`,
@@ -289,7 +344,16 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(deletedRow);
-  return [...members, ...spaces, ...pages, ...items, ...stickers, ...tombstones, ...hidden]
+  return [
+    ...members,
+    ...spaces,
+    ...pages,
+    ...items,
+    ...stickers,
+    ...completions,
+    ...tombstones,
+    ...hidden,
+  ]
     .map(({ row }) => row)
     .sort((a, b) => Number(a.seq - b.seq));
 }
@@ -321,6 +385,7 @@ function pageRow(page: PageRow): VisibleRow {
     kind: pageKinds[page.kind],
     spaceId: page.space_id ?? "",
     number: page.number ?? 0,
+    itemId: page.item_id ?? "",
     width: page.width,
     height: page.height,
   });
@@ -361,6 +426,20 @@ function stickerRow(sticker: StickerRow): VisibleRow {
   return {
     row: create(RowSchema, { seq: BigInt(sticker.seq), row: { case: "sticker", value } }),
     visibleTo: sticker.owner_id,
+  };
+}
+
+function completionRow(completion: CompletionRow): VisibleRow {
+  const value = create(CompletionSchema, {
+    id: completion.id,
+    itemId: completion.item_id,
+    occurrence: completion.occurrence,
+    doneAt: timestampFromMs(completion.done_at),
+    doneBy: completion.done_by,
+  });
+  return {
+    row: create(RowSchema, { seq: BigInt(completion.seq), row: { case: "completion", value } }),
+    visibleTo: completion.owner_id,
   };
 }
 

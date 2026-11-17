@@ -9,8 +9,9 @@ import { SpacesPanel } from "../sync/spaces-panel";
 import { useHouseholdSync } from "../sync/use-household-sync";
 import { useLivePage } from "../sync/use-live-page";
 import { TaskEditor } from "../tasks/task-editor";
+import { doneTasks } from "../tasks/task-lists";
 import { TasksPanel } from "../tasks/tasks-panel";
-import { describePage, pageIdOf, sizeOf } from "./open-page";
+import { describePage, type OpenPage, pageIdOf, sizeOf } from "./open-page";
 import { PageSheet } from "./page-sheet";
 import { PageStickers } from "./page-stickers";
 import { markersOn } from "./presence";
@@ -28,7 +29,8 @@ const statusLines: Record<SyncStatus, string> = {
 
 /** What the signed-in member sees: the open page, starting as today's, kept in sync with the
  *  household, with its stickers and others' markers, ways to move between pages, and their tasks
- *  to add, list and edit. Calls `onSignedOut` when the household says the session has ended. */
+ *  to add, list, tick and edit. An open task shows its fields above its body page. Calls
+ *  `onSignedOut` when the household says the session has ended. */
 export function PagesScreen({
   member,
   onSignOut,
@@ -40,29 +42,38 @@ export function PagesScreen({
 }) {
   const { state, sync } = useHouseholdSync(member.id, onSignedOut);
   const pages = useOpenPage();
-  const pageId = pageIdOf(pages.page);
+  const [panel, setPanel] = useState<"spaces" | "tasks" | "list" | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
+  const openTask = openTaskId === null ? undefined : state.items.get(openTaskId);
+  const shown: OpenPage = openTask ? { kind: "item", itemId: openTask.id } : pages.page;
+  const pageId = pageIdOf(shown);
   useLivePage(sync.live, pageId);
   const live = useSyncExternalStore(sync.live.subscribe, sync.live.getState);
   const markers = live.pageId === pageId ? markersOn(live.here, state.members) : [];
-  const [panel, setPanel] = useState<"spaces" | "tasks" | "list" | null>(null);
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-  const label = describePage(pages.page, state.spaces);
+  const label = describePage(shown, state);
   const unsaved = state.unsaved > 0 ? ` · ${state.unsaved} not saved yet` : "";
-  const size = sizeOf(pages.page, state.pages);
+  const size = sizeOf(shown, state.pages);
   const stickers = stickersOn(pageId, state.stickers.values());
-  const space = pages.page.kind === "space" ? pages.page : null;
-  const openTask = openTaskId === null ? undefined : state.items.get(openTaskId);
-  const toggle = (shown: typeof panel) => {
+  const done = doneTasks(state.completions.values());
+  const space = shown.kind === "space" ? shown : null;
+  const tick = (itemId: string, ticked: boolean) =>
+    ticked ? sync.tickTask(itemId) : sync.untickTask(itemId);
+  const leaveTask = (then: () => void) => () => {
     setOpenTaskId(null);
-    setPanel(panel === shown ? null : shown);
+    then();
+  };
+  const toggle = (which: typeof panel) => {
+    setOpenTaskId(null);
+    setPanel(panel === which ? null : which);
   };
 
   return (
     <View style={styles.fill}>
       <View style={styles.bar}>
-        <Button title="Previous day" onPress={pages.previousDay} />
-        <Button title="Today" onPress={pages.today} />
-        <Button title="Next day" onPress={pages.nextDay} />
+        <Button title="Previous day" onPress={leaveTask(pages.previousDay)} />
+        <Button title="Today" onPress={leaveTask(pages.today)} />
+        <Button title="Next day" onPress={leaveTask(pages.nextDay)} />
         <Button
           title={panel === "spaces" ? "Hide spaces" : "Spaces"}
           onPress={() => toggle("spaces")}
@@ -92,6 +103,20 @@ export function PagesScreen({
         />
       ) : null}
       <Problems state={state} sync={sync} />
+      {openTask ? (
+        <TaskEditor
+          key={openTask.id}
+          task={openTask}
+          done={done.has(openTask.id)}
+          state={state}
+          sync={sync}
+          onShowOnPage={(spaceId, number) => {
+            pages.openSpace(spaceId, number);
+            setOpenTaskId(null);
+          }}
+          onClose={() => setOpenTaskId(null)}
+        />
+      ) : null}
       <View style={styles.fill}>
         <PageSheet
           key={pageId}
@@ -102,26 +127,15 @@ export function PagesScreen({
           <PageStickers
             stickers={stickers}
             items={state.items}
+            done={done}
             page={size}
-            selected={stickers.find(({ itemId }) => itemId === openTaskId)?.id ?? null}
             onSelect={(stickerId) => setOpenTaskId(state.stickers.get(stickerId)?.itemId ?? null)}
             onMove={(stickerId, { x, y }) => sync.moveSticker(stickerId, x, y)}
+            onTick={tick}
           />
           <PresenceMarkers markers={markers} />
         </PageSheet>
-        {openTask ? (
-          <TaskEditor
-            key={openTask.id}
-            task={openTask}
-            state={state}
-            sync={sync}
-            onShowOnPage={(spaceId, number) => {
-              pages.openSpace(spaceId, number);
-              setOpenTaskId(null);
-            }}
-            onClose={() => setOpenTaskId(null)}
-          />
-        ) : panel === "spaces" ? (
+        {openTask ? null : panel === "spaces" ? (
           <SpacesPanel
             state={state}
             sync={sync}
@@ -134,7 +148,10 @@ export function PagesScreen({
           <TasksPanel
             state={state}
             only={panel === "list" ? space?.spaceId : undefined}
+            showDone={showDone}
+            onShowDone={setShowDone}
             onOpenTask={setOpenTaskId}
+            onTick={tick}
           />
         ) : null}
         <BackendStatus />

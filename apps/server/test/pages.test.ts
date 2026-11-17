@@ -1,10 +1,19 @@
 import { reset } from "cloudflare:test";
-import { a2Landscape, a4Portrait, dayPageId, newId, spacePageId } from "@foyer/shared";
+import { a2Landscape, a4Portrait, dayPageId, itemPageId, newId, spacePageId } from "@foyer/shared";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import type { ChangeResult, Row } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it } from "vitest";
-import { Device, madeAt, pageCreate, signIn, spaceCreate } from "./sync-device";
+import {
+  Device,
+  idOf,
+  itemCreate,
+  itemDelete,
+  madeAt,
+  pageCreate,
+  signIn,
+  spaceCreate,
+} from "./sync-device";
 
 const alex = "member@example.com";
 const sam = "housemate@example.com";
@@ -35,6 +44,17 @@ function spacePage(spaceId: string, number = 1) {
     number,
     ...a4Portrait,
   };
+}
+
+function bodyPage(itemId: string) {
+  return { pageId: itemPageId(itemId), kind: PageKind.ITEM, itemId, ...a4Portrait };
+}
+
+async function newTask(device: Device, spaceId: string): Promise<string> {
+  const create = itemCreate({ spaceId });
+  await device.push(create);
+  await device.updates();
+  return idOf(create);
 }
 
 function pagesIn(rows: Row[]) {
@@ -152,6 +172,84 @@ describe("creating pages", () => {
   });
 });
 
+describe("body pages", () => {
+  it("creates a task's body page, named by its task, for every device that sees the task", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const itemId = await newTask(alexDevice, await newSharedSpace(alexDevice));
+    await samDevice.updates();
+
+    const committed = await samDevice.push(pageCreate(bodyPage(itemId)));
+
+    expect(resultOf(committed.results[0])).toEqual({ committed: true });
+    for (const device of [alexDevice, samDevice]) {
+      const rows = await device.updates();
+      expect(rows.map(({ row }) => row.case === "page" && row.value)).toEqual([
+        expect.objectContaining({
+          id: `item:${itemId}`,
+          kind: PageKind.ITEM,
+          spaceId: "",
+          number: 0,
+          itemId,
+          ...a4Portrait,
+        }),
+      ]);
+      expect(await pagesCaughtUpBy(device)).toEqual([{ id: `item:${itemId}`, ...a4Portrait }]);
+    }
+  });
+
+  it("sends a personal task's body page only to its owner's devices", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const itemId = await newTask(alexDevice, await spaceOwnedBy(alexDevice, SpaceKind.PERSONAL));
+
+    await alexDevice.push(pageCreate(bodyPage(itemId)));
+
+    expect(pagesIn(await alexDevice.updates())).toHaveLength(1);
+    expect(await samDevice.updates()).toEqual([]);
+    expect(await pagesCaughtUpBy(samDevice)).toEqual([]);
+  });
+
+  it("keeps one body page when two devices create it offline", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const itemId = await newTask(alexDevice, await newSharedSpace(alexDevice));
+    await samDevice.updates();
+
+    await alexDevice.push(pageCreate(bodyPage(itemId)));
+    const committed = await samDevice.push(pageCreate(bodyPage(itemId)));
+
+    expect(resultOf(committed.results[0])).toEqual({ committed: true });
+    const page = { id: itemPageId(itemId), ...a4Portrait };
+    expect(await pagesCaughtUpBy(alexDevice)).toEqual([page]);
+    expect(await pagesCaughtUpBy(samDevice)).toEqual([page]);
+  });
+
+  it("refuses a body page of a task the member doesn't see, as if it didn't exist", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const itemId = await newTask(alexDevice, await spaceOwnedBy(alexDevice, SpaceKind.INBOX));
+
+    const committed = await samDevice.push(pageCreate(bodyPage(itemId)));
+
+    expect(resultOf(committed.results[0])).toEqual({ refused: "There's no such item." });
+    expect(await alexDevice.updates()).toEqual([]);
+  });
+
+  it("has no effect for a deleted task", async () => {
+    const device = await connect(alex);
+    const itemId = await newTask(device, await spaceOwnedBy(device, SpaceKind.INBOX));
+    await device.push(itemDelete(itemId));
+    await device.updates();
+
+    const committed = await device.push(pageCreate(bodyPage(itemId)));
+
+    expect(resultOf(committed.results[0])).toEqual({ committed: true });
+    expect(await device.updates()).toEqual([]);
+    expect(await pagesCaughtUpBy(device)).toEqual([]);
+  });
+});
+
 describe("who receives pages", () => {
   it("sends a shared space's pages to every member, and a personal space's to its owner only", async () => {
     const alexDevice = await connect(alex);
@@ -234,10 +332,16 @@ describe("refused pages", () => {
     ],
     ["a page of a space that doesn't exist", () => spacePage(newId()), notFound],
     [
-      "an item's page, since items don't exist yet",
-      () => ({ pageId: newId(), kind: PageKind.ITEM, itemId: newId(), ...a4Portrait }),
-      "There's no such item.",
+      "a body page not named by its item",
+      () => ({ ...bodyPage(newId()), pageId: newId() }),
+      "A body page must be named by its item, as in “item:<item id>”.",
     ],
+    [
+      "a body page named after another item",
+      () => ({ ...bodyPage(newId()), pageId: itemPageId(newId()) }),
+      "A body page must be named by its item, as in “item:<item id>”.",
+    ],
+    ["a body page of an item that doesn't exist", () => bodyPage(newId()), "There's no such item."],
     [
       "a page with no width",
       () => ({ ...dayPage("2026-11-17"), width: 0 }),

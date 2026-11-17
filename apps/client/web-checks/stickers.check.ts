@@ -60,12 +60,16 @@ test("keeps a dragged sticker under the pointer on a zoomed page", async ({ page
   await expect.poll(async () => (await boxOf(sticker)).x - zoomed.x).toBeCloseTo(50, 0);
 });
 
-test("opens a sticker's task by tapping it", async ({ page }, testInfo) => {
+test("opens a sticker's task by tapping it, with its body page below", async ({
+  page,
+}, testInfo) => {
   const title = await addTask(page);
 
   await stickerOf(page, title).click();
 
+  await expect(pageTitle(page)).toHaveText(title);
   await expect(page.getByLabel("Title")).toHaveValue(title);
+  await expect(page.getByLabel(title, { exact: true })).toBeVisible();
   await saveScreenshot(page, testInfo, "open-task");
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByLabel("Title")).toBeHidden();

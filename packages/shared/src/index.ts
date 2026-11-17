@@ -14,6 +14,7 @@ export {
   dayPageId,
   isIsoDate,
   isIsoMonth,
+  itemPageId,
   monthPageId,
   type PageKindName,
   type PageSize,

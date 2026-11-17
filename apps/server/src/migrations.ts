@@ -159,6 +159,24 @@ export const householdMigrations: readonly Migration[] = [
     PRIMARY KEY (kind, id, member_id)
   );
   CREATE INDEX hidden_rows_by_seq ON hidden_rows (seq)`,
+  `CREATE TABLE completions (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL REFERENCES items (id),
+    occurrence TEXT NOT NULL,
+    done_at INTEGER NOT NULL,
+    done_by TEXT NOT NULL REFERENCES members (id),
+    seq INTEGER NOT NULL,
+    UNIQUE (item_id, occurrence)
+  );
+  CREATE INDEX completions_by_seq ON completions (seq);
+  CREATE TABLE last_ticks (
+    item_id TEXT NOT NULL REFERENCES items (id),
+    occurrence TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    change_id TEXT NOT NULL,
+    PRIMARY KEY (item_id, occurrence)
+  );
+  CREATE INDEX pages_by_item ON pages (item_id) WHERE item_id IS NOT NULL`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

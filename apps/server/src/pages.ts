@@ -1,4 +1,11 @@
-import { isId, isIsoDate, isIsoMonth, type PageKindName, spacePageId } from "@foyer/shared";
+import {
+  isId,
+  isIsoDate,
+  isIsoMonth,
+  itemPageId,
+  type PageKindName,
+  spacePageId,
+} from "@foyer/shared";
 import { type PageCreate, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import type { Applied, Setter } from "./changes";
 import { nextSeq, type RowKey } from "./rows";
@@ -13,7 +20,8 @@ const pageKinds: Partial<Record<PageKind, PageKindName>> = {
 };
 
 /** Creates a page the member can see. Creating one that already exists has no effect, so devices
- *  that create the same calendar or space page offline end up writing on one page. */
+ *  that create the same calendar, space or body page offline end up writing on one page. Only a
+ *  task's body page can be made for an item, and making one for a deleted task has no effect. */
 export function createPage(
   sql: SqlStorage,
   memberId: string,
@@ -30,20 +38,26 @@ export function createPage(
   if (kind === "space" && !canSee(sql, memberId, page.spaceId)) {
     return { refused: "There's no such space." };
   }
-  if (kind === "item") return { refused: "There's no such item." };
-
   const key: RowKey = { kind: "page", id: page.pageId };
+  if (kind === "item") {
+    const item = itemOf(sql, page.itemId);
+    if (item === "deleted") return { seq: nextSeq(sql), changed: [], unchanged: [key] };
+    if (!item || !canSee(sql, memberId, item.space_id)) return { refused: "There's no such item." };
+    if (item.kind !== "task") return { refused: "Only a task's body page can be made for now." };
+  }
   if (sql.exec("SELECT 1 FROM pages WHERE id = ?", page.pageId).toArray().length > 0) {
     return { seq: nextSeq(sql), changed: [], unchanged: [key] };
   }
   const seq = nextSeq(sql);
   sql.exec(
-    `INSERT INTO pages (id, kind, space_id, number, width, height, created_by, created_at, seq)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO pages (id, kind, space_id, number, item_id, width, height, created_by, created_at,
+       seq)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     page.pageId,
     kind,
     kind === "space" ? page.spaceId : null,
     kind === "space" ? page.number : null,
+    kind === "item" ? page.itemId : null,
     page.width,
     page.height,
     memberId,
@@ -54,8 +68,8 @@ export function createPage(
 }
 
 /** Whether a member can see a page, from its id, whether or not anything has been put on it yet:
- *  every member sees the household's calendar pages, and only the members who see a space see its
- *  pages. Nobody sees an item's page until items exist. */
+ *  every member sees the household's calendar pages, only the members who see a space see its
+ *  pages, and only those who see an item see its body page. */
 export function canSeePage(sql: SqlStorage, memberId: string, pageId: string): boolean {
   const [kind = "", ...rest] = pageId.split(":");
   const named = rest.join(":");
@@ -76,9 +90,30 @@ export function canSeePage(sql: SqlStorage, memberId: string, pageId: string): b
         canSee(sql, memberId, spaceId)
       );
     }
+    case "item": {
+      const item = isId(named) && pageId === itemPageId(named) ? itemOf(sql, named) : null;
+      return typeof item === "object" && item !== null && canSee(sql, memberId, item.space_id);
+    }
     default:
       return false;
   }
+}
+
+function itemOf(
+  sql: SqlStorage,
+  itemId: string,
+): { kind: string; space_id: string } | "deleted" | null {
+  const [item] = sql
+    .exec<{ kind: string; space_id: string }>(
+      "SELECT kind, space_id FROM items WHERE id = ?",
+      itemId,
+    )
+    .toArray();
+  if (item) return item;
+  const deleted = sql
+    .exec("SELECT 1 FROM tombstones WHERE kind = 'item' AND id = ?", itemId)
+    .toArray().length;
+  return deleted > 0 ? "deleted" : null;
 }
 
 function idProblem(kind: PageKindName, page: PageCreate): string | null {
@@ -108,9 +143,9 @@ function idProblem(kind: PageKindName, page: PageCreate): string | null {
         ? null
         : "A space's page must be named by its space and its number from 1, as in “space:<space id>:1”.";
     case "item":
-      return isId(page.pageId) && isId(page.itemId)
+      return isId(page.itemId) && page.pageId === itemPageId(page.itemId)
         ? null
-        : "An item's page and its item must each have a UUID version 7 as their id.";
+        : "A body page must be named by its item, as in “item:<item id>”.";
   }
 }
 

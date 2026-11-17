@@ -3,8 +3,9 @@ import { spacePageId } from "@foyer/shared";
 import { ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
+import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { describe, expect, it } from "vitest";
-import { spaceList, todayList } from "../src/tasks/task-lists";
+import { doneTasks, spaceList, todayList } from "../src/tasks/task-lists";
 
 const inbox = create(SpaceSchema, {
   id: "019a8f4e-5c00-7000-8000-0000000000a1",
@@ -57,8 +58,26 @@ describe("todayList", () => {
     ];
     const stickers = ["a", "c"].map((id, index) => sticker(id, home.id, 1, 36 + index * 60));
 
-    const listed = todayList("2026-11-17", [inbox, home], items, stickers);
+    const listed = todayList("2026-11-17", [inbox, home], items, stickers, new Set());
 
     expect(listed.map(({ id }) => id)).toEqual(["f", "c", "b", "a"]);
+  });
+
+  it("leaves out tasks that are done", () => {
+    const items = [task("a", inbox.id, "2026-11-17"), task("b", inbox.id, "2026-11-16")];
+
+    const listed = todayList("2026-11-17", [inbox], items, [], new Set(["b"]));
+
+    expect(listed.map(({ id }) => id)).toEqual(["a"]);
+  });
+});
+
+describe("doneTasks", () => {
+  it("counts a task with any completion as done", () => {
+    const completions = ["a", "a", "b"].map((itemId, index) =>
+      create(CompletionSchema, { id: `c${index}`, itemId }),
+    );
+
+    expect(doneTasks(completions)).toEqual(new Set(["a", "b"]));
   });
 });

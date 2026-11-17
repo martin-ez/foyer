@@ -63,3 +63,12 @@ export async function drag(page: Page, sticker: Locator, by: { x: number; y: num
   await page.mouse.move(start.x + by.x, start.y + by.y, { steps: 8 });
   await page.mouse.up();
 }
+
+/** Today's date in the browser's own time zone, as the app works it out. */
+export function todayInBrowser(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const now = new Date();
+    const two = (value: number) => String(value).padStart(2, "0");
+    return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+  });
+}

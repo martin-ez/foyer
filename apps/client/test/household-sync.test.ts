@@ -1,6 +1,13 @@
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { a2Landscape, a4Portrait, newId, signedOutCloseCode, spacePageId } from "@foyer/shared";
+import {
+  a2Landscape,
+  a4Portrait,
+  itemPageId,
+  newId,
+  signedOutCloseCode,
+  spacePageId,
+} from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
@@ -125,6 +132,7 @@ function pageRow(
     kind?: PageKind;
     spaceId?: string;
     number?: number;
+    itemId?: string;
     width?: number;
     height?: number;
   },
@@ -157,6 +165,13 @@ function stickerRow(
     ...rest,
   };
   return { seq: BigInt(seq), row: { case: "sticker", value } };
+}
+
+function completionRow(
+  seq: number,
+  completion: { id: string; itemId: string; doneBy: string },
+): RowInit {
+  return { seq: BigInt(seq), row: { case: "completion", value: completion } };
 }
 
 function memberRow(seq: number, member: { id: string; name: string }): RowInit {
@@ -955,5 +970,106 @@ describe("tasks and stickers", () => {
   it("says why a task's title would be refused", () => {
     expect(sync.titleProblem("   ")).toBe("A task's title can't be blank.");
     expect(sync.titleProblem(" Buy milk ")).toBe(null);
+  });
+});
+
+describe("ticking tasks", () => {
+  const task = { id: "019a8f4e-5c00-7000-8000-0000000000c1", spaceId: inbox.id, title: "Buy milk" };
+  const completion = { id: "019a8f4e-5c00-7000-8000-0000000000e1", itemId: task.id };
+
+  function completions() {
+    return [...sync.getState().completions.values()].map(({ itemId, doneBy, occurrence }) => ({
+      itemId,
+      doneBy,
+      occurrence,
+    }));
+  }
+
+  it("ticks a task at once with a completion of its own, kept once the household commits it", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    vi.setSystemTime(Date.UTC(2026, 10, 17, 9, 30));
+
+    sync.tickTask(task.id);
+
+    const [tick] = household().lastPush().changes;
+    expect(tick?.change).toEqual({
+      case: "taskTick",
+      value: expect.objectContaining({ itemId: task.id, occurrence: "" }),
+    });
+    const ticked = { itemId: task.id, doneBy: me, occurrence: "" };
+    expect(completions()).toEqual([ticked]);
+    const [shown] = sync.getState().completions.values();
+    expect(shown?.doneAt).toEqual(tick?.at);
+    const completionId = tick?.change.case === "taskTick" ? tick.change.value.completionId : "";
+    expect(shown?.id).toBe(completionId);
+
+    household().update(completionRow(3, { id: completionId, itemId: task.id, doneBy: me }));
+    household().commit(household().lastPush(), {}, 3);
+
+    expect(completions()).toEqual([ticked]);
+    expect(sync.getState().unsaved).toBe(0);
+  });
+
+  it("shows a task ticked twice with one completion", () => {
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        itemRow(2, task),
+        completionRow(3, { ...completion, doneBy: housemate }),
+      ],
+      3,
+    );
+
+    sync.tickTask(task.id);
+
+    expect(completions()).toEqual([{ itemId: task.id, doneBy: housemate, occurrence: "" }]);
+  });
+
+  it("unticks a task at once, whoever ticked it", () => {
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        itemRow(2, task),
+        completionRow(3, { ...completion, doneBy: housemate }),
+      ],
+      3,
+    );
+
+    sync.untickTask(task.id);
+
+    expect(
+      household()
+        .lastPush()
+        .changes.map(({ change }) => change),
+    ).toEqual([
+      { case: "taskUntick", value: expect.objectContaining({ itemId: task.id, occurrence: "" }) },
+    ]);
+    expect(completions()).toEqual([]);
+  });
+
+  it("keeps the completions the household sends, and drops an unticked one", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+
+    household().update(completionRow(3, { ...completion, doneBy: housemate }));
+
+    expect(completions()).toEqual([{ itemId: task.id, doneBy: housemate, occurrence: "" }]);
+
+    household().update({
+      seq: 4n,
+      row: { case: "deleted", value: { kind: RowKind.COMPLETION, id: completion.id } },
+    });
+
+    expect(completions()).toEqual([]);
+  });
+
+  it("deletes a task with its completions and its body page at once", () => {
+    const body = pageRow(4, { id: itemPageId(task.id), kind: PageKind.ITEM, itemId: task.id });
+    const done = completionRow(3, { ...completion, doneBy: me });
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task), done, body], 4);
+
+    sync.deleteTask(task.id);
+
+    expect(completions()).toEqual([]);
+    expect(sync.getState().pages.size).toBe(0);
   });
 });

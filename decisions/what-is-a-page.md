@@ -1,5 +1,5 @@
 # What is a page?
-Decided in #10, #16, #17 and #64
+Decided in #10, #16, #17, #23 and #64
 
 **Applies when:** building any view people write on, laying things out on a page, storing or syncing pages, positioning anything on a page, or deciding how people move around pages.
 
@@ -18,20 +18,20 @@ Pinch zooms within a page so people can write in detail. Moving between month, w
 - **What a page belongs to,** which decides who sees it and its ink:
   - **Calendar pages:** every member of the household sees them (`who-can-see-what.md`).
   - **Space pages:** each space's main view, the Inbox included, holds the space's tasks as stickers. Each new task's sticker is placed below the last one and keeps its spot. When a page fills up, the space gets another. Only members who see the space see its pages.
-  - **Item pages:** a task or event can have one body page, and a note has one or more, in the order they were added. They follow their item's space.
+  - **Item pages:** a task or event can have one body page, and a note has one or more, in the order they were added. They follow their item's space, and are deleted with it.
 - **Ids:**
   - Calendar pages are named by their kind and date: `month:2026-11`, `week:2026-11-09` (by the week's first day) and `day:2026-11-14`. Dates are plain ISO 8601 dates, and each device works out "today" from its own clock and time zone.
   - Space pages are named by their space and number from 1: `space:<space id>:1`.
-  - Item pages have UUID version 7 ids (`what-does-an-id-look-like.md`).
+  - A task's or an event's body page is named by its item: `item:<item id>`.
 - **Storing and syncing:**
   - The household stores each page in its `pages` table: `id`, `kind` (`month`, `week`, `day`, `space` or `item`), `space_id` and `number` for space pages, `item_id` for item pages, `width`, `height`, `created_by` and `created_at`.
-  - A device creates a page with `PageCreate` when it first puts something on it, so looking at an empty page creates nothing. Creating a page that already exists has no effect, so two devices that create the same calendar or space page offline write on one page.
+  - A device creates a page with `PageCreate` when it first puts something on it, so looking at an empty page creates nothing. Creating a page that already exists has no effect, so two devices that create the same calendar, space or body page offline write on one page.
   - Devices receive the pages they can see as `Page` (`how-do-devices-stay-in-sync.md`), and each page's ink when they open it.
-  - An item's pages are in the order of their ids. Zoom and scroll position belong to each device and aren't stored.
+  - Zoom and scroll position belong to each device and aren't stored.
   - Calendar pages are never deleted.
 
 Month and week pages are built by #24.
-Item pages are built by #23 and #29, which also decides how a note's page is deleted.
+A note's pages are built by #29, which also decides how they're named and how one is deleted.
 
 **Why:**
 - Foyer should feel tangible, like a planner and a notebook. A fixed shape keeps scribbles in the same place on every device and at every zoom level, and the messy, layered look is part of the fun. Pinch belongs to writing, because writing on pages is central.
@@ -39,7 +39,7 @@ Item pages are built by #23 and #29, which also decides how a note's page is del
 - A size stored with each page travels with it, so an older app still draws a page of a size added after it was built.
 - Each page has one owner, so who sees it follows one rule, as for ink.
 - Stacking by the device's clock follows the order things were put down in real life, even on a device that was offline, and it's the time sync already keeps to settle conflicts.
-- Every device can name a calendar or space page without asking the household, so writing on the same day offline, or adding tasks to the same space, lands on one page rather than two copies.
+- Every device can name a calendar, space or body page without asking the household, so writing on the same day offline, adding tasks to the same space, or writing on the same task's body page lands on one page rather than two copies. People can also be on a page together before anything has been put on it.
 - When the page and its ink were separate views on the iPad, they drifted apart while iOS animated the zoom (#2).
 
 **Rejected:**
@@ -51,3 +51,4 @@ Item pages are built by #23 and #29, which also decides how a note's page is del
 - Tasks on a space's page laid out as a list drawn in order, where ink would no longer line up with its task once tasks are added, ticked or reordered.
 - For stacking: the household's change numbers, which put everything made offline on top once it syncs; and a separate layer number, which two devices offline could both claim.
 - UUIDs for calendar and space pages, where two devices offline would each create their own copy of the same page.
+- A UUID for a task's body page, made when something is first put on it. Two devices writing on it offline would make two body pages, and nobody could be on it together until something was put on it.
