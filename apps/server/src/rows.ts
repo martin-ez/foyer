@@ -1,11 +1,14 @@
 import { create } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { MemberSchema } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { type Row, RowKind, RowSchema } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 
 /** Which row devices hold: its kind and its id. */
-export type RowKey = { kind: "member" | "space" | "page"; id: string };
+export type RowKey = { kind: "member" | "space" | "page" | "item" | "sticker"; id: string };
 
 /** A row as devices receive it, and who can see it: one member, or every member when null. */
 export type VisibleRow = { row: Row; visibleTo: string | null };
@@ -33,24 +36,36 @@ export function pullRows(
   cursor: number,
   limit = pullReplyRowLimit,
 ): { rows: Row[]; cursor: number; done: boolean } {
-  const seqs = sql
-    .exec<{ seq: number }>(
+  const seqsOf = (query: string, ...bindings: unknown[]) =>
+    sql
+      .exec<{ seq: number }>(`${query} ORDER BY seq LIMIT ?`, ...bindings, limit + 1)
+      .toArray()
+      .map(({ seq }) => seq);
+  const seqs = [
+    ...seqsOf(
       `SELECT seq FROM members WHERE seq > ?
        UNION ALL SELECT seq FROM spaces WHERE seq > ? AND (owner_id IS NULL OR owner_id = ?)
-       UNION ALL SELECT pages.seq FROM ${pagesWithOwner} AND pages.seq > ? AND ${pageSeenBy}
-       UNION ALL SELECT seq FROM tombstones WHERE seq > ? AND (visible_to IS NULL OR visible_to = ?)
-       ORDER BY seq LIMIT ?`,
+       UNION ALL SELECT pages.seq FROM ${pagesWithOwner} AND pages.seq > ? AND ${pageSeenBy}`,
       cursor,
+      cursor,
+      memberId,
+      cursor,
+      memberId,
+    ),
+    ...seqsOf(
+      `SELECT items.seq FROM ${itemsWithOwner} WHERE items.seq > ? AND ${itemSeenBy}
+       UNION ALL SELECT stickers.seq FROM ${stickersWithOwner} AND stickers.seq > ? AND ${pageSeenBy}
+       UNION ALL SELECT seq FROM tombstones WHERE seq > ? AND (visible_to IS NULL OR visible_to = ?)`,
       cursor,
       memberId,
       cursor,
       memberId,
       cursor,
       memberId,
-      limit + 1,
-    )
-    .toArray()
-    .map(({ seq }) => seq);
+    ),
+  ]
+    .sort((a, b) => a - b)
+    .slice(0, limit + 1);
 
   const first = seqs[0];
   const beyondLimit = seqs[limit];
@@ -84,6 +99,13 @@ function readRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
       return sql.exec<SpaceRow>(`${selectSpaces} WHERE id = ?`, id).toArray().map(spaceRow);
     case "page":
       return sql.exec<PageRow>(`${selectPages} AND pages.id = ?`, id).toArray().map(pageRow);
+    case "item":
+      return sql.exec<ItemRow>(`${selectItems} WHERE items.id = ?`, id).toArray().map(itemRow);
+    case "sticker":
+      return sql
+        .exec<StickerRow>(`${selectStickers} AND stickers.id = ?`, id)
+        .toArray()
+        .map(stickerRow);
   }
 }
 
@@ -108,6 +130,32 @@ type PageRow = {
   owner_id: string | null;
 };
 
+type ItemRow = {
+  id: string;
+  kind: "task" | "event" | "note";
+  space_id: string;
+  title: string;
+  description: string;
+  date: string | null;
+  created_by: string;
+  created_at: number;
+  seq: number;
+  owner_id: string | null;
+};
+
+type StickerRow = {
+  id: string;
+  page_id: string;
+  x: number;
+  y: number;
+  kind: "task" | "event" | "note";
+  item_id: string;
+  placed_at: number;
+  placed_by: string;
+  seq: number;
+  owner_id: string | null;
+};
+
 type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; seq: number };
 
 const selectMembers = "SELECT id, name, seq FROM members";
@@ -120,6 +168,20 @@ const pageSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
 const selectPages = `SELECT pages.id, pages.kind, pages.space_id, pages.number, pages.width, pages.height,
   pages.seq, spaces.owner_id FROM ${pagesWithOwner}`;
+
+const itemsWithOwner = "items JOIN spaces ON spaces.id = items.space_id";
+
+const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
+
+const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
+  items.date, items.created_by, items.created_at, items.seq, spaces.owner_id FROM ${itemsWithOwner}`;
+
+const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id
+  LEFT JOIN spaces ON spaces.id = pages.space_id WHERE pages.kind != 'item'`;
+
+const selectStickers = `SELECT stickers.id, stickers.page_id, stickers.x, stickers.y, stickers.kind,
+  stickers.item_id, stickers.placed_at, stickers.placed_by, stickers.seq, spaces.owner_id
+  FROM ${stickersWithOwner}`;
 
 const selectTombstones = "SELECT kind, id, visible_to, seq FROM tombstones";
 
@@ -136,7 +198,21 @@ const pageKinds = {
   space: PageKind.SPACE,
 } as const;
 
-const rowKinds = { member: RowKind.MEMBER, space: RowKind.SPACE, page: RowKind.PAGE } as const;
+const itemKinds = { task: ItemKind.TASK, event: ItemKind.EVENT, note: ItemKind.NOTE } as const;
+
+const stickerKinds = {
+  task: StickerKind.TASK,
+  event: StickerKind.EVENT,
+  note: StickerKind.NOTE,
+} as const;
+
+const rowKinds = {
+  member: RowKind.MEMBER,
+  space: RowKind.SPACE,
+  page: RowKind.PAGE,
+  item: RowKind.ITEM,
+  sticker: RowKind.STICKER,
+} as const;
 
 function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: number): Row[] {
   const members = sql
@@ -161,6 +237,24 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(pageRow);
+  const items = sql
+    .exec<ItemRow>(
+      `${selectItems} WHERE items.seq > ? AND items.seq <= ? AND ${itemSeenBy}`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(itemRow);
+  const stickers = sql
+    .exec<StickerRow>(
+      `${selectStickers} AND stickers.seq > ? AND stickers.seq <= ? AND ${pageSeenBy}`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(stickerRow);
   const tombstones = sql
     .exec<Tombstone>(
       `${selectTombstones} WHERE seq > ? AND seq <= ? AND (visible_to IS NULL OR visible_to = ?)`,
@@ -170,7 +264,7 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(deletedRow);
-  return [...members, ...spaces, ...pages, ...tombstones]
+  return [...members, ...spaces, ...pages, ...items, ...stickers, ...tombstones]
     .map(({ row }) => row)
     .sort((a, b) => Number(a.seq - b.seq));
 }
@@ -208,6 +302,40 @@ function pageRow(page: PageRow): VisibleRow {
   return {
     row: create(RowSchema, { seq: BigInt(page.seq), row: { case: "page", value } }),
     visibleTo: page.owner_id,
+  };
+}
+
+function itemRow(item: ItemRow): VisibleRow {
+  const value = create(ItemSchema, {
+    id: item.id,
+    kind: itemKinds[item.kind],
+    spaceId: item.space_id,
+    title: item.title,
+    description: item.description,
+    date: item.date ?? "",
+    createdBy: item.created_by,
+    createdAt: timestampFromMs(item.created_at),
+  });
+  return {
+    row: create(RowSchema, { seq: BigInt(item.seq), row: { case: "item", value } }),
+    visibleTo: item.owner_id,
+  };
+}
+
+function stickerRow(sticker: StickerRow): VisibleRow {
+  const value = create(StickerSchema, {
+    id: sticker.id,
+    pageId: sticker.page_id,
+    x: sticker.x,
+    y: sticker.y,
+    kind: stickerKinds[sticker.kind],
+    itemId: sticker.item_id,
+    placedAt: timestampFromMs(sticker.placed_at),
+    placedBy: sticker.placed_by,
+  });
+  return {
+    row: create(RowSchema, { seq: BigInt(sticker.seq), row: { case: "sticker", value } }),
+    visibleTo: sticker.owner_id,
   };
 }
 

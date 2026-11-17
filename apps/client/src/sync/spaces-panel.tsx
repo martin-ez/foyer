@@ -25,16 +25,6 @@ export function SpacesPanel({
   return (
     <View style={styles.panel}>
       <Text style={styles.heading}>Spaces</Text>
-      {state.problems.length > 0 ? (
-        <View style={styles.problems}>
-          {state.problems.map((problem) => (
-            <Text key={problem} style={styles.problem}>
-              {problem}
-            </Text>
-          ))}
-          <Button title="Dismiss" onPress={() => sync.dismissProblems()} />
-        </View>
-      ) : null}
       <ScrollView style={styles.list}>
         {state.spaces.map((space) => (
           <SpaceRow
@@ -162,7 +152,6 @@ const styles = StyleSheet.create({
   },
   heading: { fontSize: 16, fontWeight: "600" },
   line: { fontSize: 12, color: "#6b6459" },
-  problems: { gap: 4 },
   problem: { fontSize: 12, color: "#9a3b2e" },
   list: { flexGrow: 0 },
   row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 },

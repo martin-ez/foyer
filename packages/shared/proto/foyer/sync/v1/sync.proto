@@ -2,9 +2,11 @@ syntax = "proto3";
 
 package foyer.sync.v1;
 
+import "foyer/item/v1/item.proto";
 import "foyer/member/v1/member.proto";
 import "foyer/page/v1/page.proto";
 import "foyer/space/v1/space.proto";
+import "foyer/sticker/v1/sticker.proto";
 import "foyer/sync/v1/live.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -45,6 +47,10 @@ message Change {
     foyer.space.v1.SpaceCreate space_create = 3;
     foyer.space.v1.SpaceRename space_rename = 4;
     foyer.page.v1.PageCreate page_create = 5;
+    foyer.item.v1.ItemCreate item_create = 6;
+    foyer.sticker.v1.StickerPlace sticker_place = 7;
+    foyer.sticker.v1.StickerMove sticker_move = 8;
+    foyer.sticker.v1.StickerRemove sticker_remove = 9;
   }
 }
 
@@ -124,6 +130,8 @@ message Row {
     // A row that was deleted, which the device drops.
     RowRef deleted = 4;
     foyer.page.v1.Page page = 5;
+    foyer.item.v1.Item item = 6;
+    foyer.sticker.v1.Sticker sticker = 7;
   }
 }
 
@@ -139,4 +147,6 @@ enum RowKind {
   ROW_KIND_MEMBER = 1;
   ROW_KIND_SPACE = 2;
   ROW_KIND_PAGE = 3;
+  ROW_KIND_ITEM = 4;
+  ROW_KIND_STICKER = 5;
 }

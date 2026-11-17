@@ -2,8 +2,13 @@ import { exports } from "cloudflare:workers";
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { newId, syncPath } from "@foyer/shared";
+import { type ItemCreateSchema, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { PageCreateSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import {
+  StickerKind,
+  type StickerPlaceSchema,
+} from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import {
   type ChangeSchema,
   DeviceMessageSchema,
@@ -230,6 +235,56 @@ export function pageCreate(
   made: Made = {},
 ): ChangeInit {
   return { ...madeNow(made), change: { case: "pageCreate", value: page } };
+}
+
+/** Creates a task, made by the device now unless `made` says otherwise. */
+export function itemCreate(
+  item: Omit<MessageInitShape<typeof ItemCreateSchema>, "$typeName"> & { spaceId: string },
+  made: Made = {},
+): ChangeInit {
+  const value = { itemId: newId(), kind: ItemKind.TASK, title: "Buy milk", ...item };
+  return { ...madeNow(made), change: { case: "itemCreate", value } };
+}
+
+/** Places a task's sticker, made by the device now unless `made` says otherwise. */
+export function stickerPlace(
+  sticker: Omit<MessageInitShape<typeof StickerPlaceSchema>, "$typeName"> & {
+    pageId: string;
+    itemId: string;
+  },
+  made: Made = {},
+): ChangeInit {
+  const value = { stickerId: newId(), kind: StickerKind.TASK, x: 36, y: 36, ...sticker };
+  return { ...madeNow(made), change: { case: "stickerPlace", value } };
+}
+
+/** Moves a sticker, made by the device now unless `made` says otherwise. */
+export function stickerMove(stickerId: string, x: number, y: number, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "stickerMove", value: { stickerId, x, y } } };
+}
+
+/** Removes a sticker, made by the device now unless `made` says otherwise. */
+export function stickerRemove(stickerId: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "stickerRemove", value: { stickerId } } };
+}
+
+/** The id of what a change creates or acts on: a space, a page, an item or a sticker. */
+export function idOf({ change }: ChangeInit): string {
+  switch (change?.case) {
+    case "spaceCreate":
+    case "spaceRename":
+      return change.value.spaceId ?? "";
+    case "pageCreate":
+      return change.value.pageId ?? "";
+    case "itemCreate":
+      return change.value.itemId ?? "";
+    case "stickerPlace":
+    case "stickerMove":
+    case "stickerRemove":
+      return change.value.stickerId ?? "";
+    default:
+      throw new Error("The change names no id");
+  }
 }
 
 function madeNow(made: Made): Made {

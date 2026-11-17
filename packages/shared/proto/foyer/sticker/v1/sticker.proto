@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package foyer.sticker.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// A link to a task, event or note, stuck on a page, at a size its kind sets in the apps. Everyone
+// who sees the page sees it, with its contents hidden from those who can't see its item. Things on
+// a page stack by when they were placed or last moved, with equal times settled by id.
+message Sticker {
+  // A UUID version 7, made by the device that placed the sticker.
+  string id = 1;
+  // The page it's on, which it never leaves.
+  string page_id = 2;
+  // Where its top-left corner is, in points from the page's top-left corner.
+  double x = 3;
+  double y = 4;
+  StickerKind kind = 5;
+  // The task, event or note it links to.
+  string item_id = 6;
+  // When it was placed, or last moved, by the clock of the device that did it.
+  google.protobuf.Timestamp placed_at = 7;
+  // The member who placed it, or last moved it.
+  string placed_by = 8;
+}
+
+// What a sticker shows, which sets its size. An app that doesn't know a kind draws a plain outline
+// of a default size.
+enum StickerKind {
+  STICKER_KIND_UNSPECIFIED = 0;
+  // A task, with its title and a checkbox.
+  STICKER_KIND_TASK = 1;
+  // An event.
+  STICKER_KIND_EVENT = 2;
+  // A note, as a thumbnail of it.
+  STICKER_KIND_NOTE = 3;
+}
+
+// Places a sticker on a page. Only someone who can see the page and the item can place it, and its
+// kind must be its item's. For now, stickers go only on space pages, and only the space's own items
+// go on them.
+message StickerPlace {
+  // A new UUID version 7, made by the device.
+  string sticker_id = 1;
+  // A page that has been created.
+  string page_id = 2;
+  // Its top-left corner, in points from the page's top-left corner, on the page.
+  double x = 3;
+  double y = 4;
+  StickerKind kind = 5;
+  string item_id = 6;
+}
+
+// Moves a sticker within its page, which brings it to the top. Only someone who can see its item
+// can move it. The move made last wins, by the device's clock.
+message StickerMove {
+  string sticker_id = 1;
+  // Its new top-left corner, in points from the page's top-left corner, on the page.
+  double x = 2;
+  double y = 3;
+}
+
+// Peels a sticker off its page. Only someone who can see its item can remove it. Its item stays.
+message StickerRemove {
+  string sticker_id = 1;
+}

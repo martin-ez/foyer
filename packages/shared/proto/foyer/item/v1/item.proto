@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package foyer.item.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// A task, event or note. It lives in one space, which decides who can see and change it: every
+// member who can see the space. Devices receive the items they can see.
+message Item {
+  // A UUID version 7, made by the device that created the item.
+  string id = 1;
+  ItemKind kind = 2;
+  // The space it lives in.
+  string space_id = 3;
+  // Trimmed, never blank, and at most 500 Unicode code points.
+  string title = 4;
+  // Plain text, or empty.
+  string description = 5;
+  // A day, as a plain ISO 8601 date such as "2026-11-17", with no time or time zone. Empty when it
+  // has none.
+  string date = 6;
+  // The member who created it.
+  string created_by = 7;
+  // When it was created, by the clock of the device that created it.
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// What an item is. Turning an item into another kind keeps its id, its stickers and its pages.
+enum ItemKind {
+  ITEM_KIND_UNSPECIFIED = 0;
+  // Something to do, which can be ticked.
+  ITEM_KIND_TASK = 1;
+  // Something that happens at a time, such as an appointment.
+  ITEM_KIND_EVENT = 2;
+  // Something written down, on pages of its own.
+  ITEM_KIND_NOTE = 3;
+}
+
+// Creates an item. A device sends it with the item's sticker on its space's page, in the same push.
+// Only tasks can be created for now.
+message ItemCreate {
+  // A new UUID version 7, made by the device.
+  string item_id = 1;
+  ItemKind kind = 2;
+  // The space it goes in, which the member must see.
+  string space_id = 3;
+  // Trimmed, then refused if blank or over 500 Unicode code points.
+  string title = 4;
+  // Plain text, or empty.
+  string description = 5;
+  // A plain ISO 8601 date such as "2026-11-17", or empty for none.
+  string date = 6;
+}

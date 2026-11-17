@@ -137,7 +137,9 @@ export class Household extends DurableObject<Env> {
     sql.exec("DELETE FROM changes WHERE received_at <= ?", now - sessionLifetime);
     const { results, changed, unchanged } = applyPush(this.ctx.storage, memberId, push, now);
     this.#sendUpdates(readRows(sql, changed));
-    const asTheyAre = readRows(sql, unchanged).map(({ row }) => row);
+    const asTheyAre = readRows(sql, unchanged)
+      .filter(({ visibleTo }) => visibleTo === null || visibleTo === memberId)
+      .map(({ row }) => row);
     if (asTheyAre.length > 0) sendIfOpen(sender, { case: "updates", value: { rows: asTheyAre } });
     sendIfOpen(sender, { case: "committed", value: { pushId: push.pushId, results } });
   }

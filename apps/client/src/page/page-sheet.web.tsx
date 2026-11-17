@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { Canvas } from "react-native-skia";
 import { DeskDrawing } from "./desk-drawing";
+import { PageScale } from "./page-scale";
 import {
   type Camera,
   fittedCamera,
@@ -26,7 +27,8 @@ export function PageSheet({
   label: string;
   /** Called as the pointer moves over the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
-  /** Views above the page, laid out in its own points, which never take the pointer. */
+  /** Views above the page, laid out in its own points. Only those that ask for the pointer, such
+   *  as stickers, take it. */
   children?: ReactNode;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
@@ -65,6 +67,9 @@ export function PageSheet({
   }, [host]);
 
   const camera = desk.camera.scale > 0 ? desk.camera : fittedCamera(desk.view, size);
+  const shown = useRef(camera);
+  shown.current = camera;
+  const scale = useCallback(() => shown.current.scale || 1, []);
   pointing.current = (at) => {
     const onPage = pointOnPage(camera, at);
     const { width, height } = page.current;
@@ -91,7 +96,7 @@ export function PageSheet({
           },
         ]}
       >
-        {children}
+        <PageScale value={scale}>{children}</PageScale>
       </View>
     </View>
   );
@@ -202,6 +207,6 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     transformOrigin: "0 0",
-    pointerEvents: "none",
+    pointerEvents: "box-none",
   },
 });
