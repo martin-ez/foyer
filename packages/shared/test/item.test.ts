@@ -1,4 +1,11 @@
-import { itemTitleLimit, itemTitleProblem, limitItemTitle } from "@foyer/shared";
+import {
+  itemDescriptionLimit,
+  itemDescriptionProblem,
+  itemTitleLimit,
+  itemTitleProblem,
+  limitItemDescription,
+  limitItemTitle,
+} from "@foyer/shared";
 import { describe, expect, it } from "vitest";
 
 describe("itemTitleProblem", () => {
@@ -22,5 +29,26 @@ describe("limitItemTitle", () => {
 
   it("cuts a longer title to the limit without splitting a character", () => {
     expect(limitItemTitle(`${"a".repeat(499)}🧺🧺`)).toBe(`${"a".repeat(499)}🧺`);
+  });
+});
+
+describe("itemDescriptionProblem", () => {
+  it("takes an empty description, and one at the limit, counting characters as code points", () => {
+    expect(itemDescriptionLimit).toBe(10_000);
+    expect(itemDescriptionProblem("")).toBe(null);
+    expect(itemDescriptionProblem(`${"a".repeat(9_999)}🧺`)).toBe(null);
+  });
+
+  it("refuses a description over the limit", () => {
+    expect(itemDescriptionProblem("a".repeat(10_001))).toBe(
+      "A task's description can't be longer than 10,000 characters.",
+    );
+  });
+});
+
+describe("limitItemDescription", () => {
+  it("cuts a longer description to the limit without splitting a character", () => {
+    expect(limitItemDescription(`${"a".repeat(9_999)}🧺🧺`)).toBe(`${"a".repeat(9_999)}🧺`);
+    expect(limitItemDescription("Oat, if they have it")).toBe("Oat, if they have it");
   });
 });

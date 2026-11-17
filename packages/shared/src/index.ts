@@ -1,5 +1,12 @@
 export { isId, newId } from "./id";
-export { itemTitleLimit, itemTitleProblem, limitItemTitle } from "./item";
+export {
+  itemDescriptionLimit,
+  itemDescriptionProblem,
+  itemTitleLimit,
+  itemTitleProblem,
+  limitItemDescription,
+  limitItemTitle,
+} from "./item";
 export { liveLimitLiftsAt, pointsPerSecond } from "./live";
 export {
   a2Landscape,

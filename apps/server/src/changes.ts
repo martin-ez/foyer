@@ -8,7 +8,7 @@ import {
   ChangeResultSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
-import { createItem } from "./items";
+import { createItem, deleteItem, moveItem, setItemField } from "./items";
 import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
 import { namesSeenBy } from "./spaces";
@@ -99,6 +99,22 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return moveSticker(sql, memberId, setter, change.change.value);
     case "stickerRemove":
       return removeSticker(sql, memberId, change.change.value);
+    case "itemSetTitle": {
+      const { itemId, title } = change.change.value;
+      return setItemField(sql, memberId, setter, itemId, "title", title);
+    }
+    case "itemSetDescription": {
+      const { itemId, description } = change.change.value;
+      return setItemField(sql, memberId, setter, itemId, "description", description);
+    }
+    case "itemSetDate": {
+      const { itemId, date } = change.change.value;
+      return setItemField(sql, memberId, setter, itemId, "date", date);
+    }
+    case "itemMove":
+      return moveItem(sql, memberId, setter, change.change.value);
+    case "itemDelete":
+      return deleteItem(sql, memberId, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

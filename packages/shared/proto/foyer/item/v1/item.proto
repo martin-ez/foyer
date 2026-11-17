@@ -14,7 +14,7 @@ message Item {
   string space_id = 3;
   // Trimmed, never blank, and at most 500 Unicode code points.
   string title = 4;
-  // Plain text, or empty.
+  // Plain text of at most 10,000 Unicode code points, or empty.
   string description = 5;
   // A day, as a plain ISO 8601 date such as "2026-11-17", with no time or time zone. Empty when it
   // has none.
@@ -46,8 +46,44 @@ message ItemCreate {
   string space_id = 3;
   // Trimmed, then refused if blank or over 500 Unicode code points.
   string title = 4;
-  // Plain text, or empty.
+  // Plain text, refused if over 10,000 Unicode code points, or empty.
   string description = 5;
   // A plain ISO 8601 date such as "2026-11-17", or empty for none.
   string date = 6;
+}
+
+// Changes an item's title. Each field's change made last wins, by the device's clock, so changes to
+// different fields never conflict. Anyone who can see the item's space can change it.
+message ItemSetTitle {
+  string item_id = 1;
+  // Trimmed, then refused if blank or over 500 Unicode code points.
+  string title = 2;
+}
+
+// Changes an item's description. The change made last wins, by the device's clock.
+message ItemSetDescription {
+  string item_id = 1;
+  // Plain text, refused if over 10,000 Unicode code points, or empty.
+  string description = 2;
+}
+
+// Changes an item's date, or clears it. The change made last wins, by the device's clock.
+message ItemSetDate {
+  string item_id = 1;
+  // A plain ISO 8601 date such as "2026-11-17", or empty to clear it.
+  string date = 2;
+}
+
+// Moves an item to another space, which changes who sees it: members who can't see the new space
+// receive it as deleted. A device sends it with the sticker moving from the old space's page to the
+// new one's, in the same push. The move made last wins, by the device's clock.
+message ItemMove {
+  string item_id = 1;
+  // A space the member sees, as they must see the item's space now.
+  string space_id = 2;
+}
+
+// Deletes an item, and its stickers on every page.
+message ItemDelete {
+  string item_id = 1;
 }

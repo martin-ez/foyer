@@ -51,6 +51,11 @@ message Change {
     foyer.sticker.v1.StickerPlace sticker_place = 7;
     foyer.sticker.v1.StickerMove sticker_move = 8;
     foyer.sticker.v1.StickerRemove sticker_remove = 9;
+    foyer.item.v1.ItemSetTitle item_set_title = 10;
+    foyer.item.v1.ItemSetDescription item_set_description = 11;
+    foyer.item.v1.ItemSetDate item_set_date = 12;
+    foyer.item.v1.ItemMove item_move = 13;
+    foyer.item.v1.ItemDelete item_delete = 14;
   }
 }
 

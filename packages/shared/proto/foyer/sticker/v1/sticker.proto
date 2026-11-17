@@ -60,7 +60,8 @@ message StickerMove {
   double y = 3;
 }
 
-// Peels a sticker off its page. Only someone who can see its item can remove it. Its item stays.
+// Peels a sticker off its page. Only someone who can see its item can remove it. Its item stays. A
+// task's sticker can't leave its own space's page, until the task is deleted or moved away.
 message StickerRemove {
   string sticker_id = 1;
 }

@@ -258,6 +258,38 @@ export function stickerPlace(
   return { ...madeNow(made), change: { case: "stickerPlace", value } };
 }
 
+/** Changes a task's title, made by the device now unless `made` says otherwise. */
+export function itemSetTitle(itemId: string, title: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "itemSetTitle", value: { itemId, title } } };
+}
+
+/** Changes a task's description, made by the device now unless `made` says otherwise. */
+export function itemSetDescription(
+  itemId: string,
+  description: string,
+  made: Made = {},
+): ChangeInit {
+  return {
+    ...madeNow(made),
+    change: { case: "itemSetDescription", value: { itemId, description } },
+  };
+}
+
+/** Changes or clears a task's date, made by the device now unless `made` says otherwise. */
+export function itemSetDate(itemId: string, date: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "itemSetDate", value: { itemId, date } } };
+}
+
+/** Moves a task to another space, made by the device now unless `made` says otherwise. */
+export function itemMove(itemId: string, spaceId: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "itemMove", value: { itemId, spaceId } } };
+}
+
+/** Deletes a task, made by the device now unless `made` says otherwise. */
+export function itemDelete(itemId: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "itemDelete", value: { itemId } } };
+}
+
 /** Moves a sticker, made by the device now unless `made` says otherwise. */
 export function stickerMove(stickerId: string, x: number, y: number, made: Made = {}): ChangeInit {
   return { ...madeNow(made), change: { case: "stickerMove", value: { stickerId, x, y } } };
@@ -277,6 +309,11 @@ export function idOf({ change }: ChangeInit): string {
     case "pageCreate":
       return change.value.pageId ?? "";
     case "itemCreate":
+    case "itemSetTitle":
+    case "itemSetDescription":
+    case "itemSetDate":
+    case "itemMove":
+    case "itemDelete":
       return change.value.itemId ?? "";
     case "stickerPlace":
     case "stickerMove":
