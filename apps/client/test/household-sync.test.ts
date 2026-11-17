@@ -5,8 +5,11 @@ import {
   a4Portrait,
   itemPageId,
   newId,
+  pageMargin,
   signedOutCloseCode,
   spacePageId,
+  stickerGap,
+  taskStickerSize,
 } from "@foyer/shared";
 import { ItemKind, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
@@ -22,7 +25,7 @@ import {
   type RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pageMargin, stickerGap, stickersOn, taskStickerSize } from "../src/page/sticker-layout";
+import { stickersOn } from "../src/page/sticker-layout";
 import {
   type Connect,
   type ConnectionEvents,
