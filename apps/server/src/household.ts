@@ -137,6 +137,7 @@ export class Household extends DurableObject<Env> {
     sql.exec("DELETE FROM changes WHERE received_at <= ?", now - sessionLifetime);
     const { results, changed, unchanged } = applyPush(this.ctx.storage, memberId, push, now);
     this.#sendUpdates(readRows(sql, changed));
+    if (changed.length > 0) this.#live.checkSight();
     const asTheyAre = readRows(sql, unchanged)
       .filter(({ visibleTo }) => visibleTo === null || visibleTo === memberId)
       .map(({ row }) => row);

@@ -150,6 +150,22 @@ export class LiveLane {
     if (left !== undefined) this.#announce(left, now);
   }
 
+  /** Takes every device off a page its member can no longer see, such as the page of a task that
+   *  moved out of their sight or was deleted, and tells the others on it. The device isn't told, as
+   *  when it enters a page it can't see. */
+  checkSight(): void {
+    const now = Date.now();
+    const left = new Set<string>();
+    for (const device of this.#devices()) {
+      const page = device.live.page;
+      if (!page || this.#canSeePage(device.attachment.memberId, page.id)) continue;
+      device.live.page = null;
+      this.#keep(device);
+      left.add(page.id);
+    }
+    for (const pageId of left) this.#announce(pageId, now);
+  }
+
   /** Takes every device the household hasn't heard from for `silenceLimit` off its page, closes its
    *  connection, which the device opens again if it's still there, and tells the others on the
    *  page. Checks again later while someone shares a page. */

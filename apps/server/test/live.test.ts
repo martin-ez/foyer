@@ -10,7 +10,7 @@ import type { Here, Pointed } from "@foyer/shared/gen/foyer/sync/v1/live_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { theHousehold } from "../src/household";
 import { dailyPointLimit, silenceLimit, unsavedPointLimit } from "../src/live";
-import { Device, idOf, itemCreate, signIn, spaceCreate } from "./sync-device";
+import { Device, idOf, itemCreate, itemDelete, itemMove, signIn, spaceCreate } from "./sync-device";
 
 const alex = "member@example.com";
 const sam = "housemate@example.com";
@@ -37,17 +37,40 @@ async function sharedSpacePage(device: Device): Promise<string> {
   return `space:${spaceId}:1`;
 }
 
+async function inboxOf(device: Device): Promise<string> {
+  const inbox = (await device.catchUp())
+    .flatMap(({ rows }) => rows)
+    .flatMap(({ row }) => (row.case === "space" ? [row.value] : []))
+    .find((space) => space.kind === SpaceKind.INBOX);
+  return inbox?.id ?? "";
+}
+
 async function bodyPageOfTask(device: Device, kind: "shared" | "inbox"): Promise<string> {
   const spaceId =
-    kind === "shared"
-      ? (await sharedSpacePage(device)).split(":")[1]
-      : (await device.catchUp())
-          .flatMap(({ rows }) => rows)
-          .flatMap(({ row }) => (row.case === "space" ? [row.value] : []))
-          .find((space) => space.kind === SpaceKind.INBOX)?.id;
+    kind === "shared" ? (await sharedSpacePage(device)).split(":")[1] : await inboxOf(device);
   const task = itemCreate({ spaceId: spaceId ?? "" });
   await device.push(task);
   return itemPageId(idOf(task));
+}
+
+function taskOf(bodyPage: string): string {
+  return bodyPage.slice("item:".length);
+}
+
+async function bothOnSharedTasksPage(): Promise<{
+  alexs: Connected;
+  sams: Connected;
+  page: string;
+}> {
+  const alexs = await connect(alex);
+  const page = await bodyPageOfTask(alexs, "shared");
+  alexs.enter(page);
+  await alexs.next("here");
+  const sams = await connect(sam);
+  sams.enter(page);
+  await sams.next("here");
+  await alexs.next("here");
+  return { alexs, sams, page };
 }
 
 async function onPage<Emails extends string[]>(
@@ -308,6 +331,43 @@ describe("who can be seen on a page", () => {
     sams.enter("day:not-a-date");
 
     expect(describeHere(await alexs.next("here")).members).toEqual([]);
+  });
+});
+
+describe("losing sight of a page", () => {
+  it("takes someone off a task's page when the task moves into another member's own space, and tells the others", async () => {
+    const { alexs, sams, page } = await bothOnSharedTasksPage();
+
+    await alexs.push(itemMove(taskOf(page), await inboxOf(alexs)));
+
+    expect(describeHere(await alexs.next("here"))).toEqual({ pageId: page, members: [] });
+    sams.point(10, 20);
+    expect(await sams.all("here")).toEqual([]);
+    expect(await alexs.all("pointed")).toEqual([]);
+  });
+
+  it("passes nothing on from a deleted task's page", async () => {
+    const { alexs, sams, page } = await bothOnSharedTasksPage();
+
+    await sams.push(itemDelete(taskOf(page)));
+
+    sams.point(10, 20);
+    alexs.point(30, 40);
+    expect(await sams.all("pointed")).toEqual([]);
+    expect(await alexs.all("pointed")).toEqual([]);
+  });
+
+  it("keeps everyone on a task's page when the task moves to another space they all see", async () => {
+    const { alexs, sams, page } = await bothOnSharedTasksPage();
+    const otherSpace = (await sharedSpacePage(alexs)).split(":")[1] ?? "";
+
+    await alexs.push(itemMove(taskOf(page), otherSpace));
+
+    sams.point(10, 20);
+    expect(await sams.all("here")).toEqual([]);
+    expect((await alexs.all("pointed")).map(describePointed)).toEqual([
+      { memberId: sams.memberId, x: 10, y: 20 },
+    ]);
   });
 });
 
