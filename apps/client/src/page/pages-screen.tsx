@@ -1,5 +1,5 @@
 import type { Member } from "@foyer/shared/gen/foyer/member/v1/member_pb";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Button, StyleSheet, Text, View } from "react-native";
 import { BackendStatus } from "../backend/backend-status";
 import { SignedInAs } from "../session/session-screens";
@@ -9,6 +9,8 @@ import { useHouseholdSync } from "../sync/use-household-sync";
 import { useLivePage } from "../sync/use-live-page";
 import { describePage, pageIdOf, sizeOf } from "./open-page";
 import { PageSheet } from "./page-sheet";
+import { markersOn } from "./presence";
+import { PresenceMarkers } from "./presence-markers";
 import { useOpenPage } from "./use-open-page";
 
 const statusLines: Record<SyncStatus, string> = {
@@ -19,9 +21,9 @@ const statusLines: Record<SyncStatus, string> = {
   "signed-out": "Signed out",
 };
 
-/** What the signed-in member sees: the open page, kept in sync with the household and shared live
- *  with others on it, which starts as today's, with ways to move between days and to open each
- *  space's first page. Calls `onSignedOut` when the household says the session has ended. */
+/** What the signed-in member sees: the open page, starting as today's, kept in sync with the
+ *  household, with a marker for each other member on it, and ways to move between days and to open
+ *  each space's first page. Calls `onSignedOut` when the household says the session has ended. */
 export function PagesScreen({
   member,
   onSignOut,
@@ -33,7 +35,10 @@ export function PagesScreen({
 }) {
   const { state, sync } = useHouseholdSync(member.id, onSignedOut);
   const pages = useOpenPage();
-  useLivePage(sync.live, pageIdOf(pages.page));
+  const pageId = pageIdOf(pages.page);
+  useLivePage(sync.live, pageId);
+  const live = useSyncExternalStore(sync.live.subscribe, sync.live.getState);
+  const markers = live.pageId === pageId ? markersOn(live.here, state.members) : [];
   const [showingSpaces, setShowingSpaces] = useState(false);
   const label = describePage(pages.page, state.spaces);
   const unsaved = state.unsaved > 0 ? ` · ${state.unsaved} not saved yet` : "";
@@ -59,11 +64,13 @@ export function PagesScreen({
       </View>
       <View style={styles.fill}>
         <PageSheet
-          key={pageIdOf(pages.page)}
+          key={pageId}
           size={sizeOf(pages.page, state.pages)}
           label={label}
           onPoint={({ x, y }) => sync.live.point(x, y)}
-        />
+        >
+          <PresenceMarkers markers={markers} />
+        </PageSheet>
         {showingSpaces ? (
           <SpacesPanel
             state={state}

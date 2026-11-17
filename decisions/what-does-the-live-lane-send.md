@@ -17,8 +17,6 @@ Decided in #15 and #58
 - **Lost connections:** a device the household hasn't heard from for a minute, by a message or by the keep-alive "ping", is taken off its page, and the others get a new `Here`. The household closes its connection, so a device that's still there connects again and enters again.
 - **Daily limit:** every position a device sends counts. At a third of the free plan's 100,000 daily requests, 33,333 positions, the household stops passing positions on and leaves them out of `Here` until midnight UTC, when the plan's count starts again. Devices stop sending positions until then, and others' markers wait at the page's edge. `Enter` and `Leave` keep working. The day's count is stored, so that the limit holds while the household sleeps; nothing else on the live lane is.
 
-Markers showing where others point are built by #58.
-
 **Why:**
 - Each message a device sends counts as one request against the free plan's 100,000 a day, shared with the preview. Messages the household sends, and the keep-alive the runtime answers, cost nothing (#4). At 4 positions a second, two people both moving on the same page for a whole hour use about 29% of a day's requests, and ten minutes a day about 5%.
 - A device alone on a page, or whose pointer is still, sends no positions, so requests are only spent when someone can see them.

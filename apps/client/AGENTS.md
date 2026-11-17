@@ -43,6 +43,7 @@ A page is drawn in points from its top-left corner, whatever its size or zoom. `
 
 - **On the iPad,** `src/page/page-sheet.tsx` puts a canvas of the page's own size inside a `ScrollView` that iOS zooms, so everything on the page moves with it in every frame of a pinch, including the bounce after it. Anything else drawn on the page, such as the Pencil's ink, goes inside that sheet, never in a view over it: a view over it drifts apart while iOS animates the zoom.
 - **On the web,** `src/page/page-sheet.web.tsx` draws the desk in a canvas the size of the view, with the page where a camera puts it (`src/page/sheet-camera.ts`), and turns pinches, the wheel and drags into moving the camera.
+- **Views on a page,** such as the markers of others on it (`src/page/presence-markers.tsx`), are `PageSheet`'s children, laid out in the page's points. On the iPad they're inside the zoomed sheet; on the web, in a layer that the camera moves with the canvas. They never take touches. On the web, Skia has no fonts unless the app bundles a font file, which is why the markers' initials are views.
 
 ## Tests
 
