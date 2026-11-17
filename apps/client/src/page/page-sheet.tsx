@@ -1,5 +1,5 @@
 import type { PageSize } from "@foyer/shared";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
@@ -13,16 +13,19 @@ import { PageDrawing } from "./page-drawing";
 import { type Point, type Size, zoomLimits } from "./sheet-camera";
 
 /** A page lying on the desk, fitted to it at first, in a view that iOS zooms and moves as one sheet,
- *  so everything on the page moves with it in every frame of a pinch. A touch on the page is
+ *  so everything on the page moves with it in every frame of a pinch. `children` are views above
+ *  the page, laid out in its own coordinates, which never take touches. A touch on the page is
  *  reported to `onPoint`, in points from the page's top-left corner. */
 export function PageSheet({
   size,
   label,
   onPoint,
+  children,
 }: {
   size: PageSize;
   label: string;
   onPoint?: (at: Point) => void;
+  children?: ReactNode;
 }) {
   const [view, setView] = useState<Size | null>(null);
   const onLayout = (event: LayoutChangeEvent) => {
@@ -54,6 +57,7 @@ export function PageSheet({
             <Canvas style={sheet}>
               <PageDrawing size={size} />
             </Canvas>
+            <View style={[sheet, styles.above]}>{children}</View>
           </View>
         </ScrollView>
       ) : null}
@@ -64,4 +68,5 @@ export function PageSheet({
 const styles = StyleSheet.create({
   desk: { flex: 1, backgroundColor: deskColour },
   paper: { boxShadow: "0 2px 8px rgba(0, 0, 0, 0.18)" },
+  above: { position: "absolute", left: 0, top: 0, pointerEvents: "none" },
 });

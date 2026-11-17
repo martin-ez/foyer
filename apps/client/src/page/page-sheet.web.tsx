@@ -1,5 +1,5 @@
 import type { PageSize } from "@foyer/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { Canvas } from "react-native-skia";
 import { DeskDrawing } from "./desk-drawing";
@@ -15,16 +15,19 @@ import {
 } from "./sheet-camera";
 
 /** A page lying on the desk, drawn by Skia in a canvas the size of the view. Pinching, or scrolling
- *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. A pointer
- *  moving over the page is reported to `onPoint`, in points from the page's top-left corner. */
+ *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. `children`
+ *  are views above the page, laid out in its own coordinates, which never take the pointer. A
+ *  pointer moving over the page is reported to `onPoint`, in points from the page's top-left corner. */
 export function PageSheet({
   size,
   label,
   onPoint,
+  children,
 }: {
   size: PageSize;
   label: string;
   onPoint?: (at: Point) => void;
+  children?: ReactNode;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   const keepHost = useCallback((view: unknown) => setHost(view as HTMLElement | null), []);
@@ -70,10 +73,26 @@ export function PageSheet({
     }
   };
   return (
-    <View ref={keepHost} style={styles.fill} onLayout={onLayout} accessibilityLabel={label}>
+    <View ref={keepHost} style={styles.desk} onLayout={onLayout} accessibilityLabel={label}>
       <Canvas style={styles.fill}>
         <DeskDrawing page={size} camera={camera} />
       </Canvas>
+      <View
+        style={[
+          styles.above,
+          {
+            width: size.width,
+            height: size.height,
+            transform: [
+              { translateX: camera.x },
+              { translateY: camera.y },
+              { scale: camera.scale },
+            ],
+          },
+        ]}
+      >
+        {children}
+      </View>
     </View>
   );
 }
@@ -177,4 +196,12 @@ function midpoint(a: Point, b: Point): Point {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  desk: { flex: 1, overflow: "hidden" },
+  above: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    transformOrigin: "0 0",
+    pointerEvents: "none",
+  },
 });
