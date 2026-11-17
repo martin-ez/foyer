@@ -226,8 +226,6 @@ type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; 
 
 const selectMembers = "SELECT id, name, seq FROM members";
 
-/** Each space with the member whose Google account holds its calendar, if it has one, and the
- *  state of that member's connection, if they're connected. */
 const selectSpaces = `SELECT spaces.id, spaces.kind, spaces.owner_id, spaces.name, spaces.seq,
   space_calendars.member_id AS calendar_member_id,
   google_connections.state AS calendar_holder_state

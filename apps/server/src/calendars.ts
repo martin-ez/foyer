@@ -42,10 +42,9 @@ type HeldCalendar = {
 
 type Done = "done" | "failed" | "access-stopped";
 
-/** Keeps members' Google connections, and a Google calendar for each space except the Inbox, in
- *  the account of the member who holds it. Talking to Google happens in `work`, which the
- *  household's alarm runs, so that it's retried until it works. `changed` sends devices the rows
- *  that changed, and `wake` asks for the alarm at a time. */
+/** Keeps members' Google connections, and a Google calendar for each space except the Inbox in
+ *  its holder's account. `changed` sends devices the rows that changed, and `wake` asks for the
+ *  household's alarm, which runs `work`, at a time. */
 export class Calendars {
   readonly #storage: DurableObjectStorage;
   readonly #changed: (keys: RowKey[]) => void;
@@ -64,10 +63,9 @@ export class Calendars {
     this.#wake = wake;
   }
 
-  /** Exchanges what Google sent back for access to a member's calendars, and keeps it. Refuses an
-   *  account other than the one the member signs in with, and access that leaves out the
-   *  calendars. Connecting again keeps when the member first connected, and resumes their paused
-   *  spaces. */
+  /** Exchanges what Google sent back for access to a member's calendars, and keeps it, resuming
+   *  their paused spaces. Refuses an account other than the one they sign in with, and access that
+   *  leaves out the calendars. */
   async connect(memberId: string, answer: ConnectingAnswer): Promise<ConnectingResult> {
     const { sql } = this.#storage;
     const [member] = sql
@@ -157,11 +155,9 @@ export class Calendars {
     this.#wake(Date.now());
   }
 
-  /** Makes the calendars that spaces are waiting for, and renames those whose spaces were renamed,
-   *  in the account of each member whose access works. A member whose access Google no longer
-   *  accepts needs reconnecting, and their spaces become paused. After a failure, it asks to be run
-   *  again later, waiting twice as long each time, up to an hour. Runs once at a time: a call made
-   *  while it runs waits for it, then runs again. */
+  /** Makes and renames the calendars spaces wait for, one run at a time. Access Google refuses
+   *  needs reconnecting and pauses its spaces. After a failure, it asks to run again later, waiting
+   *  twice as long each time, up to `longestRetryDelay`. */
   work(): Promise<void> {
     const run = this.#running.then(() => this.#work());
     this.#running = run.catch(() => {});
@@ -312,8 +308,6 @@ export class Calendars {
     if (kept) this.#changed([{ kind: "space", id: spaceId }]);
   }
 
-  /** Gives the spaces whose calendars are in a member's account the change numbered `seq`, as
-   *  their calendar's state follows the member's connection. */
   #touchHeldSpaces(memberId: string, seq: number): RowKey[] {
     const { sql } = this.#storage;
     const held = sql
@@ -340,10 +334,6 @@ export class Calendars {
       .map(({ member_id }) => member_id);
   }
 
-  /** The spaces without a calendar that a member's account should hold: their own personal
-   *  spaces, and the shared spaces they created, or, when a shared space's creator isn't
-   *  connected, those of every such space if they connected first. Only connections that work
-   *  count. */
   #calendarsToMake(memberId: string): SpaceToMake[] {
     return this.#storage.sql
       .exec<SpaceToMake>(

@@ -28,10 +28,9 @@ export function calendarClient(): GoogleClient | null {
   return id && secret ? { id, secret } : fakeClient;
 }
 
-/** The address that asks Google for access to the calendars Foyer creates, in the account named by
- *  `accountHint` when Google knows it, with a refresh token so the household can use it while
- *  nobody is there. Google is also asked who the account is, which adds nothing to what the person
- *  is asked. With the fake Google, the address is its page on the backend at `origin`. */
+/** The address that asks Google for lasting access to the calendars Foyer creates, and who the
+ *  account is, preferring the account `accountHint` names. With the fake Google, it's the fake's
+ *  page on the backend at `origin`. */
 export function connectingAddress(
   client: GoogleClient,
   request: {

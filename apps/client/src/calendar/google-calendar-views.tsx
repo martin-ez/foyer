@@ -11,7 +11,7 @@ import { connectGoogleCalendar, problemFromConnecting } from "./connect-google";
 import { describeConnection } from "./google-calendar";
 
 /** The member's connection to Google Calendar, and ways to change it. */
-type GoogleCalendar = {
+export type GoogleCalendar = {
   connection: GoogleConnection | null;
   /** Why connecting or disconnecting just didn't work, in a sentence. */
   problem?: string;

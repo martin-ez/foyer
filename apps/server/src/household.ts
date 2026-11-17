@@ -45,11 +45,10 @@ type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["mes
 
 /** The household's hub, with its own SQLite storage. Starting it runs the storage migrations it
  *  hasn't run yet, before it answers anything. It keeps devices in sync over WebSockets, which stay
- *  open while it sleeps, and answers their "ping" with "pong" without waking. Its alarm checks for
- *  silent devices and does the work that waits on Google. */
+ *  open while it sleeps, and answers their "ping" with "pong" without waking. */
 export class Household extends DurableObject<Env> {
   readonly #signInCodes = new Map<string, SignInCode>();
-  readonly #alarm: Alarm;
+  readonly #alarm: EarliestAlarm;
   readonly #live: LiveLane;
   readonly #calendars: Calendars;
 
@@ -57,7 +56,7 @@ export class Household extends DurableObject<Env> {
     super(ctx, bindings);
     migrate(ctx.storage, householdMigrations);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
-    this.#alarm = new Alarm(ctx.storage);
+    this.#alarm = new EarliestAlarm(ctx.storage);
     const wake = (at: number) => this.#alarm.at(at);
     this.#live = new LiveLane(
       ctx,
@@ -358,9 +357,7 @@ export class Household extends DurableObject<Env> {
   }
 }
 
-/** Keeps the household's one alarm at the earliest time anything asked to be woken. Whatever the
- *  alarm runs asks again for the next time it needs. */
-class Alarm {
+class EarliestAlarm {
   readonly #storage: DurableObjectStorage;
   #setting = Promise.resolve();
 

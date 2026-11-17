@@ -14,10 +14,8 @@ const keyLabel = "Foyer: connecting Google Calendar";
 type Connecting = { memberId: string; app: ConnectingApp; timeZone: string; expiresAt: number };
 
 /** The address that asks Google for access to a member's calendars, returning to `app`, or null
- *  when Google isn't set up. Who is connecting, from which app and time zone, travels to Google and
- *  back in its `state`, signed with a key made from the client's secret, so connecting works from
- *  the iPad's sign-in sheet, which carries no session, and the household keeps nothing until
- *  Google answers. It's valid for 10 minutes. */
+ *  when Google isn't set up. Who is connecting travels in its signed `state`, valid for 10 minutes,
+ *  so it works from the iPad's sign-in sheet, which carries no session. */
 export async function startConnecting(
   url: URL,
   memberId: string,

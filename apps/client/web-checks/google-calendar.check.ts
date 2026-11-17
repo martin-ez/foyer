@@ -5,10 +5,7 @@ import { bundleBuildTimeout } from "./tasks";
 
 const connectPrompt = "Connect Google Calendar to keep a Google calendar for each of your spaces.";
 
-/** Each viewport connects as a member of its own, so that the two don't connect and disconnect the
- *  same member at once: the iPad's as the first in `HOUSEHOLD_MEMBERS`, the phone's as the
- *  second. */
-function memberFor(testInfo: TestInfo): string {
+function memberOfItsOwnFor(testInfo: TestInfo): string {
   const members = householdMembers();
   const email = members[testInfo.project.name === "ipad" ? 0 : 1];
   test.skip(email === undefined, "Needs a second email in HOUSEHOLD_MEMBERS");
@@ -24,7 +21,6 @@ async function hideAccount(page: Page) {
   await page.getByRole("button", { name: "Hide account" }).click();
 }
 
-/** Signs in on the Calendar, disconnected from Google, as a member who may have connected before. */
 async function signInDisconnected(page: Page, email: string) {
   await signIn(page, email);
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
@@ -57,7 +53,7 @@ test.beforeEach(() => {
 test("connects Google Calendar, makes a calendar for each space, and disconnects", async ({
   page,
 }, testInfo) => {
-  await signInDisconnected(page, memberFor(testInfo));
+  await signInDisconnected(page, memberOfItsOwnFor(testInfo));
   await expect(page.getByText(connectPrompt)).toBeVisible();
   await saveScreenshot(page, testInfo, "google-calendar-prompt");
 
@@ -87,7 +83,7 @@ test("connects Google Calendar, makes a calendar for each space, and disconnects
 });
 
 test("says so when someone connects another Google account", async ({ page }, testInfo) => {
-  await signInDisconnected(page, memberFor(testInfo));
+  await signInDisconnected(page, memberOfItsOwnFor(testInfo));
 
   await connectAtFakeGoogle(page, /^Continue with another account$/);
 
@@ -101,7 +97,7 @@ test("says so when someone connects another Google account", async ({ page }, te
 });
 
 test("returns without connecting when someone cancels", async ({ page }, testInfo) => {
-  await signInDisconnected(page, memberFor(testInfo));
+  await signInDisconnected(page, memberOfItsOwnFor(testInfo));
 
   await connectAtFakeGoogle(page, /^Cancel$/);
 

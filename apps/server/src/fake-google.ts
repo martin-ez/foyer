@@ -7,11 +7,9 @@ export type FakeCalendar = { subject: string; name: string; timeZone: string };
 /** The account that the fake Google's page offers besides the one asked for. */
 export const fakeOtherAccount = "fake-google-other-account";
 
-/** Stands in for the parts of Google that connecting Google Calendar uses: its token and
- *  revocation endpoints and the Calendar API's calendars, so that agents, web checks and tests can
- *  connect without Google. Its codes and tokens name the account they're for, so they keep working
- *  after the backend restarts; what it holds besides, such as calendars and revoked access, is kept
- *  in memory. */
+/** Stands in for Google's token and revocation endpoints and the Calendar API's calendars, so
+ *  agents, web checks and tests connect without Google. Its codes and tokens name their account,
+ *  so they survive a restart; calendars and revoked access are only kept in memory. */
 export class FakeGoogle {
   /** The calendars it holds, by id. */
   readonly calendars = new Map<string, FakeCalendar>();

@@ -6,12 +6,9 @@ package foyer.calendar.v1;
 // each of their spaces. Foyer asks only for access to the calendars it creates itself. Calls carry
 // the session, as SessionService's do.
 service CalendarService {
-  // Returns the address that asks Google for access to the calendars Foyer creates, in the same
-  // Google account the member signs in with. The app opens it: in the same tab on the web, in the
-  // system's sign-in sheet on the iPad. Google returns to the backend, which stores the access and
-  // returns to the app: to the web app's first page, or to foyer://google-calendar on the iPad, with
-  // a google-calendar-error, or error on the iPad, when it didn't connect. Fails as unauthenticated
-  // when nobody is signed in, and as an invalid argument for a time zone the backend doesn't know.
+  // Returns the address the app opens to ask Google for access to the calendars Foyer creates, in
+  // the account the member signs in with. Fails as unauthenticated when nobody is signed in, and as
+  // an invalid argument for a time zone the backend doesn't know.
   rpc StartConnecting(StartConnectingRequest) returns (StartConnectingResponse);
   // Revokes Foyer's access to the member's Google account and forgets it. The spaces whose calendars
   // are in their account become paused. Their calendars and events stay in Google, and connecting
@@ -28,7 +25,9 @@ message StartConnectingRequest {
 }
 
 message StartConnectingResponse {
-  // The address the app opens.
+  // Opened in the same tab on the web, and in the system's sign-in sheet on the iPad. Google then
+  // returns to the backend, which returns to the web app's first page or to foyer://google-calendar,
+  // with a google-calendar-error, or error on the iPad, when it didn't connect.
   string address = 1;
 }
 

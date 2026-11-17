@@ -48,8 +48,6 @@ async function connect(token: string): Promise<Device> {
   return device;
 }
 
-/** Calls the backend's calendar service with a session token, at the deployed backend's address
- *  or another, and with some of the Worker's settings changed. */
 function calendars(
   token?: string,
   at: { baseUrl?: string; settings?: Partial<Cloudflare.Env> } = {},
@@ -77,8 +75,6 @@ function calendars(
   };
 }
 
-/** Connects Google Calendar as the person would, playing Google: asks for the address, then
- *  returns from Google with a code for an account, by default the one asked for. */
 async function connectGoogle(
   token: string,
   options: { app?: App; account?: string; scope?: string; returned?: (callback: URL) => void } = {},
@@ -94,10 +90,6 @@ async function connectGoogle(
   return locationOf(await requestBackend(callback.toString()));
 }
 
-/** Runs the household's alarm, which does the work that waits on Google, and waits until any run
- *  that started on its own is done too. */
-/** The choices on the fake Google's page at an address, by their label, each with the address it
- *  returns to. */
 async function choicesAt(address: string): Promise<Map<string, string>> {
   const page = await (await requestBackend(address)).text();
   const links = [...page.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)];
