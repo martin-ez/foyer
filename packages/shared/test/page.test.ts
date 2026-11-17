@@ -2,8 +2,10 @@ import {
   a2Landscape,
   a4Portrait,
   dayPageId,
+  firstDayOfWeek,
   isIsoDate,
   isIsoMonth,
+  isWeekStart,
   itemPageId,
   monthPageId,
   pageSizeFor,
@@ -30,7 +32,7 @@ describe("page sizes", () => {
 describe("page ids", () => {
   it("names calendar pages by their kind and date", () => {
     expect(monthPageId("2026-11")).toBe("month:2026-11");
-    expect(weekPageId("2026-11-09")).toBe("week:2026-11-09");
+    expect(weekPageId("2026-11-16")).toBe("week:2026-11-16");
     expect(dayPageId("2026-11-14")).toBe("day:2026-11-14");
   });
 
@@ -72,5 +74,28 @@ describe("isIsoMonth", () => {
 
   it.each(["2026-13", "2026-00", "2026-1", "2026-11-01"])("refuses %s", (month) => {
     expect(isIsoMonth(month)).toBe(false);
+  });
+});
+
+describe("firstDayOfWeek", () => {
+  it.each([
+    ["a Monday", "2026-11-16", "2026-11-16"],
+    ["a Tuesday", "2026-11-17", "2026-11-16"],
+    ["a Sunday", "2026-11-22", "2026-11-16"],
+    ["a day whose week starts in the month before", "2026-12-02", "2026-11-30"],
+    ["a day whose week starts in the year before", "2027-01-03", "2026-12-28"],
+    ["a leap day", "2028-02-29", "2028-02-28"],
+  ])("gives the Monday of %s", (_, date, monday) => {
+    expect(firstDayOfWeek(date)).toBe(monday);
+  });
+});
+
+describe("isWeekStart", () => {
+  it("accepts a Monday", () => {
+    expect(isWeekStart("2026-11-16")).toBe(true);
+  });
+
+  it.each(["2026-11-17", "2026-11-22", "2026-11", "2026-02-30"])("refuses %s", (value) => {
+    expect(isWeekStart(value)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 # What is a page?
-Decided in #10, #16, #17, #23 and #64
+Decided in #10, #16, #17, #23, #24 and #64
 
 **Applies when:** building any view people write on, laying things out on a page, storing or syncing pages, positioning anything on a page, or deciding how people move around pages.
 
@@ -20,7 +20,8 @@ Pinch zooms within a page so people can write in detail. Moving between month, w
   - **Space pages:** each space's main view, the Inbox included, holds the space's tasks as stickers. Each new task's sticker is placed below the last one and keeps its spot. When a page fills up, the space gets another. Only members who see the space see its pages.
   - **Item pages:** a task or event can have one body page, and a note has one or more, in the order they were added. They follow their item's space, and are deleted with it.
 - **Ids:**
-  - Calendar pages are named by their kind and date: `month:2026-11`, `week:2026-11-09` (by the week's first day) and `day:2026-11-14`. Dates are plain ISO 8601 dates, and each device works out "today" from its own clock and time zone.
+  - Calendar pages are named by their kind and date: `month:2026-11`, `week:2026-11-16` (by the week's Monday) and `day:2026-11-14`. Dates are plain ISO 8601 dates, and each device works out "today" from its own clock and time zone (`how-are-dates-and-times-stored.md`).
+  - Weeks start on Monday, as ISO 8601 weeks do, for every household. A week page named by any other day is refused.
   - Space pages are named by their space and number from 1: `space:<space id>:1`.
   - A task's or an event's body page is named by its item: `item:<item id>`.
 - **Storing and syncing:**
@@ -30,7 +31,6 @@ Pinch zooms within a page so people can write in detail. Moving between month, w
   - Zoom and scroll position belong to each device and aren't stored.
   - Calendar pages are never deleted.
 
-Month and week pages are built by #24.
 A note's pages are built by #29, which also decides how they're named and how one is deleted.
 
 **Why:**
@@ -39,6 +39,7 @@ A note's pages are built by #29, which also decides how they're named and how on
 - A size stored with each page travels with it, so an older app still draws a page of a size added after it was built.
 - Each page has one owner, so who sees it follows one rule, as for ink.
 - Stacking by the device's clock follows the order things were put down in real life, even on a device that was offline, and it's the time sync already keeps to settle conflicts.
+- A fixed first day of the week means every device names a week's page the same way, and no week page ever has to move.
 - Every device can name a calendar, space or body page without asking the household, so writing on the same day offline, adding tasks to the same space, or writing on the same task's body page lands on one page rather than two copies. People can also be on a page together before anything has been put on it.
 - When the page and its ink were separate views on the iPad, they drifted apart while iOS animated the zoom (#2).
 
@@ -50,5 +51,6 @@ A note's pages are built by #29, which also decides how they're named and how on
 - Loose pages in a space, attached to no item, which would be another kind of thing with rules of their own.
 - Tasks on a space's page laid out as a list drawn in order, where ink would no longer line up with its task once tasks are added, ticked or reordered.
 - For stacking: the household's change numbers, which put everything made offline on top once it syncs; and a separate layer number, which two devices offline could both claim.
+- Weeks starting on Sunday. A household setting for the first day of the week, which would need existing week pages moved whenever it changed.
 - UUIDs for calendar and space pages, where two devices offline would each create their own copy of the same page.
 - A UUID for a task's body page, made when something is first put on it. Two devices writing on it offline would make two body pages, and nobody could be on it together until something was put on it.

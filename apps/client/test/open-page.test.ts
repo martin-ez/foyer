@@ -15,6 +15,11 @@ function known(spaces: Space[] = [], items: Item[] = []) {
 }
 
 describe("pageIdOf", () => {
+  it("names a month's page by its month, and a week's by its Monday", () => {
+    expect(pageIdOf({ kind: "month", month: "2026-11" })).toBe("month:2026-11");
+    expect(pageIdOf({ kind: "week", monday: "2026-11-16" })).toBe("week:2026-11-16");
+  });
+
   it("names a day's page by its date, and a space's by its space and number", () => {
     expect(pageIdOf({ kind: "day", date: "2026-11-17" })).toBe("day:2026-11-17");
     expect(pageIdOf({ kind: "space", spaceId, number: 1 })).toBe(`space:${spaceId}:1`);
@@ -29,6 +34,8 @@ describe("sizeOf", () => {
   const day = { kind: "day", date: "2026-11-17" } as const;
 
   it("gives a page that hasn't been made the size of its kind", () => {
+    expect(sizeOf({ kind: "month", month: "2026-11" }, new Map())).toEqual(a2Landscape);
+    expect(sizeOf({ kind: "week", monday: "2026-11-16" }, new Map())).toEqual(a2Landscape);
     expect(sizeOf(day, new Map())).toEqual(a4Portrait);
     expect(sizeOf({ kind: "item", itemId: task.id }, new Map())).toEqual(a4Portrait);
   });
@@ -41,6 +48,15 @@ describe("sizeOf", () => {
 });
 
 describe("describePage", () => {
+  it("names a month's page by its month, and a week's by its first and last days", () => {
+    expect(describePage({ kind: "month", month: "2026-11" }, known(), "en-US")).toBe(
+      "November 2026",
+    );
+    expect(describePage({ kind: "week", monday: "2026-11-16" }, known(), "en-US")).toBe(
+      "November 16, 2026 – November 22, 2026",
+    );
+  });
+
   it("names a day's page by its day", () => {
     expect(describePage({ kind: "day", date: "2026-11-17" }, known(), "en-US")).toBe(
       "Tuesday, November 17, 2026",

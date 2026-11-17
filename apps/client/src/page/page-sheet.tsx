@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Canvas } from "react-native-skia";
 import { deskColour } from "./desk-drawing";
-import { PageDrawing } from "./page-drawing";
+import { PageDrawing, type Ruling } from "./page-drawing";
 import { PageScale } from "./page-scale";
 import { type Point, type Size, zoomLimits } from "./sheet-camera";
 
@@ -19,11 +19,14 @@ import { type Point, type Size, zoomLimits } from "./sheet-camera";
  *  so everything on the page moves with it in every frame of a pinch. */
 export function PageSheet({
   size,
+  ruling,
   label,
   onPoint,
   children,
 }: {
   size: PageSize;
+  /** What's printed on the page, such as a calendar's grid. */
+  ruling?: Ruling;
   label: string;
   /** Called with each touch on the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
@@ -69,7 +72,7 @@ export function PageSheet({
         >
           <View style={[sheet, styles.paper]} onTouchStart={touched} onTouchMove={touched}>
             <Canvas style={sheet}>
-              <PageDrawing size={size} />
+              <PageDrawing size={size} ruling={ruling} />
             </Canvas>
             <View style={[sheet, styles.above]}>
               <PageScale value={scale}>{children}</PageScale>

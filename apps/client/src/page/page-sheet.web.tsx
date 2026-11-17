@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { Canvas } from "react-native-skia";
 import { DeskDrawing } from "./desk-drawing";
+import type { Ruling } from "./page-drawing";
 import { PageScale } from "./page-scale";
 import {
   type Camera,
@@ -19,11 +20,14 @@ import {
  *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. */
 export function PageSheet({
   size,
+  ruling,
   label,
   onPoint,
   children,
 }: {
   size: PageSize;
+  /** What's printed on the page, such as a calendar's grid. */
+  ruling?: Ruling;
   label: string;
   /** Called as the pointer moves over the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
@@ -80,7 +84,7 @@ export function PageSheet({
   return (
     <View ref={keepHost} style={styles.desk} onLayout={onLayout} accessibilityLabel={label}>
       <Canvas style={styles.fill}>
-        <DeskDrawing page={size} camera={camera} />
+        <DeskDrawing page={size} ruling={ruling} camera={camera} />
       </Canvas>
       <View
         style={[

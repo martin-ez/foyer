@@ -300,6 +300,7 @@ describe("who can be seen on a page", () => {
 
     for (const page of [
       "day:2026-02-30",
+      "week:2026-11-17",
       "space:not-a-space:1",
       "item:not-an-item",
       "notebook",

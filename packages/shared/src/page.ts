@@ -21,9 +21,21 @@ export function monthPageId(month: string): string {
   return `month:${month}`;
 }
 
-/** The id of a week's page, such as "week:2026-11-09", named by the week's first day. */
-export function weekPageId(firstDay: string): string {
-  return `week:${firstDay}`;
+/** The id of a week's page, such as "week:2026-11-16", named by the week's Monday. */
+export function weekPageId(monday: string): string {
+  return `week:${monday}`;
+}
+
+/** The Monday of the week a day falls in, as an ISO 8601 date: weeks start on Monday. */
+export function firstDayOfWeek(date: string): string {
+  const day = utcDateOf(date);
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  return isoDateOf(day);
+}
+
+/** Whether a value is an ISO 8601 date of a Monday, the day a week's page is named by. */
+export function isWeekStart(value: string): boolean {
+  return isIsoDate(value) && firstDayOfWeek(value) === value;
 }
 
 /** The id of a day's page, such as "day:2026-11-14", from the day as an ISO 8601 date. */
@@ -51,6 +63,18 @@ export function isIsoDate(value: string): boolean {
   return (
     date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
   );
+}
+
+function utcDateOf(date: string): Date {
+  const [year = 0, month = 1, day = 1] = date.split("-").map(Number);
+  const utc = new Date(0);
+  utc.setUTCFullYear(year, month - 1, day);
+  return utc;
+}
+
+function isoDateOf(utc: Date): string {
+  const pad = (value: number, length: number) => String(value).padStart(length, "0");
+  return `${pad(utc.getUTCFullYear(), 4)}-${pad(utc.getUTCMonth() + 1, 2)}-${pad(utc.getUTCDate(), 2)}`;
 }
 
 /** Whether a value is an ISO 8601 month, such as "2026-11". */
