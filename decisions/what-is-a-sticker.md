@@ -1,5 +1,5 @@
 # What is a sticker?
-Decided in #10, #17 and #130
+Decided in #10, #17, #130 and #80
 
 **Applies when:** showing an item on a page, placing, moving or removing stickers, storing or syncing them, deciding what tapping or ticking something on a page does, or showing a page to someone who can't see everything on it.
 
@@ -17,7 +17,7 @@ Someone who can't see an item still sees its sticker, in the same spot and with 
 - **Changes:**
   - `StickerPlace {sticker_id, page_id, x, y, kind, item_id}`, on a page that has been created, with its top-left corner on the page and its kind its item's.
   - `StickerMove {sticker_id, x, y}`, within its page. The move made last wins, by the device's clock, and brings the sticker to the top.
-  - `StickerRemove {sticker_id}` peels it off. Removing an item's sticker never deletes the item. A task's sticker stays on its own space's page until the task is deleted or moved to another space, because a space's page is its list of tasks.
+  - `StickerRemove {sticker_id}` peels it off. Removing an item's sticker never deletes the item. A task's sticker stays on its own space's page, or on its parent's body page when it's under another item, until the task is deleted, moved to another space or put somewhere else, because those pages are its list (`can-items-hold-other-items.md`).
 - **Who can do what:** everyone who can see a page sees all its stickers. Only someone who can see a sticker's item can place, move or remove it, so on a calendar page nobody can reschedule what they can't see.
 - **Placing automatically:** when an item joins a space, its device places the sticker in the next free spot on a page: at the left margin, below the lowest sticker on the page. Each kind of page sets its own rules on top.
 

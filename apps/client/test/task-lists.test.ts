@@ -1,11 +1,18 @@
 import { create } from "@bufbuild/protobuf";
-import { spacePageId } from "@foyer/shared";
+import { itemPageId, spacePageId } from "@foyer/shared";
 import { ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { describe, expect, it } from "vitest";
-import { doneTasks, spaceList, todayList } from "../src/tasks/task-lists";
+import {
+  doneTasks,
+  itemsUnder,
+  openTasksUnder,
+  spaceList,
+  spaceTree,
+  todayList,
+} from "../src/tasks/task-lists";
 
 const inbox = create(SpaceSchema, {
   id: "019a8f4e-5c00-7000-8000-0000000000a1",
@@ -108,5 +115,99 @@ describe("doneTasks", () => {
 
   it("leaves out completions of tasks the device doesn't hold", () => {
     expect(doneTasks(tasks(), [completion("a")])).toEqual(new Set());
+  });
+});
+
+describe("spaceTree", () => {
+  const under = (id: string, parentId: string, spaceId = inbox.id) =>
+    create(ItemSchema, { ...task(id, spaceId), parentId });
+  const onBody = (itemId: string, parentId: string, y: number) =>
+    create(StickerSchema, {
+      id: `s${itemId}`,
+      pageId: itemPageId(parentId),
+      itemId,
+      x: 36,
+      y,
+      kind: StickerKind.TASK,
+    });
+
+  it("lists each task's children after it, in the order of their stickers on its body page", () => {
+    const items = [
+      task("a", inbox.id),
+      task("b", inbox.id),
+      under("c", "a"),
+      under("d", "a"),
+      under("e", "d"),
+    ];
+    const stickers = [
+      sticker("a", inbox.id, 1, 36),
+      sticker("b", inbox.id, 1, 100),
+      onBody("c", "a", 200),
+      onBody("d", "a", 36),
+      onBody("e", "d", 36),
+    ];
+
+    const tree = spaceTree(inbox.id, items, stickers);
+
+    expect(tree.map(({ item, depth }) => [item.id, depth])).toEqual([
+      ["a", 0],
+      ["d", 1],
+      ["e", 2],
+      ["c", 1],
+      ["b", 0],
+    ]);
+    expect(spaceList(inbox.id, items, stickers).map(({ id }) => id)).toEqual([
+      "a",
+      "d",
+      "e",
+      "c",
+      "b",
+    ]);
+  });
+
+  it("ignores a child's sticker on another task's body page, listing it last among its siblings", () => {
+    const items = [task("a", inbox.id), under("b", "a"), under("c", "a"), task("d", inbox.id)];
+    const stickers = [onBody("b", "d", 36), onBody("c", "a", 100)];
+
+    expect(spaceTree(inbox.id, items, stickers).map(({ item }) => item.id)).toEqual([
+      "a",
+      "c",
+      "b",
+      "d",
+    ]);
+  });
+
+  it("lists a task whose parent isn't in the space at the top", () => {
+    const items = [under("a", "z")];
+
+    expect(spaceTree(inbox.id, items, [])).toEqual([{ item: items[0], depth: 0 }]);
+  });
+});
+
+describe("itemsUnder and openTasksUnder", () => {
+  const under = (id: string, parentId: string) =>
+    create(ItemSchema, { ...task(id, inbox.id), parentId });
+  const items = new Map(
+    [
+      task("a", inbox.id),
+      under("b", "a"),
+      under("c", "b"),
+      under("d", "a"),
+      task("e", inbox.id),
+    ].map((item) => [item.id, item]),
+  );
+
+  it("finds the items under an item, at any depth", () => {
+    expect(itemsUnder("a", items.values()).sort()).toEqual(["b", "c", "d"]);
+    expect(itemsUnder("b", items.values())).toEqual(["c"]);
+    expect(itemsUnder("e", items.values())).toEqual([]);
+  });
+
+  it("finds the tasks under an item that aren't done", () => {
+    expect(
+      openTasksUnder("a", items, new Set(["c"]))
+        .map(({ id }) => id)
+        .sort(),
+    ).toEqual(["b", "d"]);
   });
 });

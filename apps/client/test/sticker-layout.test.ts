@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, spacePageId } from "@foyer/shared";
+import { a4Portrait, itemPageId, spacePageId } from "@foyer/shared";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
   newestSpacePage,
   pageMargin,
   spotInSpace,
+  spotOnPage,
   stickerGap,
   stickerSize,
   stickersOn,
@@ -118,5 +119,38 @@ describe("keepOnPage", () => {
       y: a4Portrait.height - taskStickerSize.height,
     });
     expect(keepOnPage({ x: 100, y: 200 }, taskStickerSize, a4Portrait)).toEqual({ x: 100, y: 200 });
+  });
+});
+
+describe("spotOnPage", () => {
+  const body = itemPageId("019a8f4e-5c00-7000-8000-0000000000c1");
+  const made = new Map([
+    [body, create(PageSchema, { id: body, kind: PageKind.ITEM, ...a4Portrait })],
+  ]);
+
+  it("starts at the top of a page that hasn't been made, which still has to be created", () => {
+    expect(spotOnPage(body, StickerKind.TASK, new Map(), [], a4Portrait)).toEqual({
+      at: { x: pageMargin, y: pageMargin },
+      isNewPage: true,
+    });
+  });
+
+  it("goes below the last sticker on the page", () => {
+    const stickers = [sticker("a", { pageId: body, y: 100 }), sticker("b", { y: 500 })];
+
+    expect(spotOnPage(body, StickerKind.TASK, made, stickers, a4Portrait)).toEqual({
+      at: { x: pageMargin, y: 100 + taskStickerSize.height + stickerGap },
+      isNewPage: false,
+    });
+  });
+
+  it("takes the lowest spot on a full page", () => {
+    const low = a4Portrait.height - pageMargin - taskStickerSize.height;
+    const stickers = [sticker("a", { pageId: body, y: low })];
+
+    expect(spotOnPage(body, StickerKind.TASK, made, stickers, a4Portrait).at).toEqual({
+      x: pageMargin,
+      y: low,
+    });
   });
 });

@@ -28,6 +28,8 @@ message Item {
   string repeat = 9;
   // Where a repeating task's next date comes from. Unspecified when it doesn't repeat.
   RepeatFrom repeat_from = 10;
+  // The task or note it's under, which is in the same space, or empty at the top of its space.
+  string parent_id = 11;
 }
 
 // Where a repeating task's next date comes from when it's ticked.
@@ -102,16 +104,27 @@ message ItemSetRepeat {
   RepeatFrom repeat_from = 3;
 }
 
-// Moves an item to another space, which changes who sees it: members who can't see the new space
-// receive it as deleted. A device sends it with the sticker moving from the old space's page to the
-// new one's, in the same push. The move made last wins, by the device's clock.
+// Moves an item, and everything under it, to another space, which changes who sees them. A device
+// sends it with the item's sticker moving to the new space's page, in the same push. The move made
+// last wins. An item under another moves with it, so it must be taken out first.
 message ItemMove {
   string item_id = 1;
   // A space the member sees, as they must see the item's space now.
   string space_id = 2;
 }
 
-// Deletes an item, and its stickers on every page.
+// Deletes an item, and its stickers on every page. Items still under it move up to its parent, or
+// to the top of its space.
 message ItemDelete {
   string item_id = 1;
+}
+
+// Puts an item under a task or note, or back at the top of its space. An item under a parent in
+// another space moves into that space, with everything under it. The change made last wins. A
+// device sends it with the item's sticker moving to the parent's body page, in the same push.
+message ItemSetParent {
+  string item_id = 1;
+  // A task or note the member sees, other than the item or anything under it, or empty for the top
+  // of the item's space.
+  string parent_id = 2;
 }

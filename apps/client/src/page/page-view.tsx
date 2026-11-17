@@ -3,6 +3,7 @@ import { type ReactNode, useSyncExternalStore } from "react";
 import { useHousehold } from "../shell/household";
 import { useLivePage } from "../sync/use-live-page";
 import { doneTasks } from "../tasks/task-lists";
+import { useTick } from "../tasks/ticking";
 import { describePage, type OpenPage, pageIdOf, sizeOf } from "./open-page";
 import type { Ruling } from "./page-drawing";
 import { PageSheet } from "./page-sheet";
@@ -29,6 +30,7 @@ export function PageView(props: PageViewProps) {
 
 function ShownPage({ page, ruling, onOpenTask, children }: PageViewProps) {
   const { state, sync } = useHousehold();
+  const tick = useTick();
   const pageId = pageIdOf(page);
   useLivePage(sync.live, pageId);
   const live = useSyncExternalStore(sync.live.subscribe, sync.live.getState);
@@ -55,7 +57,7 @@ function ShownPage({ page, ruling, onOpenTask, children }: PageViewProps) {
         page={size}
         onSelect={select}
         onMove={(stickerId, { x, y }) => sync.moveSticker(stickerId, x, y)}
-        onTick={(itemId, ticked) => (ticked ? sync.tickTask(itemId) : sync.untickTask(itemId))}
+        onTick={tick}
       />
       <PresenceMarkers markers={markers} />
     </PageSheet>

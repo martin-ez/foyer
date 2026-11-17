@@ -12,6 +12,7 @@ import { SpacesPanel } from "../sync/spaces-panel";
 import { TaskEditor } from "./task-editor";
 import { doneTasks } from "./task-lists";
 import { TasksPanel } from "./tasks-panel";
+import { useTick } from "./ticking";
 
 type SpacePage = { spaceId: string; number: number };
 
@@ -33,8 +34,7 @@ export function TasksScreen() {
     setOpenTaskId(null);
     setPanel(panel === which ? null : which);
   };
-  const tick = (itemId: string, ticked: boolean) =>
-    ticked ? sync.tickTask(itemId) : sync.untickTask(itemId);
+  const tick = useTick();
 
   if (!space) {
     return (
@@ -73,6 +73,7 @@ export function TasksScreen() {
             setChosen({ spaceId, number });
             setOpenTaskId(null);
           }}
+          onOpenTask={setOpenTaskId}
           onClose={() => setOpenTaskId(null)}
         />
       ) : (

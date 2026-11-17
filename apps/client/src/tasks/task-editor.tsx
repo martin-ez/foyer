@@ -2,25 +2,36 @@ import { isIsoDate, limitItemDescription, limitItemTitle } from "@foyer/shared";
 import type { Item } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
-import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Button,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { localToday } from "../page/calendar-date";
 import type { HouseholdSync, SyncState } from "../sync/household-sync";
 import { Checkbox } from "./checkbox";
 import { RepeatPicker } from "./repeat-picker";
 import { firstDateOf, type RepeatChoice, repeatProblem } from "./repeats";
 import { changedFields, shownFields, shownRepeat, type TaskEdits } from "./task-edits";
+import { DeleteTask, TaskNesting } from "./task-nesting";
+import { useTick } from "./ticking";
 
-/** A task's fields and how it repeats, to edit and save without undoing changes made elsewhere,
- *  with ways to tick it, untick occurrences already done, move it, delete it after asking and show
- *  it on its space's page. Choosing how it repeats moves its date to the rule's first day. */
 type TaskFieldsAsText = Pick<TaskEdits, "title" | "description" | "date">;
 
+/** A task's fields and how it repeats, to edit and save without undoing changes made elsewhere,
+ *  with ways to tick it, untick occurrences already done, nest it, move it, delete it after asking
+ *  and show it on its page. Choosing how it repeats moves its date to the rule's first day. */
 export function TaskEditor({
   task,
   done,
   state,
   sync,
   onShowOnPage,
+  onOpenTask,
   onClose,
 }: {
   task: Item;
@@ -29,10 +40,12 @@ export function TaskEditor({
   sync: HouseholdSync;
   /** Opens the page of the space the task is in, numbered from 1. */
   onShowOnPage: (spaceId: string, pageNumber: number) => void;
+  onOpenTask: (itemId: string) => void;
   onClose: () => void;
 }) {
+  const tick = useTick();
+  const { height } = useWindowDimensions();
   const [edits, setEdits] = useState<TaskEdits>({});
-  const [deleting, setDeleting] = useState(false);
   const { title, description, date } = shownFields(task, edits);
   const repeat = shownRepeat(task, edits);
   const changes = changedFields(task, edits);
@@ -69,13 +82,12 @@ export function TaskEditor({
   const others = state.spaces.filter(({ id }) => id !== task.spaceId);
 
   return (
-    <View style={styles.panel} accessibilityLabel={`Task: ${task.title}`}>
+    <View
+      style={[styles.panel, { maxHeight: height * 0.45 }]}
+      accessibilityLabel={`Task: ${task.title}`}
+    >
       <ScrollView contentContainerStyle={styles.form}>
-        <Checkbox
-          checked={done}
-          label="Done"
-          onChange={(ticked) => (ticked ? sync.tickTask(task.id) : sync.untickTask(task.id))}
-        >
+        <Checkbox checked={done} label="Done" onChange={(ticked) => tick(task.id, ticked)}>
           <Text style={styles.line}>{task.repeat ? `Done for ${task.date}` : "Done"}</Text>
         </Checkbox>
         <TextInput
@@ -126,17 +138,20 @@ export function TaskEditor({
             ))}
           </View>
         ) : null}
-        <Button
-          title="Show on its page"
-          onPress={() => {
-            const sticker = [...state.stickers.values()].find(
-              ({ itemId, pageId }) =>
-                itemId === task.id && pageId.startsWith(`space:${task.spaceId}:`),
-            );
-            const number = Number(sticker?.pageId.split(":").at(-1) ?? 1);
-            onShowOnPage(task.spaceId, number);
-          }}
-        />
+        {task.parentId ? null : (
+          <Button
+            title="Show on its page"
+            onPress={() => {
+              const sticker = [...state.stickers.values()].find(
+                ({ itemId, pageId }) =>
+                  itemId === task.id && pageId.startsWith(`space:${task.spaceId}:`),
+              );
+              const number = Number(sticker?.pageId.split(":").at(-1) ?? 1);
+              onShowOnPage(task.spaceId, number);
+            }}
+          />
+        )}
+        <TaskNesting task={task} state={state} sync={sync} onOpenTask={onOpenTask} />
         <Text style={styles.line}>Move to</Text>
         <View style={styles.row}>
           {others.map((space) => {
@@ -151,21 +166,7 @@ export function TaskEditor({
             );
           })}
         </View>
-        {deleting ? (
-          <View style={styles.row}>
-            <Text style={styles.line}>Delete this task and its stickers?</Text>
-            <Button
-              title="Delete"
-              onPress={() => {
-                sync.deleteTask(task.id);
-                onClose();
-              }}
-            />
-            <Button title="Keep it" onPress={() => setDeleting(false)} />
-          </View>
-        ) : (
-          <Button title="Delete task" onPress={() => setDeleting(true)} />
-        )}
+        <DeleteTask task={task} state={state} sync={sync} onDeleted={onClose} />
       </ScrollView>
     </View>
   );
@@ -173,7 +174,6 @@ export function TaskEditor({
 
 const styles = StyleSheet.create({
   panel: {
-    maxHeight: "45%",
     backgroundColor: "#fffdf8",
     borderBottomColor: "#d8d2c4",
     borderBottomWidth: 1,

@@ -17,10 +17,18 @@ const stickerKinds: Partial<Record<StickerKind, ItemKindName>> = {
   [StickerKind.NOTE]: "note",
 };
 
-type PageRow = { id: string; kind: string; space_id: string | null; width: number; height: number };
+type PageRow = {
+  id: string;
+  kind: string;
+  space_id: string | null;
+  item_id: string | null;
+  width: number;
+  height: number;
+};
 
-/** Places a sticker for an item on a page, where the member sees both. For now, only a space's
- *  page takes stickers, and only for the space's own items. Its corner must be on the page. */
+/** Places a sticker for an item on a page, where the member sees both. For now, a space's page
+ *  takes its top-level items, and an item's body page the items under it. Its corner must be on the
+ *  page. */
 export function placeSticker(
   sql: SqlStorage,
   memberId: string,
@@ -35,17 +43,25 @@ export function placeSticker(
   }
   const [page] = sql
     .exec<PageRow>(
-      "SELECT id, kind, space_id, width, height FROM pages WHERE id = ?",
+      "SELECT id, kind, space_id, item_id, width, height FROM pages WHERE id = ?",
       sticker.pageId,
     )
     .toArray();
   if (!page || !canSeePage(sql, memberId, page.id)) return { refused: "There's no such page." };
-  if (page.kind !== "space") return { refused: "Stickers can only go on a space's pages for now." };
+  if (page.kind !== "space" && page.kind !== "item") {
+    return { refused: "Stickers can only go on a space's pages or an item's body page for now." };
+  }
   const item = findItem(sql, sticker.itemId);
   if (!item || !canSee(sql, memberId, item.spaceId)) return { refused: "There's no such item." };
   if (item.kind !== kind) return { refused: "A sticker must be of the same kind as its item." };
-  if (item.spaceId !== page.space_id) {
+  if (page.kind === "space" && item.spaceId !== page.space_id) {
     return { refused: "A space's page only holds the space's own items." };
+  }
+  if (page.kind === "space" && item.parentId !== null) {
+    return { refused: "An item under another goes on its parent's body page." };
+  }
+  if (page.kind === "item" && item.parentId !== page.item_id) {
+    return { refused: "An item's body page only holds the items under it." };
   }
   if (!isOnPage(sticker, page)) return { refused: offPage };
 
@@ -106,9 +122,14 @@ export function removeSticker(sql: SqlStorage, memberId: string, remove: Sticker
   const found = stickerFor(sql, memberId, remove.stickerId, "remove");
   if ("refused" in found || "removed" in found) return found.applied;
   const { sticker } = found;
-  if (sticker.kind === "task" && sticker.page_space_id === sticker.item_space_id) {
+  const onItsPlace =
+    sticker.page_kind === "space"
+      ? sticker.page_space_id === sticker.item_space_id && sticker.item_parent_id === null
+      : sticker.page_item_id !== null && sticker.page_item_id === sticker.item_parent_id;
+  if (sticker.kind === "task" && onItsPlace) {
     return {
-      refused: "A task's sticker stays on its space's page until the task is deleted or moved.",
+      refused:
+        "A task's sticker stays on its space's page, or its parent's body page, until the task is deleted or moved.",
     };
   }
 
@@ -125,7 +146,10 @@ export function removeSticker(sql: SqlStorage, memberId: string, remove: Sticker
 
 type StickerRow = {
   page_id: string;
+  page_kind: string;
   page_space_id: string | null;
+  page_item_id: string | null;
+  item_parent_id: string | null;
   kind: ItemKindName;
   width: number;
   height: number;
@@ -148,8 +172,9 @@ function stickerFor(
 ): Found {
   const [sticker] = sql
     .exec<StickerRow>(
-      `SELECT stickers.page_id, pages.space_id AS page_space_id, stickers.kind, pages.width,
-         pages.height, items.space_id AS item_space_id,
+      `SELECT stickers.page_id, pages.kind AS page_kind, pages.space_id AS page_space_id,
+         pages.item_id AS page_item_id, items.parent_id AS item_parent_id, stickers.kind,
+         pages.width, pages.height, items.space_id AS item_space_id,
          spaces.owner_id AS page_owner_id, stickers.placed_at, stickers.placed_change_id
        FROM stickers
        JOIN items ON items.id = stickers.item_id
