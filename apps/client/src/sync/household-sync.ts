@@ -243,7 +243,6 @@ export class HouseholdSync {
     this.#changed();
   }
 
-  /** Makes changes, which go to the household in one push when it's connected. */
   #make(describe: string, ...changes: ChangeInit[]): void {
     const at = timestampFromMs(Date.now());
     for (const change of changes) {

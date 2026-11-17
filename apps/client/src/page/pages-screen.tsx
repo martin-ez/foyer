@@ -129,7 +129,6 @@ export function PagesScreen({
   );
 }
 
-/** Ways to move between a space's pages, up to its newest, and to add a task to the space. */
 function SpacePageBar({
   spaceId,
   number,
@@ -169,7 +168,6 @@ function SpacePageBar({
   );
 }
 
-/** The changes the household refused, which the device undid, and a way to dismiss them. */
 function Problems({ state, sync }: { state: SyncState; sync: HouseholdSync }) {
   if (state.problems.length === 0) return null;
   return (

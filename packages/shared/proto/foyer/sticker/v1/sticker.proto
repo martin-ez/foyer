@@ -4,11 +4,9 @@ package foyer.sticker.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// Something stuck on a page: a link to a task, event or note, which lives in its space. Each kind
-// of sticker has a fixed size, set in the apps, so a sticker stores only its kind and where its
-// top-left corner is. It belongs to its page: everyone who sees the page sees the sticker, and
-// someone who can't see its item sees it with its contents hidden, in the same spot and shape.
-// Things on a page stack by when they were placed or last moved, with equal times settled by id.
+// A link to a task, event or note, stuck on a page, at a size its kind sets in the apps. Everyone
+// who sees the page sees it, with its contents hidden from those who can't see its item. Things on
+// a page stack by when they were placed or last moved, with equal times settled by id.
 message Sticker {
   // A UUID version 7, made by the device that placed the sticker.
   string id = 1;

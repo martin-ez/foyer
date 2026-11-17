@@ -69,17 +69,15 @@ function spacePage(spaceId: string, number = 1) {
   return { pageId, kind: PageKind.SPACE, spaceId, number, ...a4Portrait };
 }
 
-/** Creates a task in a space, on its first page, without a sticker yet, and returns their ids. */
-async function newTask(device: Device, spaceId: string) {
+async function newTaskWithoutSticker(device: Device, spaceId: string) {
   const task = itemCreate({ spaceId });
   await device.push(pageCreate(spacePage(spaceId)), task);
   await device.updates();
   return { itemId: idOf(task), pageId: spacePageId(spaceId, 1) };
 }
 
-/** Creates a task with its sticker on its space's first page, and returns their ids. */
 async function newTaskWithSticker(device: Device, spaceId: string, made = {}) {
-  const { itemId, pageId } = await newTask(device, spaceId);
+  const { itemId, pageId } = await newTaskWithoutSticker(device, spaceId);
   const place = stickerPlace({ pageId, itemId }, made);
   await device.push(place);
   await device.updates();
@@ -97,7 +95,7 @@ describe("placing stickers", () => {
     const samDevice = await connect(sam);
     const { memberId } = await signIn(alex);
     const spaceId = await newSharedSpace(alexDevice);
-    const { itemId, pageId } = await newTask(alexDevice, spaceId);
+    const { itemId, pageId } = await newTaskWithoutSticker(alexDevice, spaceId);
     await samDevice.updates();
     const placedOn = Date.UTC(2026, 10, 17, 9, 30);
 
@@ -177,7 +175,7 @@ describe("placing stickers", () => {
   ])("refuses a sticker %s", async (_, change, reason) => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
-    const { itemId, pageId } = await newTask(device, inbox);
+    const { itemId, pageId } = await newTaskWithoutSticker(device, inbox);
 
     const committed = await device.push(stickerPlace({ pageId, itemId, ...change }));
 
@@ -188,7 +186,7 @@ describe("placing stickers", () => {
   it("refuses a sticker on a page that hasn't been created", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
-    const { itemId } = await newTask(device, inbox);
+    const { itemId } = await newTaskWithoutSticker(device, inbox);
 
     const committed = await device.push(stickerPlace({ pageId: spacePageId(inbox, 2), itemId }));
 
@@ -198,7 +196,7 @@ describe("placing stickers", () => {
   it("refuses a sticker on a calendar page, for now", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
-    const { itemId } = await newTask(device, inbox);
+    const { itemId } = await newTaskWithoutSticker(device, inbox);
     const day = { pageId: dayPageId("2026-11-17"), kind: PageKind.DAY, ...a4Portrait };
     await device.push(pageCreate(day));
 
@@ -213,7 +211,7 @@ describe("placing stickers", () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
     const shared = await newSharedSpace(device);
-    const { itemId } = await newTask(device, inbox);
+    const { itemId } = await newTaskWithoutSticker(device, inbox);
     await device.push(pageCreate(spacePage(shared)));
 
     const committed = await device.push(stickerPlace({ pageId: spacePageId(shared, 1), itemId }));
@@ -227,7 +225,7 @@ describe("placing stickers", () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
     const inbox = await spaceOwnedBy(alexDevice, SpaceKind.INBOX);
-    const { itemId, pageId } = await newTask(alexDevice, inbox);
+    const { itemId, pageId } = await newTaskWithoutSticker(alexDevice, inbox);
 
     const committed = await samDevice.push(stickerPlace({ pageId, itemId }));
 

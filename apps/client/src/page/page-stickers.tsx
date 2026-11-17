@@ -8,10 +8,9 @@ import type { Point } from "./sheet-camera";
 import { useStickerDrag } from "./sticker-drag";
 import { keepOnPage, stickerSize } from "./sticker-layout";
 
-/** The stickers on a page, stacked bottom first, in the page's own points, so a `PageSheet` holds
- *  them. A sticker whose item the member sees can be dragged within the page, and tapped to select
- *  it. One whose item they can't see is drawn in its spot and shape with its contents hidden, and
- *  can't be moved. */
+/** The stickers on a page, stacked bottom first, in its own points, for a `PageSheet` to hold. One
+ *  whose item the member sees can be dragged and tapped; one whose item they can't see is drawn
+ *  hidden, in its spot and shape, and stays put. */
 export function PageStickers({
   stickers,
   items,

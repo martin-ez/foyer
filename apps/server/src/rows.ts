@@ -29,8 +29,7 @@ export function nextSeq(sql: SqlStorage): number {
 
 /** The rows a member can see that changed after a cursor, oldest change first. Rows that one
  *  change changed always come together, so a reply holds more than the limit only when a single
- *  change changed more rows than that. The household's SQLite takes at most five SELECTs in one
- *  compound query, so the rows' numbers are found in two. */
+ *  change changed more rows than that. */
 export function pullRows(
   sql: SqlStorage,
   memberId: string,

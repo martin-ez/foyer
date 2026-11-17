@@ -23,7 +23,7 @@ test("adds a task to a space's page, as a sticker", async ({ page }, testInfo) =
 
 test("moves a sticker by dragging it, on this device and another", async ({ page }, testInfo) => {
   const title = await addTask(page);
-  const other = await anotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page);
   const before = await boxOf(stickerOf(other, title));
 
   await drag(page, stickerOf(page, title), { x: 60, y: 0 });
@@ -65,7 +65,7 @@ test("selects a sticker by tapping it, and lets it go", async ({ page }) => {
 
 test("removes a sticker from the page, on this device and another", async ({ page }, testInfo) => {
   const title = await addTask(page);
-  const other = await anotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page);
   await expect(stickerOf(other, title)).toBeVisible();
 
   await stickerOf(page, title).click();
@@ -121,9 +121,7 @@ async function addTask(page: Page): Promise<string> {
   return title;
 }
 
-/** Another tab, signed in as the same member, so another device of theirs, on the same space's
- *  newest page. */
-async function anotherDevice(page: Page): Promise<Page> {
+async function sameMemberOnAnotherDevice(page: Page): Promise<Page> {
   const other = await page.context().newPage();
   await openInbox(other);
   return other;
