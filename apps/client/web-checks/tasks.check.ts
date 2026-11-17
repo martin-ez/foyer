@@ -72,6 +72,9 @@ test("lists tasks dated today under Today", async ({ page }, testInfo) => {
   const today = page.getByRole("list", { name: "Today" });
   await expect(today.getByRole("button", { name: title })).toBeVisible();
   await saveScreenshot(page, testInfo, "tasks-view");
+  await page.getByRole("button", { name: "Hide tasks" }).click();
+  await expect(today).toBeHidden();
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
   await today.getByRole("button", { name: title }).click();
   await expect(page.getByLabel("Title")).toHaveValue(title);
 });
