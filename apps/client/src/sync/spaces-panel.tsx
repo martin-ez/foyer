@@ -2,16 +2,7 @@ import { limitSpaceName } from "@foyer/shared";
 import { type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import type { SyncStatus } from "./household-sync";
-import { useHouseholdSync } from "./use-household-sync";
-
-const statusLines: Record<SyncStatus, string> = {
-  connecting: "Connecting…",
-  "catching-up": "Catching up…",
-  "up-to-date": "Up to date",
-  offline: "Offline. Changes are sent once it's back.",
-  "signed-out": "Signed out",
-};
+import type { HouseholdSync, SyncState } from "./household-sync";
 
 const kindLabels: Record<SpaceKind, string> = {
   [SpaceKind.UNSPECIFIED]: "",
@@ -20,25 +11,20 @@ const kindLabels: Record<SpaceKind, string> = {
   [SpaceKind.SHARED]: "Shared",
 };
 
-/** The spaces the signed-in member sees, kept in sync with the household, with ways to create
- *  and rename them. Calls `onSignedOut` when the household says the session has ended. */
+/** The spaces the signed-in member sees, with ways to open their first page, and to create and
+ *  rename them. */
 export function SpacesPanel({
-  memberId,
-  onSignedOut,
+  state,
+  sync,
+  onOpen,
 }: {
-  memberId: string;
-  onSignedOut: () => void;
+  state: SyncState;
+  sync: HouseholdSync;
+  onOpen: (spaceId: string) => void;
 }) {
-  const { state, sync } = useHouseholdSync(memberId, onSignedOut);
-  const unsaved = state.unsaved > 0 ? ` · ${state.unsaved} not saved yet` : "";
-
   return (
     <View style={styles.panel}>
       <Text style={styles.heading}>Spaces</Text>
-      <Text style={styles.line}>
-        {statusLines[state.status]}
-        {unsaved}
-      </Text>
       {state.problems.length > 0 ? (
         <View style={styles.problems}>
           {state.problems.map((problem) => (
@@ -56,6 +42,7 @@ export function SpacesPanel({
             space={space}
             problemWith={(name) => sync.nameProblem(name, space.id)}
             onRename={(name) => sync.renameSpace(space.id, name)}
+            onOpen={() => onOpen(space.id)}
           />
         ))}
       </ScrollView>
@@ -74,10 +61,12 @@ function SpaceRow({
   space,
   problemWith,
   onRename,
+  onOpen,
 }: {
   space: Space;
   problemWith: (name: string) => string | null;
   onRename: (name: string) => void;
+  onOpen: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const problem = draft === null ? null : problemWith(draft);
@@ -106,10 +95,12 @@ function SpaceRow({
       </View>
     );
   }
+  const name = space.kind === SpaceKind.INBOX ? "Inbox" : space.name;
   return (
     <View style={styles.row}>
-      <Text style={styles.grow}>{space.kind === SpaceKind.INBOX ? "Inbox" : space.name}</Text>
+      <Text style={styles.grow}>{name}</Text>
       <Text style={styles.line}>{kindLabels[space.kind]}</Text>
+      <Button title="Open" accessibilityLabel={`Open ${name}`} onPress={onOpen} />
       {space.kind === SpaceKind.INBOX ? null : (
         <Button
           title="Rename"

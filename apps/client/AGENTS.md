@@ -37,13 +37,20 @@ Run `pnpm check` before declaring any task done.
 - `index.web.tsx` loads CanvasKit before the app starts, so any screen can import Skia directly.
 - `postinstall` copies `canvaskit.wasm` into `public/`. It is generated: never commit it.
 
+## Pages
+
+A page is drawn in points from its top-left corner, whatever its size or zoom. `PageDrawing` holds what's on a page, in the page's own coordinates, and both apps draw it:
+
+- **On the iPad,** `src/page/page-sheet.tsx` puts a canvas of the page's own size inside a `ScrollView` that iOS zooms, so everything on the page moves with it in every frame of a pinch, including the bounce after it. Anything else drawn on the page, such as the Pencil's ink, goes inside that sheet, never in a view over it: a view over it drifts apart while iOS animates the zoom.
+- **On the web,** `src/page/page-sheet.web.tsx` draws the desk in a canvas the size of the view, with the page where a camera puts it (`src/page/sheet-camera.ts`), and turns pinches, the wheel and drags into moving the camera.
+
 ## Tests
 
 `pnpm --filter @foyer/client test` runs the app's tests in Node with Vitest. They live in `test/`.
 
-- **Unit tests** cover plain TypeScript code, such as `src/page/fit-page.ts`. Keep logic that needs no React Native in modules like that, so it can be tested on its own.
+- **Unit tests** cover plain TypeScript code, such as `src/page/sheet-camera.ts`. Keep logic that needs no React Native in modules like that, so it can be tested on its own.
 - **Golden images** check what pages draw. `expectToMatchGoldenImage` in `test/golden-image.ts` draws Skia elements on the CPU with Skia's headless build and compares them pixel by pixel with a PNG in `test/golden-images/`. Each feature that draws something adds its own images.
-- Tests swap `react-native-skia` for its headless build, which has no `Canvas` and no React Native. So keep what a page draws in a component made only of Skia elements, such as `BlankPageDrawing`, apart from the React Native view that sizes the canvas and hosts it.
+- Tests swap `react-native-skia` for its headless build, which has no `Canvas` and no React Native. So keep what a page draws in a component made only of Skia elements, such as `PageDrawing`, apart from the React Native view that sizes the canvas and hosts it.
 - When a drawing differs, the test writes it and a diff, with the changed pixels in red, to `test/golden-images/failures/`. Look at both before deciding the change is intended. If it is, run `pnpm update-golden-images` from the repository root and commit the new images with the change, so the pull request shows them.
 - A golden image that doesn't exist yet fails the test: create it with the same command.
 

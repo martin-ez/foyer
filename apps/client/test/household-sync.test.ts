@@ -1,7 +1,9 @@
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { newId, signedOutCloseCode } from "@foyer/shared";
+import { a2Landscape, a4Portrait, newId, signedOutCloseCode } from "@foyer/shared";
+import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
+  type Change,
   type DeviceMessage,
   DeviceMessageSchema,
   HouseholdMessageSchema,
@@ -99,6 +101,11 @@ function spaceRow(
   return { seq: BigInt(seq), row: { case: "space", value } };
 }
 
+function pageRow(seq: number, page: { id: string; width?: number; height?: number }): RowInit {
+  const value = { kind: PageKind.DAY, ...a4Portrait, ...page };
+  return { seq: BigInt(seq), row: { case: "page", value } };
+}
+
 function memberRow(seq: number, member: { id: string; name: string }): RowInit {
   return { seq: BigInt(seq), row: { case: "member", value: member } };
 }
@@ -130,6 +137,10 @@ function startUpToDate(rows: RowInit[] = [spaceRow(1, inbox), spaceRow(2, home)]
   sync.start();
   household().welcome(seq);
   household().reply(rows, seq);
+}
+
+function nameIn({ change }: Change) {
+  return change.case === "spaceCreate" || change.case === "spaceRename" ? change.value.name : null;
 }
 
 function names() {
@@ -219,6 +230,30 @@ describe("catching up", () => {
     household().update(spaceRow(3, { ...home, name: "Our home" }));
 
     expect(names()).toEqual(["Inbox", "Our home"]);
+  });
+});
+
+describe("pages", () => {
+  it("keeps the pages the household sends, by id, with the size each was made with", () => {
+    startUpToDate([spaceRow(1, inbox), pageRow(2, { id: "day:2026-11-17" })]);
+
+    household().update(pageRow(3, { id: "day:2026-11-18", ...a2Landscape }));
+
+    const { pages } = sync.getState();
+    expect([...pages.keys()]).toEqual(["day:2026-11-17", "day:2026-11-18"]);
+    expect(pages.get("day:2026-11-17")).toMatchObject(a4Portrait);
+    expect(pages.get("day:2026-11-18")).toMatchObject(a2Landscape);
+  });
+
+  it("drops a deleted page", () => {
+    startUpToDate([pageRow(1, { id: "day:2026-11-17" })], 1);
+
+    household().update({
+      seq: 2n,
+      row: { case: "deleted", value: { kind: RowKind.PAGE, id: "day:2026-11-17" } },
+    });
+
+    expect(sync.getState().pages.size).toBe(0);
   });
 });
 
@@ -342,7 +377,7 @@ describe("naming spaces", () => {
     const sent = household()
       .pushes()
       .flatMap(({ changes }) => changes)
-      .map(({ change }) => change.value?.name);
+      .map(nameIn);
     expect(sent).toEqual(["Garden", "Our home"]);
     expect(names()).toEqual(["Inbox", "Our home", "Garden"]);
   });
@@ -354,7 +389,7 @@ describe("naming spaces", () => {
 
     expect(names()).toEqual(["Inbox", "home 2", "Home"]);
     const push = household().lastPush();
-    expect(push.changes.map(({ change }) => change.value?.name)).toEqual(["home"]);
+    expect(push.changes.map(nameIn)).toEqual(["home"]);
   });
 
   it.each([
