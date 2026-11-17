@@ -22,23 +22,15 @@ export function stickerSize(kind: StickerKind): PageSize {
   return kind === StickerKind.TASK ? taskStickerSize : unknownStickerSize;
 }
 
-/** Stickers in the order they stack, bottom first: by when they were placed or last moved, with
- *  equal times settled by id. */
-export function stackOrder(stickers: Iterable<Sticker>): Sticker[] {
-  return [...stickers].sort(
-    (a, b) => placedAt(a) - placedAt(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
-}
-
-/** The stickers on a page, in the order they stack, bottom first. */
+/** The stickers on a page, in the order they stack, bottom first: by when they were placed or last
+ *  moved, with equal times settled by id. */
 export function stickersOn(pageId: string, stickers: Iterable<Sticker>): Sticker[] {
-  return stackOrder([...stickers].filter((sticker) => sticker.pageId === pageId));
+  return [...stickers]
+    .filter((sticker) => sticker.pageId === pageId)
+    .sort((a, b) => placedAt(a) - placedAt(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** The next free spot for a sticker of `size` on a page: at the left margin, below the lowest
- *  sticker already there, or at the top when there's none. Null when it wouldn't fit above the
- *  bottom margin. */
-export function nextFreeSpot(
+function nextFreeSpot(
   page: PageSize,
   stickers: readonly Pick<Sticker, "y" | "kind">[],
   size: PageSize,

@@ -8,9 +8,10 @@ import type { HouseholdSync, SyncState, SyncStatus } from "../sync/household-syn
 import { SpacesPanel } from "../sync/spaces-panel";
 import { useHouseholdSync } from "../sync/use-household-sync";
 import { useLivePage } from "../sync/use-live-page";
+import { describeSticker } from "./describe-sticker";
 import { describePage, pageIdOf, sizeOf } from "./open-page";
 import { PageSheet } from "./page-sheet";
-import { describeSticker, PageStickers } from "./page-stickers";
+import { PageStickers } from "./page-stickers";
 import { markersOn } from "./presence";
 import { PresenceMarkers } from "./presence-markers";
 import { newestSpacePage, stickersOn } from "./sticker-layout";

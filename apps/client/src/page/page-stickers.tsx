@@ -3,6 +3,7 @@ import type { Item } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Sticker, StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { describeSticker } from "./describe-sticker";
 import type { Point } from "./sheet-camera";
 import { useStickerDrag } from "./sticker-drag";
 import { keepOnPage, stickerSize } from "./sticker-layout";
@@ -40,12 +41,6 @@ export function PageStickers({
       onMove={(to) => onMove(sticker.id, to)}
     />
   ));
-}
-
-/** What a sticker says to people who can't see it, such as VoiceOver's users. */
-export function describeSticker(sticker: Sticker, item: Item | undefined): string {
-  if (sticker.kind !== StickerKind.TASK) return "Sticker";
-  return item ? `Task: ${item.title}` : "Task, hidden";
 }
 
 function StickerView({
