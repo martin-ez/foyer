@@ -70,6 +70,19 @@ class HouseholdEnd {
     this.events.closed(code);
   }
 
+  here(pageId: string, ...memberIds: string[]) {
+    this.#say({
+      case: "here",
+      value: { pageId, members: memberIds.map((memberId) => ({ memberId })) },
+    });
+  }
+
+  entered(): string[] {
+    return this.received.flatMap(({ message }) =>
+      message.case === "enter" ? [message.value.pageId] : [],
+    );
+  }
+
   pulls(): number[] {
     return this.received.flatMap(({ message }) =>
       message.case === "pull" ? [Number(message.value.cursor)] : [],
@@ -615,5 +628,30 @@ describe("a WebSocket's events", () => {
     socket.onclose({ code });
 
     expect(events.closed).toHaveBeenCalledWith(reportedCode);
+  });
+});
+
+describe("the live lane", () => {
+  it("enters the device's page each time it connects, on the same connection", () => {
+    sync.live.enter("day:2026-11-17");
+    startUpToDate();
+    expect(household().entered()).toEqual(["day:2026-11-17"]);
+
+    household().closeWith(1006);
+    vi.advanceTimersByTime(1000);
+    household().welcome(2);
+
+    expect(household().entered()).toEqual(["day:2026-11-17"]);
+  });
+
+  it("keeps who else is on the page, and forgets them once the connection closes", () => {
+    sync.live.enter("day:2026-11-17");
+    startUpToDate();
+
+    household().here("day:2026-11-17", housemate);
+    expect(sync.live.getState().here).toEqual([{ memberId: housemate, position: null }]);
+
+    household().closeWith(1006);
+    expect(sync.live.getState().here).toEqual([]);
   });
 });

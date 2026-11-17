@@ -130,13 +130,46 @@ export class Device {
    *  household time to send any more. Reads them. */
   async updates(): Promise<Row[]> {
     await this.ping();
-    const rows: Row[] = [];
-    for (let index = this.#unread.findIndex(({ case: kind }) => kind === "updates"); index >= 0; ) {
+    return this.#read("updates").flatMap(({ rows }) => rows);
+  }
+
+  /** Every message of a kind that arrived and hasn't been read, once the household has handled
+   *  everything the device sent before. Reads them. */
+  async all<Case extends Received>(kind: Case): Promise<Message<Case>[]> {
+    await this.settle();
+    return this.#read(kind);
+  }
+
+  /** Waits until the household has handled everything the device sent, and sent what that made it
+   *  send to this device and others, by pulling and waiting for the reply, which comes in order.
+   *  The runtime answers "ping" without waiting for the household. */
+  async settle(): Promise<void> {
+    await this.pull(Number.MAX_SAFE_INTEGER);
+  }
+
+  #read<Case extends Received>(kind: Case): Message<Case>[] {
+    const found: Message<Case>[] = [];
+    for (let index = this.#unread.findIndex(({ case: each }) => each === kind); index >= 0; ) {
       const [message] = this.#unread.splice(index, 1);
-      if (message?.case === "updates") rows.push(...message.value.rows);
-      index = this.#unread.findIndex(({ case: kind }) => kind === "updates");
+      if (message) found.push(message.value as Message<Case>);
+      index = this.#unread.findIndex(({ case: each }) => each === kind);
     }
-    return rows;
+    return found;
+  }
+
+  /** Says the device is now on a page. */
+  enter(pageId: string): void {
+    this.send({ case: "enter", value: { pageId } });
+  }
+
+  /** Says the device left its page. */
+  leave(): void {
+    this.send({ case: "leave", value: {} });
+  }
+
+  /** Says where the device is pointing on its page. */
+  point(x: number, y: number): void {
+    this.send({ case: "point", value: { x, y } });
   }
 
   /** Sends "ping" and waits for "pong", so that whatever the household sent before has arrived. */

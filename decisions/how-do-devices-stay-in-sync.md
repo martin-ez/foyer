@@ -21,6 +21,7 @@ Decided in #14
   - Each binary WebSocket message is one Protocol Buffers message from `foyer.sync.v1`. A device sends `Push {push_id, changes[]}` and `Pull {cursor}`. The household sends `Welcome {seq}` when the connection opens, `Updates {rows[]}`, `Committed {push_id, results[]}` after a push's updates, and `PullReply {rows[], cursor, done}`.
   - A pull reply holds at most 500 rows, and never splits the rows of one change. The device pulls again from the reply's cursor until it's done.
   - The text "ping" is answered with "pong" by the runtime, which costs no requests. Devices send it every 30 seconds, and connect again after 75 seconds without hearing anything.
+  - The same connection carries the live lane, which tells devices who is on which page and where they point (`what-does-the-live-lane-send.md`).
   - When a session ends, the household closes its connections with code 4401, and the device stops connecting until someone signs in. After any other drop, the device connects again, waiting longer after each failed attempt, up to 30 seconds. It catches up from its cursor and sends its unsaved changes again, as the same changes.
 - **What devices store:** what they receive, in memory. They catch up in full when the app starts.
 

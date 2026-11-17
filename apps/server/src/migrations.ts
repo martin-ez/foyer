@@ -111,6 +111,10 @@ export const householdMigrations: readonly Migration[] = [
     CHECK ((item_id IS NULL) = (kind != 'item'))
   );
   CREATE INDEX pages_by_seq ON pages (seq)`,
+  `CREATE TABLE live_points (
+    day TEXT PRIMARY KEY,
+    points INTEGER NOT NULL
+  )`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

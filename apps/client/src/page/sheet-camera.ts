@@ -52,6 +52,11 @@ export function panCamera(camera: Camera, view: Size, page: PageSize, by: Point)
   return keepOnDesk({ ...camera, x: camera.x + by.x, y: camera.y + by.y }, view, page);
 }
 
+/** The point of the page under a point on the screen, in points from the page's top-left corner. */
+export function pointOnPage(camera: Camera, at: Point): Point {
+  return { x: (at.x - camera.x) / camera.scale, y: (at.y - camera.y) / camera.scale };
+}
+
 /** Keeps the page in place when the desk changes size. A page fitted to the desk stays fitted, and
  *  a zoomed page keeps its zoom, within the new limits. */
 export function resizeCamera(camera: Camera, from: Size, to: Size, page: PageSize): Camera {

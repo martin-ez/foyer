@@ -5,17 +5,21 @@ package foyer.sync.v1;
 import "foyer/member/v1/member.proto";
 import "foyer/page/v1/page.proto";
 import "foyer/space/v1/space.proto";
+import "foyer/sync/v1/live.proto";
 import "google/protobuf/timestamp.proto";
 
 // Sync keeps devices up to date over a WebSocket at the backend's /sync address, which carries the
-// session as calls do. Each binary message holds one DeviceMessage or one HouseholdMessage. The
-// text "ping" is answered with "pong", to keep the connection open.
+// session as calls do, and the live lane in live.proto. Each binary message holds one DeviceMessage
+// or one HouseholdMessage. The text "ping" is answered with "pong", to keep the connection open.
 
 // What a device sends the household.
 message DeviceMessage {
   oneof message {
     Push push = 1;
     Pull pull = 2;
+    Enter enter = 3;
+    Leave leave = 4;
+    Point point = 5;
   }
 }
 
@@ -57,6 +61,9 @@ message HouseholdMessage {
     Committed committed = 2;
     Updates updates = 3;
     PullReply pull_reply = 4;
+    Here here = 5;
+    Pointed pointed = 6;
+    LiveLimit live_limit = 7;
   }
 }
 

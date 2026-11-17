@@ -29,7 +29,7 @@ The tests check pieces of code on their own. Two more checks look at the app as 
 
 - **In a browser:** `pnpm --filter @foyer/client check-web` runs the checks in `apps/client/web-checks/` with Playwright, in Chromium, in an iPad's viewport and a phone's.
   - It starts Expo's development server and then the backend, or reuses ones already running, and waits until `http://localhost:8787` answers 200, which it does only once Expo's server is up, since the backend forwards the app's pages to it. Playwright stops the servers it started when it's done.
-  - The checks sign in without Google as the first email in `HOUSEHOLD_MEMBERS` in `.dev.vars`, and save screenshots in `apps/client/web-checks/screenshots/`, such as `first-page-ipad.png`.
+  - The checks sign in without Google as the first email in `HOUSEHOLD_MEMBERS` in `.dev.vars`, and save screenshots in `apps/client/web-checks/screenshots/`, such as `first-page-ipad.png`. The live lane's check also signs in as the second email, to put two members on the same page, and is skipped when there's only one.
   - The first visit waits while Expo builds the app's bundle, which takes up to a minute after the dependencies change.
   - Playwright needs its Chromium. Cloud sessions come with it. On your computer, download it once with `pnpm --filter @foyer/client exec playwright install chromium`.
 - **The iPad app's bundle:** `pnpm --filter @foyer/client check-ios-bundle` builds the JavaScript the iPad app runs, compiled for Hermes, into a temporary folder that it deletes afterwards. It fails on code that doesn't build for iOS, such as a broken import in a file only the iPad app uses, and needs no Mac. It takes about 30 seconds.

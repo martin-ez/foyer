@@ -9,7 +9,9 @@ import {
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { isOnAllowlist } from "./allowlist";
 import { applyPush } from "./changes";
+import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
 import { householdMigrations, migrate } from "./migrations";
+import { canSeePage } from "./pages";
 import { latestSeq, nextSeq, pullRows, readRows, type VisibleRow } from "./rows";
 import { hashSecret, newSecret } from "./secrets";
 import { canSee, createFirstSpaces } from "./spaces";
@@ -36,7 +38,7 @@ export type LiveSession = { sessionId: string; member: Member; renewed: boolean 
 /** The headers in which the Worker tells the household whose session opens a sync connection. */
 export const syncConnectionHeaders = { member: "Foyer-Member", session: "Foyer-Session" };
 
-type SyncConnection = { memberId: string; sessionId: string };
+type SyncConnection = { memberId: string; sessionId: string; live: LiveConnection };
 
 type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["message"];
 
@@ -45,11 +47,15 @@ type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["mes
  *  open while it sleeps, and answers their "ping" with "pong" without waking. */
 export class Household extends DurableObject<Env> {
   readonly #signInCodes = new Map<string, SignInCode>();
+  readonly #live: LiveLane;
 
   constructor(ctx: DurableObjectState, bindings: Env) {
     super(ctx, bindings);
     migrate(ctx.storage, householdMigrations);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    this.#live = new LiveLane(ctx, (memberId, pageId) =>
+      canSeePage(ctx.storage.sql, memberId, pageId),
+    );
   }
 
   /** Opens a sync connection for the session the Worker checked, named by the headers in
@@ -62,7 +68,8 @@ export class Household extends DurableObject<Env> {
     }
     const { 0: device, 1: household } = new WebSocketPair();
     this.ctx.acceptWebSocket(household);
-    household.serializeAttachment({ memberId, sessionId } satisfies SyncConnection);
+    const live = newLiveConnection(Date.now());
+    household.serializeAttachment({ memberId, sessionId, live } satisfies SyncConnection);
     sendIfOpen(household, {
       case: "welcome",
       value: { seq: BigInt(latestSeq(this.ctx.storage.sql)) },
@@ -70,9 +77,9 @@ export class Household extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: device });
   }
 
-  /** Answers a device's pull with the next page of rows it can see, and applies its pushes. A
-   *  connection whose session has ended is closed instead, and one that sends something other than
-   *  a sync message is closed as broken. */
+  /** Answers a device's pull, applies its pushes, and passes what it says on the live lane to the
+   *  devices on its page. A connection whose session has ended is closed instead, and one that
+   *  sends something other than a sync message is closed as broken. */
   override async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const connection = this.#stillSignedIn(socket);
     if (!connection || typeof message === "string") return;
@@ -80,6 +87,7 @@ export class Household extends DurableObject<Env> {
     try {
       received = fromBinary(DeviceMessageSchema, new Uint8Array(message));
     } catch {
+      this.#live.closed(socket);
       socket.close(1007, "That isn't a sync message.");
       return;
     }
@@ -96,7 +104,31 @@ export class Household extends DurableObject<Env> {
       case "push":
         this.#push(socket, connection.memberId, received.message.value);
         return;
+      case "enter":
+        this.#live.enter(socket, received.message.value.pageId);
+        return;
+      case "leave":
+        this.#live.leave(socket);
+        return;
+      case "point":
+        this.#live.point(socket, received.message.value.x, received.message.value.y);
+        return;
     }
+  }
+
+  /** Takes a device whose connection closed off its page. */
+  override async webSocketClose(socket: WebSocket): Promise<void> {
+    this.#live.closed(socket);
+  }
+
+  /** Takes a device whose connection broke off its page. */
+  override async webSocketError(socket: WebSocket): Promise<void> {
+    this.#live.closed(socket);
+  }
+
+  /** Takes devices the household hasn't heard from for a minute off their pages. */
+  override async alarm(): Promise<void> {
+    this.#live.checkForSilence();
   }
 
   #push(sender: WebSocket, memberId: string, push: Push): void {
@@ -125,6 +157,7 @@ export class Household extends DurableObject<Env> {
   #stillSignedIn(socket: WebSocket): SyncConnection | null {
     const connection = socket.deserializeAttachment() as SyncConnection | null;
     if (connection && this.#liveSession("id", connection.sessionId)) return connection;
+    this.#live.closed(socket);
     closeIfOpen(socket, signedOutCloseCode, "The session has ended.");
     return null;
   }

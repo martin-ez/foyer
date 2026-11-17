@@ -53,6 +53,34 @@ export function createPage(
   return { seq, changed: [key], unchanged: [] };
 }
 
+/** Whether a member can see a page, from its id, whether or not anything has been put on it yet:
+ *  every member sees the household's calendar pages, and only the members who see a space see its
+ *  pages. Nobody sees an item's page until items exist. */
+export function canSeePage(sql: SqlStorage, memberId: string, pageId: string): boolean {
+  const [kind = "", ...rest] = pageId.split(":");
+  const named = rest.join(":");
+  switch (kind) {
+    case "month":
+      return isIsoMonth(named);
+    case "week":
+    case "day":
+      return isIsoDate(named);
+    case "space": {
+      const [spaceId = "", number = ""] = rest;
+      const numbered = Number(number);
+      return (
+        Number.isInteger(numbered) &&
+        numbered >= 1 &&
+        pageId === spacePageId(spaceId, numbered) &&
+        isId(spaceId) &&
+        canSee(sql, memberId, spaceId)
+      );
+    }
+    default:
+      return false;
+  }
+}
+
 function idProblem(kind: PageKindName, page: PageCreate): string | null {
   const hasSpace = page.spaceId !== "" || page.number !== 0;
   if ((kind !== "space" && hasSpace) || (kind !== "item" && page.itemId !== "")) {

@@ -18,6 +18,7 @@ import {
   type Row,
   RowKind,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { LiveLane } from "./live-lane";
 
 /** Where the device stands with the household. */
 export type SyncStatus = "connecting" | "catching-up" | "up-to-date" | "offline" | "signed-out";
@@ -69,6 +70,9 @@ type Pending = { change: Change; describe: string; pushId?: string };
  *  what others change, and shows the member's own changes at once until the household commits or
  *  refuses them. Connects again after a drop, waiting longer each time, until signed out. */
 export class HouseholdSync {
+  /** Which page the device is on and where it's pointing, and who else is there. */
+  readonly live = new LiveLane((message) => this.#send(message));
+
   readonly #memberId: string;
   readonly #connect: Connect;
   readonly #listeners = new Set<() => void>();
@@ -207,12 +211,14 @@ export class HouseholdSync {
     this.#heard();
     if (typeof data === "string") return;
     const { message } = fromBinary(HouseholdMessageSchema, data);
+    if (this.live.receive(message)) return;
     switch (message.case) {
       case "welcome":
         this.#attempts = 0;
         this.#status = "catching-up";
         this.#send({ case: "pull", value: { cursor: this.#cursor } });
         this.#pushUnsent();
+        this.live.connected();
         break;
       case "pullReply":
         this.#apply(message.value.rows);
@@ -316,6 +322,7 @@ export class HouseholdSync {
     const connection = this.#connection;
     this.#connection = null;
     connection?.close();
+    this.live.disconnected();
   }
 
   #changed(): void {
