@@ -84,11 +84,23 @@ describe("which page the device is on", () => {
     lane.enter(today);
     sentSince();
 
-    lane.leave();
-    lane.leave();
+    lane.leave(today);
+    lane.leave(today);
 
     expect(sentSince()).toEqual([["leave", {}]]);
     expect(lane.getState().pageId).toBeNull();
+  });
+
+  it("stays on a page it entered after the one it's asked to leave", () => {
+    lane.connected();
+    lane.enter(today);
+    lane.enter(tomorrow);
+    sentSince();
+
+    lane.leave(today);
+
+    expect(sentSince()).toEqual([]);
+    expect(lane.getState().pageId).toBe(tomorrow);
   });
 
   it("leaves its page in the background, and enters it again in the foreground", () => {
@@ -120,7 +132,7 @@ describe("which page the device is on", () => {
   it("sends nothing when it isn't on a page", () => {
     lane.connected();
 
-    lane.leave();
+    lane.leave(today);
     lane.setActive(false);
     lane.setActive(true);
 
@@ -160,7 +172,7 @@ describe("who else is on the page", () => {
 
   it("forgets who is there when it leaves, goes to the background or loses its connection", () => {
     for (const away of [
-      () => lane.leave(),
+      () => lane.leave(today),
       () => lane.setActive(false),
       () => lane.disconnected(),
     ]) {

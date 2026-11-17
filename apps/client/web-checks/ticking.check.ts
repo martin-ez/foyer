@@ -79,7 +79,7 @@ test("ticks a task from its full view, which leaves Today", async ({ page }, tes
   await expect(doneBox).toBeChecked();
   await page.getByRole("button", { name: "Close" }).click();
   await expect(stickerCheckbox(page, title)).toBeChecked();
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "All lists" }).click();
   const today = page.getByRole("list", { name: "Today" });
   await expect(today.getByRole("button", { name: title })).toBeHidden();
   await page.getByRole("checkbox", { name: "Show done" }).click();
