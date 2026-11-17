@@ -9,7 +9,7 @@ import {
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { tickTask, untickTask } from "./completions";
-import { createItem, deleteItem, moveItem, setItemField } from "./items";
+import { createItem, deleteItem, moveItem, setItemField, setItemRepeat } from "./items";
 import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
 import { namesSeenBy } from "./spaces";
@@ -120,6 +120,8 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return tickTask(sql, memberId, setter, change.change.value);
     case "taskUntick":
       return untickTask(sql, memberId, setter, change.change.value);
+    case "itemSetRepeat":
+      return setItemRepeat(sql, memberId, setter, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

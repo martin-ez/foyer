@@ -51,7 +51,7 @@ function ShownPage({ page, ruling, onOpenTask, children }: PageViewProps) {
       <PageStickers
         stickers={stickersOn(pageId, state.stickers.values())}
         items={state.items}
-        done={doneTasks(state.completions.values())}
+        done={doneTasks(state.items, state.completions.values())}
         page={size}
         onSelect={select}
         onMove={(stickerId, { x, y }) => sync.moveSticker(stickerId, x, y)}

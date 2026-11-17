@@ -73,11 +73,40 @@ describe("todayList", () => {
 });
 
 describe("doneTasks", () => {
-  it("counts a task with any completion as done", () => {
-    const completions = ["a", "a", "b"].map((itemId, index) =>
-      create(CompletionSchema, { id: `c${index}`, itemId }),
-    );
+  const completion = (itemId: string, occurrence = "") =>
+    create(CompletionSchema, { id: `c${itemId}${occurrence}`, itemId, occurrence });
+  const tasks = (...items: ReturnType<typeof task>[]) =>
+    new Map(items.map((item) => [item.id, item]));
 
-    expect(doneTasks(completions)).toEqual(new Set(["a", "b"]));
+  it("counts a task that doesn't repeat as done when it has a completion", () => {
+    const items = tasks(task("a", inbox.id), task("b", inbox.id), task("c", inbox.id));
+
+    const done = doneTasks(items, [completion("a"), completion("a"), completion("b")]);
+
+    expect(done).toEqual(new Set(["a", "b"]));
+  });
+
+  it("counts a repeating task as done only when its current occurrence has a completion", () => {
+    const repeating = (id: string, date: string) =>
+      create(ItemSchema, { ...task(id, inbox.id, date), repeat: "FREQ=WEEKLY;BYDAY=TU" });
+    const items = tasks(repeating("a", "2026-11-24"), repeating("b", "2026-11-17"));
+
+    const done = doneTasks(items, [
+      completion("a", "2026-11-17"),
+      completion("a"),
+      completion("b", "2026-11-17"),
+    ]);
+
+    expect(done).toEqual(new Set(["b"]));
+  });
+
+  it("counts a task that stopped repeating as open, whatever occurrences were ticked", () => {
+    const items = tasks(task("a", inbox.id, "2026-11-24"));
+
+    expect(doneTasks(items, [completion("a", "2026-11-17")])).toEqual(new Set());
+  });
+
+  it("leaves out completions of tasks the device doesn't hold", () => {
+    expect(doneTasks(tasks(), [completion("a")])).toEqual(new Set());
   });
 });

@@ -2,10 +2,20 @@ import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Space } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import type { Completion } from "@foyer/shared/gen/foyer/task/v1/task_pb";
+import { currentOccurrence } from "./repeats";
 
-/** The ids of the tasks that are done: those with a completion, since no task repeats yet. */
-export function doneTasks(completions: Iterable<Completion>): Set<string> {
-  return new Set(Array.from(completions, ({ itemId }) => itemId));
+/** The ids of the tasks that are done: those with a completion for their current occurrence,
+ *  which is a repeating task's date, and none for a task that doesn't repeat. */
+export function doneTasks(
+  items: ReadonlyMap<string, Item>,
+  completions: Iterable<Completion>,
+): Set<string> {
+  const done = new Set<string>();
+  for (const { itemId, occurrence } of completions) {
+    const item = items.get(itemId);
+    if (item && occurrence === currentOccurrence(item)) done.add(itemId);
+  }
+  return done;
 }
 
 /** A space's tasks in the order of their stickers on its pages: page by page, top to bottom, then

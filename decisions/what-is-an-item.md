@@ -1,5 +1,5 @@
 # What is an item?
-Decided in #21 and #129
+Decided in #21, #129 and #59
 
 **Applies when:** storing, syncing or changing tasks, events or notes, adding a field or a kind of item, or turning an item into another kind.
 
@@ -14,13 +14,15 @@ Decided in #21 and #129
   - `description`: plain text, or empty, and at most 10,000 characters, counted as Unicode code points. Longer writing belongs in a note.
   - `date`: an optional day, as a plain ISO 8601 date with no time and no time zone.
   - `created_by` and `created_at`.
+- **Fields only tasks use:** `repeat`, the rule a repeating task follows, and `repeat_from`, where its next date comes from, both empty for a task that doesn't repeat (`how-do-tasks-work.md`). A repeating task always has a date.
 - **Changes to each field never conflict with changes to another:** each field that can change keeps the time and the id of the change that last set it, and the change made last wins for each field (`how-do-devices-stay-in-sync.md`).
 - **Changes,** each by anyone who can see the item's space:
   - `ItemCreate {item_id, kind, space_id, title, description, date}`, in a space the member sees. A device pushes it with the item's sticker on its space's page, and the page when the sticker starts one, in the same push.
-  - `ItemSetTitle {item_id, title}`, `ItemSetDescription {item_id, description}` and `ItemSetDate {item_id, date}`, where an empty date clears it.
+  - `ItemSetTitle {item_id, title}`, `ItemSetDescription {item_id, description}` and `ItemSetDate {item_id, date}`, where an empty date clears it, except a repeating task's.
+  - `ItemSetRepeat {item_id, repeat, repeat_from}`, on a task, where an empty rule stops it repeating.
   - `ItemMove {item_id, space_id}`, to a space the member also sees. The device takes the item's sticker off the old space's pages and puts one on the new space's newest page, in the same push. Its stickers on other pages stay. Members who can't see the new space receive the item as deleted.
   - `ItemDelete {item_id}` leaves a tombstone, and the household removes the item's stickers on every page with it, so none is left pointing at nothing.
-- Devices receive the items they can see as `Item {id, kind, space_id, title, description, date, created_by, created_at}`.
+- Devices receive the items they can see as `Item {id, kind, space_id, title, description, date, created_by, created_at, repeat, repeat_from}`.
 
 Events and notes are created from #26 and #29.
 

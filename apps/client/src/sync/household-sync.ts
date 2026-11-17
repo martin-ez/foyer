@@ -2,14 +2,22 @@ import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/p
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   clashingName,
+  formatRepeat,
   freeSpaceName,
   itemTitleProblem,
   newId,
   pageSizeFor,
+  type RepeatFrom,
+  type RepeatRule,
   signedOutCloseCode,
   spaceNameProblem,
 } from "@foyer/shared";
-import { type Item, ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
+import {
+  type Item,
+  ItemKind,
+  ItemSchema,
+  RepeatFrom as RepeatFromKind,
+} from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Member } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { type Page, PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { type Space, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
@@ -27,7 +35,9 @@ import {
   RowKind,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { type Completion, CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
+import { localToday } from "../page/calendar-date";
 import { spotInSpace } from "../page/sticker-layout";
+import { currentOccurrence, firstDateOf, repeatFromKind, tickOf } from "../tasks/repeats";
 import { LiveLane } from "./live-lane";
 
 /** Where the device stands with the household. */
@@ -92,6 +102,7 @@ export class HouseholdSync {
 
   readonly #memberId: string;
   readonly #connect: Connect;
+  readonly #today: () => string;
   readonly #listeners = new Set<() => void>();
   readonly #members = new Map<string, { seq: bigint; member: Member }>();
   readonly #spaces = new Map<string, { seq: bigint; space: Space }>();
@@ -120,9 +131,12 @@ export class HouseholdSync {
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   #keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(options: { memberId: string; connect: Connect }) {
+  /** `today` gives the device's own date, as an ISO 8601 date: by default from its clock and time
+   *  zone. */
+  constructor(options: { memberId: string; connect: Connect; today?: () => string }) {
     this.#memberId = options.memberId;
     this.#connect = options.connect;
+    this.#today = options.today ?? (() => localToday());
     this.#state = this.#currentState();
   }
 
@@ -222,6 +236,26 @@ export class HouseholdSync {
     this.#make("changing a task's date", { case: "itemSetDate", value: { itemId, date } });
   }
 
+  /** Sets the rule a task repeats by, and where its next date comes from, or stops it repeating
+   *  when `rule` is null. A task without a date gets the rule's first date from today. */
+  setRepeat(itemId: string, rule: RepeatRule | null, from: RepeatFrom): void {
+    const item = this.#state.items.get(itemId);
+    const title = item?.title ?? "a task";
+    if (!rule) {
+      const value = { itemId, repeat: "", repeatFrom: RepeatFromKind.UNSPECIFIED };
+      this.#make(`stopping “${title}” repeating`, { case: "itemSetRepeat", value });
+      return;
+    }
+    const value = { itemId, repeat: formatRepeat(rule), repeatFrom: repeatFromKind(from) };
+    const changes: ChangeInit[] = [{ case: "itemSetRepeat", value }];
+    if (item?.date === "") {
+      const today = this.#today();
+      const date = firstDateOf({ rule, from }, "", today) ?? today;
+      changes.unshift({ case: "itemSetDate", value: { itemId, date } });
+    }
+    this.#make(`making “${title}” repeat`, ...changes);
+  }
+
   /** Moves a task to another space, taking its sticker off the old space's pages and putting one
    *  on the new space's newest page. Returns the number of that page, or null if nothing moved. */
   moveTask(itemId: string, spaceId: string): { pageNumber: number } | null {
@@ -243,17 +277,21 @@ export class HouseholdSync {
     this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
   }
 
-  /** Ticks a task, which adds a completion unless it's already done. */
+  /** Ticks a task, which adds a completion unless it's already done. A repeating task's tick is
+   *  for its current occurrence, and moves it to its next date from today. */
   tickTask(itemId: string): void {
-    const title = this.#state.items.get(itemId)?.title ?? "a task";
-    const value = { completionId: newId(), itemId };
-    this.#make(`ticking “${title}”`, { case: "taskTick", value });
+    const item = this.#state.items.get(itemId);
+    const ticks = item ? tickOf(item, this.#today()) : { occurrence: "", nextDate: "" };
+    const value = { completionId: newId(), itemId, ...ticks };
+    this.#make(`ticking “${item?.title ?? "a task"}”`, { case: "taskTick", value });
   }
 
-  /** Unticks a task, whoever ticked it. */
-  untickTask(itemId: string): void {
-    const title = this.#state.items.get(itemId)?.title ?? "a task";
-    this.#make(`unticking “${title}”`, { case: "taskUntick", value: { itemId } });
+  /** Unticks a task's occurrence, whoever ticked it: by default its current one. If ticking a
+   *  repeating task moved it, it goes back to the occurrence unless its date changed since. */
+  untickTask(itemId: string, occurrence?: string): void {
+    const item = this.#state.items.get(itemId);
+    const value = { itemId, occurrence: occurrence ?? (item ? currentOccurrence(item) : "") };
+    this.#make(`unticking “${item?.title ?? "a task"}”`, { case: "taskUntick", value });
   }
 
   /** Moves a sticker within its page, which brings it to the top. */
@@ -547,6 +585,12 @@ export class HouseholdSync {
           if (item) items.set(itemId, { ...item, date });
           break;
         }
+        case "itemSetRepeat": {
+          const { itemId, repeat, repeatFrom } = change.change.value;
+          const item = items.get(itemId);
+          if (item) items.set(itemId, { ...item, repeat, repeatFrom });
+          break;
+        }
         case "itemMove": {
           const { itemId, spaceId } = change.change.value;
           const item = items.get(itemId);
@@ -569,14 +613,16 @@ export class HouseholdSync {
           break;
         }
         case "taskTick": {
-          const { completionId, itemId, occurrence } = change.change.value;
+          const { completionId, itemId, occurrence, nextDate } = change.change.value;
           const done = [...completions.values()].some(
             (each) => each.itemId === itemId && each.occurrence === occurrence,
           );
-          if (!done && items.has(itemId) && !this.#deleted.has(`completion ${completionId}`)) {
+          const item = items.get(itemId);
+          if (!done && item && !this.#deleted.has(`completion ${completionId}`)) {
             const completion = { id: completionId, itemId, occurrence };
             const ticked = { doneAt: at, doneBy: this.#memberId };
             completions.set(completionId, create(CompletionSchema, { ...completion, ...ticked }));
+            if (nextDate !== "") items.set(itemId, { ...item, date: nextDate });
           }
           break;
         }
@@ -585,6 +631,8 @@ export class HouseholdSync {
           for (const [id, completion] of completions) {
             if (completion.itemId === itemId && completion.occurrence === occurrence) {
               completions.delete(id);
+              const item = items.get(itemId);
+              if (item && occurrence !== "") items.set(itemId, { ...item, date: occurrence });
             }
           }
           break;

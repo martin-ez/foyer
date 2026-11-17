@@ -25,6 +25,20 @@ export {
   weekPageId,
 } from "./page";
 export {
+  firstOccurrence,
+  formatRepeat,
+  type MonthlyOn,
+  nextDate,
+  occurrenceAfter,
+  parseRepeat,
+  type RepeatFrom,
+  type RepeatRule,
+  repeatIntervalLimit,
+  type Weekday,
+  weekdayOn,
+  weekdays,
+} from "./repeat";
+export {
   clashingName,
   freeSpaceName,
   limitSpaceName,

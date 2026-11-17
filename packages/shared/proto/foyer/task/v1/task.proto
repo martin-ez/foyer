@@ -5,8 +5,8 @@ package foyer.task.v1;
 import "google/protobuf/timestamp.proto";
 
 // A record that a task was done: every tick adds one, and a task is done when it has one for its
-// current occurrence. For a task that doesn't repeat, that's any completion. Completions belong to
-// their task's space, so they reach the same members, move with the task and are deleted with it.
+// current occurrence: its date when it repeats, and none otherwise. Completions belong to their
+// task's space, so they reach the same members, move with the task and are deleted with it.
 message Completion {
   // A UUID version 7, made by the device that ticked the task.
   string id = 1;
@@ -21,24 +21,29 @@ message Completion {
   string done_by = 5;
 }
 
-// Ticks a task, adding a completion for an occurrence. If that occurrence already has one, nothing
-// changes. A tick and an untick of the same occurrence settle by when they were made: the one made
-// last wins, by the device's clock. Anyone who can see the task can tick it.
+// Ticks a task, adding a completion for an occurrence unless it has one, and moves a repeating task
+// to its next date. Against an untick of the same occurrence, or another change to the date, the
+// change made last wins, by the device's clock. Anyone who can see the task can tick it.
 message TaskTick {
   // A new UUID version 7, made by the device.
   string completion_id = 1;
   // A task the member sees.
   string item_id = 2;
-  // The occurrence, as a plain ISO 8601 date, or empty for a task that doesn't repeat. Tasks don't
-  // repeat yet, so it must be empty.
+  // The occurrence, as a plain ISO 8601 date: a repeating task's date when it's ticked. Empty for a
+  // task that doesn't repeat.
   string occurrence = 3;
+  // A repeating task's next date, as a plain ISO 8601 date other than the occurrence, which the
+  // device works out from the task's rule and its own today. Empty for a task that doesn't repeat.
+  string next_date = 4;
 }
 
-// Unticks a task, removing the completion of an occurrence, whoever ticked it. Anyone who can see
-// the task can untick it.
+// Unticks a task, removing the completion of an occurrence, whoever ticked it. If the tick moved a
+// repeating task's date and nothing has changed the date since, it goes back to the occurrence.
+// Anyone who can see the task can untick it.
 message TaskUntick {
   // A task the member sees.
   string item_id = 1;
-  // As in TaskTick.
+  // The occurrence, as a plain ISO 8601 date, or empty for a tick made while the task didn't
+  // repeat.
   string occurrence = 2;
 }
