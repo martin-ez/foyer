@@ -151,17 +151,18 @@ describe("ticking tasks", () => {
     expect(await alexDevice.updates()).toEqual([]);
   });
 
-  it("refuses an occurrence, since tasks don't repeat yet", async () => {
+  it("refuses a tick that names an occurrence or a next date, since the task doesn't repeat", async () => {
     const device = await connect(alex);
     const itemId = await newTask(device, await spaceOwnedBy(device, SpaceKind.INBOX));
 
     const committed = await device.push(
       taskTick({ itemId, occurrence: "2026-11-17" }),
-      taskUntick({ itemId, occurrence: "2026-11-17" }),
+      taskTick({ itemId, nextDate: "2026-11-24" }),
     );
 
-    const refused = { refused: "Tasks don't repeat yet, so they have no occurrences." };
+    const refused = { refused: "This task doesn't repeat, so a tick can't name an occurrence." };
     expect(committed.results.map(resultOf)).toEqual([refused, refused]);
+    expect(await device.updates()).toEqual([]);
   });
 
   it("refuses a completion whose id isn't a UUID version 7", async () => {

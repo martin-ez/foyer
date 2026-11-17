@@ -27,7 +27,7 @@ export function TasksPanel({
 }) {
   const items = [...state.items.values()];
   const stickers = [...state.stickers.values()];
-  const done = doneTasks(state.completions.values());
+  const done = doneTasks(state.items, state.completions.values());
   const spaces = only === undefined ? state.spaces : state.spaces.filter(({ id }) => id === only);
   const today = todayList(localToday(), state.spaces, items, stickers, done);
   const listOf = (spaceId: string) =>
@@ -86,6 +86,7 @@ function TaskList({
           >
             {task.title}
             {task.date ? <Text style={styles.line}> · {task.date}</Text> : null}
+            {task.repeat ? <Text style={styles.line}>, repeats</Text> : null}
           </Text>
         </View>
       ))}

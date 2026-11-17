@@ -66,7 +66,7 @@ export function TasksScreen() {
         <TaskEditor
           key={openTask.id}
           task={openTask}
-          done={doneTasks(state.completions.values()).has(openTask.id)}
+          done={doneTasks(state.items, state.completions.values()).has(openTask.id)}
           state={state}
           sync={sync}
           onShowOnPage={(spaceId, number) => {

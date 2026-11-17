@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
+import { ItemKind, ItemSchema, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { MemberSchema } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
@@ -170,6 +170,8 @@ type ItemRow = {
   title: string;
   description: string;
   date: string | null;
+  repeat: string | null;
+  repeat_from: "schedule" | "completion" | null;
   created_by: string;
   created_at: number;
   seq: number;
@@ -223,7 +225,8 @@ const itemsWithOwner = "items JOIN spaces ON spaces.id = items.space_id";
 const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
 const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
-  items.date, items.created_by, items.created_at, items.seq, spaces.owner_id FROM ${itemsWithOwner}`;
+  items.date, items.repeat, items.repeat_from, items.created_by, items.created_at, items.seq,
+  spaces.owner_id FROM ${itemsWithOwner}`;
 
 const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
@@ -258,6 +261,11 @@ const pageKinds = {
 } as const;
 
 const itemKinds = { task: ItemKind.TASK, event: ItemKind.EVENT, note: ItemKind.NOTE } as const;
+
+const repeatFroms = {
+  schedule: RepeatFrom.SCHEDULE,
+  completion: RepeatFrom.COMPLETION,
+} as const;
 
 const stickerKinds = {
   task: StickerKind.TASK,
@@ -401,6 +409,8 @@ function itemRow(item: ItemRow): VisibleRow {
     title: item.title,
     description: item.description,
     date: item.date ?? "",
+    repeat: item.repeat ?? "",
+    repeatFrom: item.repeat_from ? repeatFroms[item.repeat_from] : RepeatFrom.UNSPECIFIED,
     createdBy: item.created_by,
     createdAt: timestampFromMs(item.created_at),
   });

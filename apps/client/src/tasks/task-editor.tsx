@@ -3,13 +3,18 @@ import type { Item } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { localToday } from "../page/calendar-date";
 import type { HouseholdSync, SyncState } from "../sync/household-sync";
 import { Checkbox } from "./checkbox";
-import { changedFields, shownFields, type TaskEdits } from "./task-edits";
+import { RepeatPicker } from "./repeat-picker";
+import { firstDateOf, type RepeatChoice, repeatProblem } from "./repeats";
+import { changedFields, shownFields, shownRepeat, type TaskEdits } from "./task-edits";
 
-/** A task's title, description and date to edit and save, following changes made elsewhere to the
- *  fields the member hasn't touched, with a checkbox to tick it, and ways to move it to another
- *  space, delete it after asking, and show it on its space's page. */
+/** A task's fields and how it repeats, to edit and save without undoing changes made elsewhere,
+ *  with ways to tick it, untick occurrences already done, move it, delete it after asking and show
+ *  it on its space's page. Choosing how it repeats moves its date to the rule's first day. */
+type TaskFieldsAsText = Pick<TaskEdits, "title" | "description" | "date">;
+
 export function TaskEditor({
   task,
   done,
@@ -29,19 +34,38 @@ export function TaskEditor({
   const [edits, setEdits] = useState<TaskEdits>({});
   const [deleting, setDeleting] = useState(false);
   const { title, description, date } = shownFields(task, edits);
+  const repeat = shownRepeat(task, edits);
   const changes = changedFields(task, edits);
+  const today = localToday();
+  const datedOrToday = isIsoDate(date) ? date : today;
   const problem =
     sync.titleProblem(title) ??
-    (date !== "" && !isIsoDate(date) ? "A date is a day, as in 2026-11-17." : null);
-  const edit = (field: keyof TaskEdits, value: string) =>
+    (date !== "" && !isIsoDate(date) ? "A date is a day, as in 2026-11-17." : null) ??
+    repeatProblem(repeat, date, today);
+  const edit = (field: keyof TaskFieldsAsText, value: string) =>
     setEdits((before) => ({ ...before, [field]: value }));
+  const chooseRepeat = (choice: RepeatChoice) =>
+    setEdits((before) => {
+      const shown = before.date ?? task.date;
+      const first = firstDateOf(choice, isIsoDate(shown) ? shown : "", today);
+      return { ...before, repeat: choice, ...(first && first !== shown ? { date: first } : {}) };
+    });
   const save = () => {
     if (problem) return;
+    const { rule, from } = changes.repeat ?? {};
     if (changes.title !== undefined) sync.setTitle(task.id, changes.title);
     if (changes.description !== undefined) sync.setDescription(task.id, changes.description);
+    if (changes.repeat && !rule) sync.setRepeat(task.id, null, "schedule");
     if (changes.date !== undefined) sync.setDate(task.id, changes.date);
+    if (rule && from) sync.setRepeat(task.id, rule, from);
     setEdits({});
   };
+  const doneBefore = [...state.completions.values()]
+    .filter(({ itemId, occurrence }) => itemId === task.id && occurrence !== "")
+    .sort((a, b) => (a.occurrence < b.occurrence ? 1 : a.occurrence > b.occurrence ? -1 : 0))
+    .slice(0, 5);
+  const nameOf = (memberId: string) =>
+    state.members.find(({ id }) => id === memberId)?.name ?? "someone";
   const others = state.spaces.filter(({ id }) => id !== task.spaceId);
 
   return (
@@ -52,7 +76,7 @@ export function TaskEditor({
           label="Done"
           onChange={(ticked) => (ticked ? sync.tickTask(task.id) : sync.untickTask(task.id))}
         >
-          <Text style={styles.line}>Done</Text>
+          <Text style={styles.line}>{task.repeat ? `Done for ${task.date}` : "Done"}</Text>
         </Checkbox>
         <TextInput
           style={styles.input}
@@ -75,6 +99,7 @@ export function TaskEditor({
           placeholder="Date, as in 2026-11-17"
           accessibilityLabel="Date"
         />
+        <RepeatPicker choice={repeat} date={datedOrToday} onChange={chooseRepeat} />
         {problem ? <Text style={styles.problem}>{problem}</Text> : null}
         <View style={styles.row}>
           <Button
@@ -84,6 +109,23 @@ export function TaskEditor({
           />
           <Button title="Close" onPress={onClose} />
         </View>
+        {doneBefore.length > 0 ? (
+          <View style={styles.history} accessibilityRole="list" accessibilityLabel="Done before">
+            <Text style={styles.line}>Done before</Text>
+            {doneBefore.map(({ id, occurrence, doneBy }) => (
+              <View key={id} style={styles.row}>
+                <Text style={styles.line}>
+                  {occurrence}, ticked by {nameOf(doneBy)}
+                </Text>
+                <Button
+                  title="Untick"
+                  accessibilityLabel={`Untick ${occurrence}`}
+                  onPress={() => sync.untickTask(task.id, occurrence)}
+                />
+              </View>
+            ))}
+          </View>
+        ) : null}
         <Button
           title="Show on its page"
           onPress={() => {
@@ -141,5 +183,6 @@ const styles = StyleSheet.create({
   description: { minHeight: 80, textAlignVertical: "top" },
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   line: { fontSize: 12, color: "#6b6459" },
+  history: { gap: 4 },
   problem: { fontSize: 12, color: "#9a3b2e" },
 });

@@ -2,7 +2,11 @@ import { exports } from "cloudflare:workers";
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { newId, syncPath } from "@foyer/shared";
-import { type ItemCreateSchema, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
+import {
+  type ItemCreateSchema,
+  ItemKind,
+  RepeatFrom,
+} from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { PageCreateSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
@@ -280,6 +284,19 @@ export function itemSetDate(itemId: string, date: string, made: Made = {}): Chan
   return { ...madeNow(made), change: { case: "itemSetDate", value: { itemId, date } } };
 }
 
+/** Sets the rule a task repeats by, or stops it repeating when the rule is empty, made by the
+ *  device now unless `made` says otherwise. The next date comes from the schedule unless `from`
+ *  says otherwise. */
+export function itemSetRepeat(
+  itemId: string,
+  repeat: string,
+  from = RepeatFrom.SCHEDULE,
+  made: Made = {},
+): ChangeInit {
+  const value = { itemId, repeat, repeatFrom: repeat === "" ? RepeatFrom.UNSPECIFIED : from };
+  return { ...madeNow(made), change: { case: "itemSetRepeat", value } };
+}
+
 /** Moves a task to another space, made by the device now unless `made` says otherwise. */
 export function itemMove(itemId: string, spaceId: string, made: Made = {}): ChangeInit {
   return { ...madeNow(made), change: { case: "itemMove", value: { itemId, spaceId } } };
@@ -302,7 +319,7 @@ export function stickerRemove(stickerId: string, made: Made = {}): ChangeInit {
 
 /** Ticks a task, made by the device now unless `made` says otherwise. */
 export function taskTick(
-  tick: { itemId: string; completionId?: string; occurrence?: string },
+  tick: { itemId: string; completionId?: string; occurrence?: string; nextDate?: string },
   made: Made = {},
 ): ChangeInit {
   const value = { completionId: newId(), ...tick };
@@ -332,6 +349,7 @@ export function idOf({ change }: ChangeInit): string {
     case "itemSetDate":
     case "itemMove":
     case "itemDelete":
+    case "itemSetRepeat":
     case "taskUntick":
       return change.value.itemId ?? "";
     case "taskTick":

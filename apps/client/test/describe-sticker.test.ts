@@ -23,6 +23,14 @@ describe("describeSticker", () => {
     expect(describeSticker(sticker(StickerKind.TASK), task)).toBe("Task: Buy milk");
   });
 
+  it("says when a task repeats, and its next date", () => {
+    const repeating = { ...task, repeat: "FREQ=WEEKLY;BYDAY=TU", date: "2026-11-24" };
+
+    expect(describeSticker(sticker(StickerKind.TASK), repeating)).toBe(
+      "Task: Buy milk, repeats, next on 2026-11-24",
+    );
+  });
+
   it("hides the title of a task the member can't see, without calling it private", () => {
     expect(describeSticker(sticker(StickerKind.TASK), undefined)).toBe("Task, hidden");
   });

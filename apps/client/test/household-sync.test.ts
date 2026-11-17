@@ -8,7 +8,7 @@ import {
   signedOutCloseCode,
   spacePageId,
 } from "@foyer/shared";
-import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
+import { ItemKind, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
@@ -141,7 +141,17 @@ function pageRow(
   return { seq: BigInt(seq), row: { case: "page", value } };
 }
 
-function itemRow(seq: number, item: { id: string; spaceId: string; title: string }): RowInit {
+function itemRow(
+  seq: number,
+  item: {
+    id: string;
+    spaceId: string;
+    title: string;
+    date?: string;
+    repeat?: string;
+    repeatFrom?: RepeatFrom;
+  },
+): RowInit {
   return { seq: BigInt(seq), row: { case: "item", value: { kind: ItemKind.TASK, ...item } } };
 }
 
@@ -169,7 +179,7 @@ function stickerRow(
 
 function completionRow(
   seq: number,
-  completion: { id: string; itemId: string; doneBy: string },
+  completion: { id: string; itemId: string; doneBy: string; occurrence?: string },
 ): RowInit {
   return { seq: BigInt(seq), row: { case: "completion", value: completion } };
 }
@@ -1071,5 +1081,150 @@ describe("ticking tasks", () => {
 
     expect(completions()).toEqual([]);
     expect(sync.getState().pages.size).toBe(0);
+  });
+});
+
+describe("repeating tasks", () => {
+  const today = "2026-11-17";
+  const task = {
+    id: "019a8f4e-5c00-7000-8000-0000000000c1",
+    spaceId: inbox.id,
+    title: "Put the bins out",
+    date: today,
+  };
+  const bins = { ...task, repeat: "FREQ=WEEKLY;BYDAY=TU", repeatFrom: RepeatFrom.SCHEDULE };
+
+  beforeEach(() => {
+    sync = new HouseholdSync({ memberId: me, connect, today: () => today });
+  });
+
+  function pushed() {
+    return household()
+      .lastPush()
+      .changes.map(({ change }) => change);
+  }
+
+  function shownTask() {
+    const item = sync.getState().items.get(task.id);
+    return { date: item?.date, repeat: item?.repeat, repeatFrom: item?.repeatFrom };
+  }
+
+  function occurrencesDone() {
+    return [...sync.getState().completions.values()].map(({ occurrence }) => occurrence);
+  }
+
+  it("sets a task's rule at once, with where its next date comes from", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+
+    sync.setRepeat(task.id, { frequency: "daily", interval: 3 }, "completion");
+
+    expect(pushed()).toEqual([
+      {
+        case: "itemSetRepeat",
+        value: expect.objectContaining({
+          itemId: task.id,
+          repeat: "FREQ=DAILY;INTERVAL=3",
+          repeatFrom: RepeatFrom.COMPLETION,
+        }),
+      },
+    ]);
+    expect(shownTask()).toEqual({
+      date: today,
+      repeat: "FREQ=DAILY;INTERVAL=3",
+      repeatFrom: RepeatFrom.COMPLETION,
+    });
+  });
+
+  it("gives a task without a date the rule's first date from today, in the same push", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, { ...task, date: "" })], 2);
+
+    sync.setRepeat(task.id, { frequency: "weekly", interval: 1, days: ["FR"] }, "schedule");
+
+    expect(pushed()).toEqual([
+      { case: "itemSetDate", value: expect.objectContaining({ date: "2026-11-20" }) },
+      { case: "itemSetRepeat", value: expect.objectContaining({ repeat: "FREQ=WEEKLY;BYDAY=FR" }) },
+    ]);
+    expect(shownTask().date).toBe("2026-11-20");
+  });
+
+  it("stops a task repeating, keeping its date", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, bins)], 2);
+
+    sync.setRepeat(task.id, null, "schedule");
+
+    expect(pushed()).toEqual([
+      {
+        case: "itemSetRepeat",
+        value: expect.objectContaining({ repeat: "", repeatFrom: RepeatFrom.UNSPECIFIED }),
+      },
+    ]);
+    expect(shownTask()).toEqual({ date: today, repeat: "", repeatFrom: RepeatFrom.UNSPECIFIED });
+  });
+
+  it("ticks a repeating task's occurrence, and moves it to its next date at once", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, bins)], 2);
+
+    sync.tickTask(task.id);
+
+    expect(pushed()).toEqual([
+      {
+        case: "taskTick",
+        value: expect.objectContaining({ occurrence: today, nextDate: "2026-11-24" }),
+      },
+    ]);
+    expect(occurrencesDone()).toEqual([today]);
+    expect(shownTask().date).toBe("2026-11-24");
+  });
+
+  it("skips what was missed when ticking an overdue task on its schedule", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, { ...bins, date: "2026-11-03" })], 2);
+
+    sync.tickTask(task.id);
+
+    expect(pushed()).toEqual([
+      {
+        case: "taskTick",
+        value: expect.objectContaining({ occurrence: "2026-11-03", nextDate: "2026-11-24" }),
+      },
+    ]);
+  });
+
+  it("counts the next date from today when a task repeats from completion", () => {
+    const plants = { ...task, date: "2026-11-10", repeat: "FREQ=DAILY;INTERVAL=3" };
+    startUpToDate(
+      [spaceRow(1, inbox), itemRow(2, { ...plants, repeatFrom: RepeatFrom.COMPLETION })],
+      2,
+    );
+
+    sync.tickTask(task.id);
+
+    expect(shownTask().date).toBe("2026-11-20");
+  });
+
+  it("unticks an occurrence done before, and puts the task back on it at once", () => {
+    const done = completionRow(3, {
+      id: "019a8f4e-5c00-7000-8000-0000000000e1",
+      itemId: task.id,
+      doneBy: housemate,
+      occurrence: today,
+    });
+    startUpToDate([spaceRow(1, inbox), itemRow(2, { ...bins, date: "2026-11-24" }), done], 3);
+
+    sync.untickTask(task.id, today);
+
+    expect(pushed()).toEqual([
+      { case: "taskUntick", value: expect.objectContaining({ occurrence: today }) },
+    ]);
+    expect(occurrencesDone()).toEqual([]);
+    expect(shownTask().date).toBe(today);
+  });
+
+  it("shows the household's date once it commits a tick that didn't move the task", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, bins)], 2);
+    sync.tickTask(task.id);
+
+    household().commit(household().lastPush(), {}, 3);
+
+    expect(shownTask().date).toBe(today);
   });
 });

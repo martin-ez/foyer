@@ -101,9 +101,15 @@ function StickerView({
         ]}
       >
         {task && item ? (
-          <Text style={[styles.title, done ? styles.done : null]} numberOfLines={2}>
-            {item.title}
-          </Text>
+          <View style={styles.words}>
+            <Text
+              style={[styles.title, done ? styles.done : null]}
+              numberOfLines={item.repeat ? 1 : 2}
+            >
+              {item.title}
+            </Text>
+            {item.repeat ? <Text style={styles.next}>Repeats, next on {item.date}</Text> : null}
+          </View>
         ) : null}
       </View>
       {task && item ? (
@@ -180,6 +186,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     pointerEvents: "auto",
   },
-  title: { flex: 1, fontSize: 13, color: "#2b2620" },
+  words: { flex: 1 },
+  title: { fontSize: 13, color: "#2b2620" },
+  next: { fontSize: 11, color: "#6b6459" },
   done: { color: "#8f887a", textDecorationLine: "line-through" },
 });

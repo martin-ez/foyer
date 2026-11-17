@@ -177,6 +177,11 @@ export const householdMigrations: readonly Migration[] = [
     PRIMARY KEY (item_id, occurrence)
   );
   CREATE INDEX pages_by_item ON pages (item_id) WHERE item_id IS NOT NULL`,
+  `ALTER TABLE items ADD COLUMN repeat TEXT;
+  ALTER TABLE items ADD COLUMN repeat_from TEXT CHECK (repeat_from IN ('schedule', 'completion'));
+  ALTER TABLE items ADD COLUMN repeat_at INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE items ADD COLUMN repeat_change_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE completions ADD COLUMN tick_change_id TEXT`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

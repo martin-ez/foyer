@@ -1,9 +1,19 @@
-import { isId, isIsoDate, itemDescriptionProblem, itemTitleProblem } from "@foyer/shared";
+import {
+  formatRepeat,
+  isId,
+  isIsoDate,
+  itemDescriptionProblem,
+  itemTitleProblem,
+  parseRepeat,
+  type RepeatFrom as RepeatFromName,
+} from "@foyer/shared";
 import {
   type ItemCreate,
   type ItemDelete,
   ItemKind,
   type ItemMove,
+  type ItemSetRepeat,
+  RepeatFrom,
 } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Applied, isLater, type Setter } from "./changes";
 import { joinPageSpace, nextSeq, type RowKey } from "./rows";
@@ -81,6 +91,10 @@ type ItemRow = {
   kind: ItemKindName;
   space_id: string;
   owner_id: string | null;
+  date: string | null;
+  repeat: string | null;
+  repeat_at: number;
+  repeat_change_id: string;
   space_at: number;
   space_change_id: string;
   title_at: number;
@@ -112,6 +126,9 @@ export function setItemField(
   const key: RowKey = { kind: "item", id: itemId };
   const last = { at: found.item[`${field}_at`], changeId: found.item[`${field}_change_id`] };
   if (!isLater(setter, last)) return { seq: nextSeq(sql), changed: [], unchanged: [key] };
+  if (field === "date" && checked.value === null && found.item.repeat !== null) {
+    return { refused: "A repeating task always has a date. Stop it repeating first." };
+  }
   const seq = nextSeq(sql);
   sql.exec(
     `UPDATE items SET ${field} = ?, ${field}_at = ?, ${field}_change_id = ?, seq = ? WHERE id = ?`,
@@ -120,6 +137,50 @@ export function setItemField(
     setter.changeId,
     seq,
     itemId,
+  );
+  return { seq, changed: [key], unchanged: [] };
+}
+
+const repeatFromNames: Partial<Record<RepeatFrom, RepeatFromName>> = {
+  [RepeatFrom.SCHEDULE]: "schedule",
+  [RepeatFrom.COMPLETION]: "completion",
+};
+
+/** Sets the rule a task repeats by, as `formatRepeat` writes it, and where its next date comes
+ *  from, or stops it repeating when the rule is empty, unless a later change to its rule won. A
+ *  task needs a date to repeat. Changing a deleted item has no effect. */
+export function setItemRepeat(
+  sql: SqlStorage,
+  memberId: string,
+  setter: Setter,
+  change: ItemSetRepeat,
+): Applied {
+  let repeat: { rule: string; from: RepeatFromName } | null = null;
+  if (change.repeat !== "") {
+    const rule = parseRepeat(change.repeat);
+    if (!rule) return { refused: "Foyer can't repeat a task by this rule." };
+    const from = repeatFromNames[change.repeatFrom];
+    if (!from) return { refused: "A repeating task must say where its next date comes from." };
+    repeat = { rule: formatRepeat(rule), from };
+  }
+  const found = itemFor(sql, memberId, change.itemId);
+  if (!("item" in found)) return found.applied;
+  if (found.item.kind !== "task") return { refused: "Only tasks can repeat." };
+
+  const key: RowKey = { kind: "item", id: change.itemId };
+  const last = { at: found.item.repeat_at, changeId: found.item.repeat_change_id };
+  if (!isLater(setter, last)) return { seq: nextSeq(sql), changed: [], unchanged: [key] };
+  if (repeat && found.item.date === null) return { refused: "A task needs a date to repeat." };
+  const seq = nextSeq(sql);
+  sql.exec(
+    `UPDATE items SET repeat = ?, repeat_from = ?, repeat_at = ?, repeat_change_id = ?, seq = ?
+     WHERE id = ?`,
+    repeat?.rule ?? null,
+    repeat?.from ?? null,
+    setter.at,
+    setter.changeId,
+    seq,
+    change.itemId,
   );
   return { seq, changed: [key], unchanged: [] };
 }
@@ -285,7 +346,8 @@ export function itemFor(
 ): { item: ItemRow } | { applied: Applied } {
   const [item] = sql
     .exec<ItemRow>(
-      `SELECT items.kind, items.space_id, spaces.owner_id, items.space_at, items.space_change_id,
+      `SELECT items.kind, items.space_id, spaces.owner_id, items.date, items.repeat,
+         items.repeat_at, items.repeat_change_id, items.space_at, items.space_change_id,
          items.title_at, items.title_change_id, items.description_at, items.description_change_id,
          items.date_at, items.date_change_id
        FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,

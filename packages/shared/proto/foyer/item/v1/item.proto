@@ -23,6 +23,20 @@ message Item {
   string created_by = 7;
   // When it was created, by the clock of the device that created it.
   google.protobuf.Timestamp created_at = 8;
+  // The rule a repeating task follows, as an iCalendar RRULE such as "FREQ=WEEKLY;BYDAY=TU", or
+  // empty for an item that doesn't repeat. A repeating task always has a date: its next occurrence.
+  string repeat = 9;
+  // Where a repeating task's next date comes from. Unspecified when it doesn't repeat.
+  RepeatFrom repeat_from = 10;
+}
+
+// Where a repeating task's next date comes from when it's ticked.
+enum RepeatFrom {
+  REPEAT_FROM_UNSPECIFIED = 0;
+  // The rule's own dates, whenever it was ticked, such as bins every Tuesday.
+  REPEAT_FROM_SCHEDULE = 1;
+  // The day it was ticked, such as watering the plants 3 days after the last watering.
+  REPEAT_FROM_COMPLETION = 2;
 }
 
 // What an item is. Turning an item into another kind keeps its id, its stickers and its pages.
@@ -67,11 +81,25 @@ message ItemSetDescription {
   string description = 2;
 }
 
-// Changes an item's date, or clears it. The change made last wins, by the device's clock.
+// Changes an item's date, or clears it. The change made last wins, by the device's clock. A
+// repeating task's date can't be cleared.
 message ItemSetDate {
   string item_id = 1;
   // A plain ISO 8601 date such as "2026-11-17", or empty to clear it.
   string date = 2;
+}
+
+// Sets the rule a task repeats by, and where its next date comes from, or stops it repeating. The
+// change made last wins. A task needs a date to repeat, so a device setting a rule on a dateless
+// task sends an ItemSetDate with the rule's first date from today before this, in the same push.
+message ItemSetRepeat {
+  string item_id = 1;
+  // An iCalendar RRULE, or empty to stop it repeating. The household takes FREQ and INTERVAL, with
+  // weekly BYDAY of plain days, monthly BYMONTHDAY or one BYDAY with its place, such as -1FR, and
+  // yearly BYMONTH with BYMONTHDAY. It refuses any other rule.
+  string repeat = 2;
+  // Required with a rule. Ignored when the rule is empty.
+  RepeatFrom repeat_from = 3;
 }
 
 // Moves an item to another space, which changes who sees it: members who can't see the new space
