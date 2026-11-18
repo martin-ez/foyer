@@ -125,11 +125,11 @@ describe("starting to connect Google Calendar", () => {
     const { token } = await member(alex);
 
     for (const call of [
-      calendars(token).startConnecting(App.WEB, "Mars/Olympus_Mons"),
-      calendars(token).startConnecting(App.WEB, ""),
-      calendars(token).startConnecting(App.UNSPECIFIED),
+      () => calendars(token).startConnecting(App.WEB, "Mars/Olympus_Mons"),
+      () => calendars(token).startConnecting(App.WEB, ""),
+      () => calendars(token).startConnecting(App.UNSPECIFIED),
     ]) {
-      const error = await call.catch((reason) => ConnectError.from(reason));
+      const error = await call().catch((reason) => ConnectError.from(reason));
       expect(error).toMatchObject({ code: Code.InvalidArgument });
     }
   });
