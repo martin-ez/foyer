@@ -1,7 +1,7 @@
 import { expect, type Page, type TestInfo, test, type WebSocketRoute } from "@playwright/test";
 import { saveScreenshot } from "./screenshot";
 import { householdMembers, signIn } from "./sign-in";
-import { bundleBuildTimeout, sameMemberOnAnotherDevice } from "./tasks";
+import { bundleBuildTimeout } from "./tasks";
 
 test.beforeEach(() => {
   test.setTimeout(bundleBuildTimeout + 60_000);
@@ -18,6 +18,13 @@ async function capture(page: Page, title: string) {
   await field.press("Enter");
   await expect(page.getByRole("status")).toHaveText(`Added “${title}” to Inbox`);
   await expect(field).toHaveValue("");
+}
+
+/** Another tab signed in as the same member, so another of their devices. */
+async function sameMemberOnAnotherDevice(page: Page): Promise<Page> {
+  const other = await page.context().newPage();
+  await open(other);
+  return other;
 }
 
 async function openInboxList(page: Page) {

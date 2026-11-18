@@ -1,18 +1,21 @@
 import { expect, type Page, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import { saveScreenshot } from "./screenshot";
 import {
   addTask,
   bundleBuildTimeout,
-  openInbox,
+  openSpaceOfItsOwn,
   pageTitle,
   sameMemberOnAnotherDevice,
   stickerOf,
   todayInBrowser,
 } from "./tasks";
 
+let space = "";
+
 test.beforeEach(async ({ page }) => {
   test.setTimeout(bundleBuildTimeout + 60_000);
-  await openInbox(page);
+  space = await openSpaceOfItsOwn(page);
 });
 
 function stickerCheckbox(page: Page, title: string) {
@@ -23,13 +26,13 @@ test("ticks a task on its sticker, and unticks it, on this device and another", 
   page,
 }, testInfo) => {
   const title = await addTask(page);
-  const other = await sameMemberOnAnotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page, space);
   await expect(stickerOf(other, title)).toBeVisible();
 
   await stickerCheckbox(page, title).click();
 
   await expect(stickerCheckbox(page, title)).toBeChecked();
-  await expect(stickerCheckbox(other, title)).toBeChecked();
+  await expectOnAnotherDevice(stickerCheckbox(other, title)).toBeChecked();
   await expect(page.getByLabel("Title")).toBeHidden();
   await expect(page.getByText(/not saved yet/)).toBeHidden();
   await saveScreenshot(page, testInfo, "ticked-sticker");
@@ -37,7 +40,7 @@ test("ticks a task on its sticker, and unticks it, on this device and another", 
   await stickerCheckbox(other, title).click();
 
   await expect(stickerCheckbox(other, title)).not.toBeChecked();
-  await expect(stickerCheckbox(page, title)).not.toBeChecked();
+  await expectOnAnotherDevice(stickerCheckbox(page, title)).not.toBeChecked();
 });
 
 test("hides a ticked task from its space's list unless Show done is on", async ({
@@ -45,7 +48,7 @@ test("hides a ticked task from its space's list unless Show done is on", async (
 }, testInfo) => {
   const title = await addTask(page);
   await page.getByRole("button", { name: "List", exact: true }).click();
-  const list = page.getByRole("list", { name: "Inbox" });
+  const list = page.getByRole("list", { name: space });
 
   await list.getByRole("checkbox", { name: `Done: ${title}` }).click();
 

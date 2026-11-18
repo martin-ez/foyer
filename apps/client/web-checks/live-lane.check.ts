@@ -8,6 +8,7 @@ import {
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { type Camera, fittedCamera, pointOnPage } from "../src/page/sheet-camera";
+import { expectOnAnotherDevice } from "./another-device";
 import { describeDayInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { householdMembers, signIn } from "./sign-in";
@@ -46,11 +47,11 @@ test("shows who else is on the page and where they point, through the household"
 
   const sam = await openAs(browser, baseURL, second);
   await expect.poll(() => entered(sam)).toEqual([today]);
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
   await expect.poll(() => lastHere(sam)).toEqual({ pageId: today, members: 1 });
   const samsMarker = markerOf(alex.page, second);
   const alexsMarker = markerOf(sam.page, first);
-  await expect(samsMarker).toBeVisible();
+  await expectOnAnotherDevice(samsMarker).toBeVisible();
   await expect(alexsMarker).toBeVisible();
   const alexsSheet = await sheetOf(alex.page);
   const samsSheet = await sheetOf(sam.page);
@@ -64,8 +65,8 @@ test("shows who else is on the page and where they point, through the household"
   const path = recordPath(alex.page, second);
   const pointedAt = toPage(samsSheet, await pointAtMiddleOfPage(sam.page));
   await expect.poll(() => kinds(sam.sent)).toContain("point");
-  await expect.poll(() => kinds(alex.received)).toContain("pointed");
-  await expect
+  await expectOnAnotherDevice.poll(() => kinds(alex.received)).toContain("pointed");
+  await expectOnAnotherDevice
     .poll(async () => toPage(alexsSheet, await topLeftCorner(samsMarker)))
     .toEqual(nearly(pointedAt));
   const glided = await path;
@@ -82,34 +83,34 @@ test("shows who else is on the page and where they point, through the household"
 
   await setHidden(sam.page, true);
   await expect.poll(() => kinds(sam.sent).at(-1)).toBe("leave");
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
-  await expect(samsMarker).toHaveCount(0);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice(samsMarker).toHaveCount(0);
 
   await setHidden(sam.page, false);
   await expect.poll(() => entered(sam)).toEqual([today, today]);
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
-  await expect(samsMarker).toBeVisible();
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expectOnAnotherDevice(samsMarker).toBeVisible();
 
   await sam.page.getByRole("button", { name: "Next day" }).click();
   await expect(sam.page.getByRole("heading")).toHaveText(await describeDayInBrowser(sam.page, 1));
   await expect.poll(() => entered(sam).length).toBe(3);
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
-  await expect(samsMarker).toHaveCount(0);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice(samsMarker).toHaveCount(0);
   await expect(markerOf(sam.page, first)).toHaveCount(0);
 
   await sam.page.getByRole("button", { name: "Today" }).click();
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
-  await expect(samsMarker).toBeVisible();
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expectOnAnotherDevice(samsMarker).toBeVisible();
 
   await sam.page.getByRole("tab", { name: "Notebook" }).click();
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
-  await expect(samsMarker).toHaveCount(0);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice(samsMarker).toHaveCount(0);
   await sam.page.getByRole("tab", { name: "Calendar" }).click();
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
-  await expect(samsMarker).toBeVisible();
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expectOnAnotherDevice(samsMarker).toBeVisible();
   await sam.page.context().close();
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
-  await expect(samsMarker).toHaveCount(0);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice(samsMarker).toHaveCount(0);
 
   await alex.page.context().close();
 });

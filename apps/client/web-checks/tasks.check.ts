@@ -1,18 +1,21 @@
 import { expect, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import { saveScreenshot } from "./screenshot";
 import {
   addTask,
   bundleBuildTimeout,
-  openInbox,
+  openSpaceOfItsOwn,
   pageTitle,
   sameMemberOnAnotherDevice,
   stickerOf,
   todayInBrowser,
 } from "./tasks";
 
+let space = "";
+
 test.beforeEach(async ({ page }) => {
   test.setTimeout(bundleBuildTimeout + 60_000);
-  await openInbox(page);
+  space = await openSpaceOfItsOwn(page);
 });
 
 test("lists a space's tasks in the order of their stickers", async ({ page }, testInfo) => {
@@ -21,7 +24,7 @@ test("lists a space's tasks in the order of their stickers", async ({ page }, te
 
   await page.getByRole("button", { name: "List", exact: true }).click();
 
-  const list = page.getByRole("list", { name: "Inbox" });
+  const list = page.getByRole("list", { name: space });
   const titles = await list.getByRole("button").allTextContents();
   expect(titles.indexOf(first)).toBeGreaterThanOrEqual(0);
   expect(titles.indexOf(second)).toBeGreaterThan(titles.indexOf(first));
@@ -32,7 +35,7 @@ test("lists a space's tasks in the order of their stickers", async ({ page }, te
 
 test("edits a task's title, description and date, on this device and another", async ({ page }) => {
   const title = await addTask(page);
-  const other = await sameMemberOnAnotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page, space);
   const renamed = `${title} renamed`;
 
   await stickerOf(page, title).click();
@@ -44,29 +47,29 @@ test("edits a task's title, description and date, on this device and another", a
   await expect(pageTitle(page)).toHaveText(renamed);
   await page.getByRole("button", { name: "Close" }).click();
   await expect(stickerOf(page, renamed)).toBeVisible();
-  await expect(stickerOf(other, renamed)).toBeVisible();
+  await expectOnAnotherDevice(stickerOf(other, renamed)).toBeVisible();
   await stickerOf(other, renamed).click();
-  await expect(other.getByLabel("Description")).toHaveValue("From the corner shop");
-  await expect(other.getByLabel("Date")).toHaveValue("2026-11-20");
+  await expectOnAnotherDevice(other.getByLabel("Description")).toHaveValue("From the corner shop");
+  await expectOnAnotherDevice(other.getByLabel("Date")).toHaveValue("2026-11-20");
 });
 
 test("keeps a rename made on another device while the task is open here", async ({ page }) => {
   const title = await addTask(page);
-  const other = await sameMemberOnAnotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page, space);
   const renamed = `${title} renamed`;
   await stickerOf(page, title).click();
   await stickerOf(other, title).click();
 
   await other.getByLabel("Title").fill(renamed);
   await other.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByLabel("Title")).toHaveValue(renamed);
+  await expectOnAnotherDevice(page.getByLabel("Title")).toHaveValue(renamed);
   await page.getByLabel("Date").fill("2026-11-20");
   await page.getByRole("button", { name: "Save" }).click();
 
-  for (const device of [page, other]) {
-    await expect(device.getByLabel("Title")).toHaveValue(renamed);
-    await expect(device.getByLabel("Date")).toHaveValue("2026-11-20");
-  }
+  await expect(page.getByLabel("Title")).toHaveValue(renamed);
+  await expect(page.getByLabel("Date")).toHaveValue("2026-11-20");
+  await expectOnAnotherDevice(other.getByLabel("Title")).toHaveValue(renamed);
+  await expectOnAnotherDevice(other.getByLabel("Date")).toHaveValue("2026-11-20");
   await page.getByRole("button", { name: "Close" }).click();
   await expect(stickerOf(page, renamed)).toBeVisible();
 });
@@ -121,7 +124,7 @@ test("moves a task to another space, with its sticker", async ({ page }, testInf
 
 test("deletes a task after asking, on this device and another", async ({ page }) => {
   const title = await addTask(page);
-  const other = await sameMemberOnAnotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page, space);
   await expect(stickerOf(other, title)).toBeVisible();
   await stickerOf(page, title).click();
 
@@ -132,5 +135,5 @@ test("deletes a task after asking, on this device and another", async ({ page })
   await page.getByRole("button", { name: "Delete", exact: true }).click();
 
   await expect(stickerOf(page, title)).toBeHidden();
-  await expect(stickerOf(other, title)).toBeHidden();
+  await expectOnAnotherDevice(stickerOf(other, title)).toBeHidden();
 });

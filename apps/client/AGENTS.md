@@ -72,7 +72,9 @@ A page is drawn in points from its top-left corner, whatever its size or zoom. `
 
 The root `AGENTS.md` says which checks to run for which change. In this package:
 
-- **Web checks** are Playwright checks in `web-checks/`, one `*.check.ts` file each, run against the local backend in an iPad's and a phone's viewport. Sign in with `signIn` from `web-checks/sign-in.ts`, and save what a check shows with `saveScreenshot` from `web-checks/screenshot.ts`, which writes to `web-checks/screenshots/`.
+- **Web checks** are Playwright checks in `web-checks/`, one `*.check.ts` file each, run in an iPad's and a phone's viewport at once. They run against a backend of their own, at `http://localhost:8788`, whose household starts empty on every run, so they never touch the local household on 8787. Sign in with `signIn` from `web-checks/sign-in.ts`, and save what a check shows with `saveScreenshot` from `web-checks/screenshot.ts`, which writes to `web-checks/screenshots/`.
+- **A check that adds tasks** first creates a personal space of its own with `openSpaceOfItsOwn` from `web-checks/tasks.ts`, and works on that space's page, so that no other check adds to the pages it looks at. `sameMemberOnAnotherDevice` opens the same space in another tab.
+- **What another tab shows** after a change made on the first goes through `expectOnAnotherDevice` from `web-checks/another-device.ts`, which waits longer than Playwright's default while the change goes through the household. If it still times out, look at the trace: a delay that long is a bug to file, not a timing to wait out.
 - Find what's on the page by role and text, as a person would, such as `getByRole("button", { name: "Sign out" })`, never by the page's structure or styles: views are wireframes and will change.
 - Code that runs only on the iPad, such as `session-token.ts` beside its `.web.ts`, never runs in the web checks. `check-ios-bundle` checks it builds, and the simulator checks it works, which needs a Mac.
 

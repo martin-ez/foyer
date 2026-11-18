@@ -28,8 +28,10 @@ After that:
 The tests check pieces of code on their own. Two more checks look at the app as a whole, to check your work before asking for review. CI doesn't run them.
 
 - **In a browser:** `pnpm --filter @foyer/client check-web` runs the checks in `apps/client/web-checks/` with Playwright, in Chromium, in an iPad's viewport and a phone's.
-  - It starts Expo's development server and then the backend, or reuses ones already running, and waits until `http://localhost:8787` answers 200, which it does only once Expo's server is up, since the backend forwards the app's pages to it. Playwright stops the servers it started when it's done.
+  - It starts Expo's development server, or reuses one already running, and then a backend of its own at `http://localhost:8788`, whose household starts empty on every run. It never reuses the backend at `http://localhost:8787`, so the household you try the app in stays as it was. The checks' backend keeps its storage in `apps/server/.wrangler/web-checks`, which it empties when it starts, and forwards the app's pages to Expo's server as the usual backend does, so the two can share it.
+  - Playwright waits until `http://localhost:8788` answers 200, which it does only once Expo's server is up, and stops the servers it started when it's done. A run fails at the start if something else already listens on 8788, such as another run.
   - The checks sign in without Google as the first email in `HOUSEHOLD_MEMBERS` in `.dev.vars`, and save screenshots in `apps/client/web-checks/screenshots/`, such as `first-page-ipad.png`. The live lane's check also signs in as the second email, to put two members on the same page, and is skipped when there's only one.
+  - Checks that add tasks first create a personal space of their own and work on its page, so that no other check, such as the same check in the other viewport, adds to the pages they look at.
   - The first visit waits while Expo builds the app's bundle, which takes up to a minute after the dependencies change.
   - Playwright needs its Chromium. Cloud sessions come with it. On your computer, download it once with `pnpm --filter @foyer/client exec playwright install chromium`.
 - **The iPad app's bundle:** `pnpm --filter @foyer/client check-ios-bundle` builds the JavaScript the iPad app runs, compiled for Hermes, into a temporary folder that it deletes afterwards. It fails on code that doesn't build for iOS, such as a broken import in a file only the iPad app uses, and needs no Mac. It takes about 30 seconds.
@@ -50,7 +52,7 @@ A cloud session runs the backend, Expo's development server, `pnpm check`, `pnpm
   nohup pnpm --filter @foyer/client web > /tmp/foyer-web.log 2>&1 &
   ```
 
-  The backend answers 500 until Expo's development server is ready. Then sign in at `http://localhost:8787/auth/dev?email=you@example.com`, and the web checks reuse both servers.
+  The backend answers 500 until Expo's development server is ready. Then sign in at `http://localhost:8787/auth/dev?email=you@example.com`. The web checks reuse Expo's server, and start a backend of their own beside this one.
 - **The running app:** while the session is open, the agent can tell the Claude app that the web app is on port 8787, and you can open it from there.
 
 ### Sharing screenshots
