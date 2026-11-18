@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21 and #25
+Decided in #14, #21, #25 and #26
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -15,6 +15,7 @@ Decided in #14, #21 and #25
   - Each change carries `at`: when the person made it, by their device's clock. The household keeps that time and the change's id next to each value it sets, such as a space's `name_at` and `name_change_id`. A change only replaces a value if its `at` is later. Equal times are settled by the larger change id.
   - Changes to different values never conflict.
   - An `at` later than the household's clock counts as the household's time, so a device whose clock runs fast can't win forever.
+  - Changes the household makes itself, such as those it reads from Google Calendar, are settled the same way, with the time they were made there (`where-do-calendar-events-live.md`).
 - **What each device receives:** everything its member can see except ink, plus the ink of the pages it opens. On connecting, it catches up from its cursor. While connected, it receives every change it can see as soon as the change is committed, its own included.
 - **Who receives what:** each row belongs to a space, to the household, as members do, or to one member, as their Google connection does. The household's rows go to every member, a space's rows to the members who can see the space (`who-can-see-what.md`), and a member's own rows to them alone. Members never learn of changes in spaces they can't see. Stickers belong to their page, not to their item (`what-is-a-sticker.md`).
 - **Refused changes:** the household refuses a change it can't apply, such as renaming someone else's personal space, and says why in a sentence. The device undoes the change, drops it, and says it couldn't be saved. A change that loses a conflict isn't refused: it's committed with no effect, and the device that made it receives the row as it now is.

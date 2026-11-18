@@ -17,11 +17,13 @@ message Item {
   // Plain text of at most 10,000 Unicode code points, or empty.
   string description = 5;
   // A day, as a plain ISO 8601 date such as "2026-11-17", with no time or time zone. Empty when it
-  // has none.
+  // has none. An event's is the day it starts in its Google calendar's time zone, which only the
+  // household sets.
   string date = 6;
-  // The member who created it.
+  // The member who created it. Empty for an event added in Google Calendar.
   string created_by = 7;
-  // When it was created, by the clock of the device that created it.
+  // When it was created, by the clock of the device that created it, or Google's for an event added
+  // in Google Calendar.
   google.protobuf.Timestamp created_at = 8;
   // The rule a repeating task follows, as an iCalendar RRULE such as "FREQ=WEEKLY;BYDAY=TU", or
   // empty for an item that doesn't repeat. A repeating task always has a date: its next occurrence.
@@ -30,6 +32,17 @@ message Item {
   RepeatFrom repeat_from = 10;
   // The task or note it's under, which is in the same space, or empty at the top of its space.
   string parent_id = 11;
+  // When an event happens: an all-day event has starts_on and ends_on, and one with times has
+  // starts_at and ends_at. All four are empty for tasks and notes.
+  // The first day of an all-day event, as a plain ISO 8601 date.
+  string starts_on = 12;
+  // The last day of an all-day event, as a plain ISO 8601 date: the same as starts_on for an event
+  // of one day.
+  string ends_on = 13;
+  // When an event with times starts.
+  google.protobuf.Timestamp starts_at = 14;
+  // When an event with times ends, which is never before it starts.
+  google.protobuf.Timestamp ends_at = 15;
 }
 
 // Where a repeating task's next date comes from when it's ticked.
@@ -52,8 +65,9 @@ enum ItemKind {
   ITEM_KIND_NOTE = 3;
 }
 
-// Creates an item. A device sends it with the item's sticker on its space's page, in the same push.
-// Only tasks can be created for now.
+// Creates an item. A device sends a task with its sticker on its space's page, in the same push.
+// Only tasks and events can be created for now. An event can only be created in a space with a
+// Google calendar, whose calendar_state isn't none, and the household writes it to that calendar.
 message ItemCreate {
   // A new UUID version 7, made by the device.
   string item_id = 1;
@@ -64,8 +78,15 @@ message ItemCreate {
   string title = 4;
   // Plain text, refused if over 10,000 Unicode code points, or empty.
   string description = 5;
-  // A plain ISO 8601 date such as "2026-11-17", or empty for none.
+  // A plain ISO 8601 date such as "2026-11-17", or empty for none. Always empty for an event, whose
+  // date the household sets.
   string date = 6;
+  // When an event happens, as in Item, and required for one: either starts_on and ends_on, or
+  // starts_at and ends_at. Refused for any other kind.
+  string starts_on = 7;
+  string ends_on = 8;
+  google.protobuf.Timestamp starts_at = 9;
+  google.protobuf.Timestamp ends_at = 10;
 }
 
 // Changes an item's title. Each field's change made last wins, by the device's clock, so changes to
@@ -84,7 +105,8 @@ message ItemSetDescription {
 }
 
 // Changes an item's date, or clears it. The change made last wins, by the device's clock. A
-// repeating task's date can't be cleared.
+// repeating task's date can't be cleared, and an event's is set by the household from when it
+// starts, so this is refused on an event.
 message ItemSetDate {
   string item_id = 1;
   // A plain ISO 8601 date such as "2026-11-17", or empty to clear it.
@@ -104,9 +126,9 @@ message ItemSetRepeat {
   RepeatFrom repeat_from = 3;
 }
 
-// Moves an item, and everything under it, to another space, which changes who sees them. A device
-// sends it with the item's sticker moving to the new space's page, in the same push. The move made
-// last wins. An item under another moves with it, so it must be taken out first.
+// Moves an item, and everything under it, to another space, which changes who sees them; a device
+// moves a task's sticker to the new space's page in the same push. The move made last wins. An item
+// under another must be taken out first. Events go only to a space with a Google calendar.
 message ItemMove {
   string item_id = 1;
   // A space the member sees, as they must see the item's space now.
@@ -114,7 +136,7 @@ message ItemMove {
 }
 
 // Deletes an item, and its stickers on every page. Items still under it move up to its parent, or
-// to the top of its space.
+// to the top of its space. An event is deleted in Google Calendar too.
 message ItemDelete {
   string item_id = 1;
 }

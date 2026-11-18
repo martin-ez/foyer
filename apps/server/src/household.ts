@@ -71,11 +71,17 @@ export class Household extends DurableObject<Env> {
       (memberId, pageId) => canSeePage(ctx.storage.sql, memberId, pageId),
       wake,
     );
-    this.#calendars = new Calendars(ctx.storage, (keys) => this.#changed(keys), wake);
+    this.#calendars = new Calendars(
+      ctx.storage,
+      (keys) => this.#changed(keys),
+      wake,
+      () => ctx.getWebSockets().length > 0,
+    );
   }
 
   /** Opens a sync connection for the session the Worker checked, named by the headers in
-   *  `syncConnectionHeaders`, and welcomes it with the number of the household's latest change. */
+   *  `syncConnectionHeaders`, and welcomes it with the number of the household's latest change.
+   *  Reads the changes made in Google Calendar soon after. */
   override async fetch(request: Request): Promise<Response> {
     const memberId = request.headers.get(syncConnectionHeaders.member);
     const sessionId = request.headers.get(syncConnectionHeaders.session);
@@ -90,6 +96,7 @@ export class Household extends DurableObject<Env> {
       case: "welcome",
       value: { seq: BigInt(latestSeq(this.ctx.storage.sql)) },
     });
+    this.#calendars.readSoon();
     return new Response(null, { status: 101, webSocket: device });
   }
 
@@ -142,8 +149,8 @@ export class Household extends DurableObject<Env> {
     this.#live.closed(socket);
   }
 
-  /** Takes devices the household hasn't heard from for a minute off their pages, and makes and
-   *  renames the Google calendars that spaces wait for. */
+  /** Takes devices the household hasn't heard from for a minute off their pages, and keeps the
+   *  spaces' Google calendars and their events in step with Google. */
   override async alarm(): Promise<void> {
     this.#live.checkForSilence();
     await this.#calendars.work();
@@ -156,7 +163,7 @@ export class Household extends DurableObject<Env> {
     const { results, changed, unchanged } = applyPush(this.ctx.storage, memberId, push, now);
     this.#sendUpdates(readRows(sql, changed));
     if (changed.length > 0) this.#live.checkSight();
-    if (changed.some(({ kind }) => kind === "space")) this.#calendars.soon();
+    if (changed.some(({ kind }) => kind === "space" || kind === "item")) this.#calendars.soon();
     const asTheyAre = readRows(sql, unchanged)
       .filter(({ visibleTo }) => visibleTo === null || visibleTo === memberId)
       .map(({ row }) => row);
@@ -166,6 +173,7 @@ export class Household extends DurableObject<Env> {
 
   #changed(keys: RowKey[]): void {
     this.#sendUpdates(readRows(this.ctx.storage.sql, keys));
+    if (keys.length > 0) this.#live.checkSight();
   }
 
   #sendUpdates(rows: VisibleRow[]): void {

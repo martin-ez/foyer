@@ -1,4 +1,6 @@
 import {
+  type EventTime,
+  eventTimeFields,
   formatRepeat,
   isId,
   isIsoDate,
@@ -16,6 +18,13 @@ import {
   RepeatFrom,
 } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Applied, isLater, type Setter } from "./changes";
+import {
+  calendarTimeZone,
+  eventNeedsCalendar,
+  eventsCanMoveTo,
+  eventTimeIn,
+  redateEvents,
+} from "./events";
 import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
 
@@ -24,8 +33,9 @@ const badDate = "A task's date must be a day, as in “2026-11-17”.";
 /** What an item is, as the household stores it. */
 export type ItemKindName = "task" | "event" | "note";
 
-/** Creates a task in a space the member sees, with a trimmed title that isn't blank or too long,
- *  and a date that's a day or empty. Every field it sets keeps the change that set it. */
+/** Creates a task or an event in a space the member sees, with a trimmed title that isn't blank or
+ *  too long, keeping the change that set each field. A task's date is a day or empty. An event
+ *  needs a time it can happen at and a space with a Google calendar, whose time zone dates it. */
 export function createItem(
   sql: SqlStorage,
   memberId: string,
@@ -33,33 +43,87 @@ export function createItem(
   item: ItemCreate,
 ): Applied {
   if (!isId(item.itemId)) return { refused: "An item's id must be a UUID version 7." };
-  if (item.kind !== ItemKind.TASK) return { refused: "Only tasks can be created for now." };
+  if (item.kind !== ItemKind.TASK && item.kind !== ItemKind.EVENT) {
+    return { refused: "Only tasks and events can be created for now." };
+  }
   if (itemExisted(sql, item.itemId)) return { refused: "An item with this id already exists." };
   if (!canSee(sql, memberId, item.spaceId)) return { refused: "There's no such space." };
   const title = item.title.trim();
   const problem = itemTitleProblem(title) ?? itemDescriptionProblem(item.description);
   if (problem) return { refused: problem };
+  const event = item.kind === ItemKind.EVENT;
+  const time = event ? eventTimeIn(item) : null;
+  if (time && "problem" in time) return { refused: time.problem };
+  if (!event && (item.startsOn || item.endsOn || item.startsAt || item.endsAt)) {
+    return { refused: "Only events have a time." };
+  }
+  if (event && item.date !== "") return { refused: eventDateIsSet };
+  if (event && calendarTimeZone(sql, item.spaceId) === null) return { refused: eventNeedsCalendar };
   if (item.date !== "" && !isIsoDate(item.date)) return { refused: badDate };
 
   const seq = nextSeq(sql);
-  const { at, changeId } = setter;
+  insertItem(sql, {
+    itemId: item.itemId,
+    kind: event ? "event" : "task",
+    spaceId: item.spaceId,
+    title,
+    description: item.description,
+    date: item.date === "" ? null : item.date,
+    time,
+    createdBy: memberId,
+    createdAt: setter.at,
+    setter,
+    seq,
+  });
+  return { seq, changed: [{ kind: "item", id: item.itemId }], unchanged: [] };
+}
+
+/** Adds an item to the household's storage, as change `seq` made by `setter`, which every field it
+ *  sets keeps. An event's date is the day it starts in its space's calendar's time zone. */
+export function insertItem(
+  sql: SqlStorage,
+  item: {
+    itemId: string;
+    kind: ItemKindName;
+    spaceId: string;
+    title: string;
+    description: string;
+    date: string | null;
+    time: EventTime | null;
+    createdBy: string | null;
+    createdAt: number;
+    setter: Setter;
+    seq: number;
+  },
+): void {
+  const { at, changeId } = item.setter;
+  const time = item.time ? eventTimeFields(item.time) : null;
   sql.exec(
     `INSERT INTO items (id, kind, space_id, title, description, date, created_by, created_at, seq,
        space_at, space_change_id, title_at, title_change_id, description_at, description_change_id,
-       date_at, date_change_id)
-     VALUES (?, 'task', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       date_at, date_change_id, starts_on, ends_on, starts_at, ends_at, time_at, time_change_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     item.itemId,
+    item.kind,
     item.spaceId,
-    title,
+    item.title,
     item.description,
-    item.date === "" ? null : item.date,
-    memberId,
-    at,
-    seq,
+    item.date,
+    item.createdBy,
+    item.createdAt,
+    item.seq,
     ...[at, changeId, at, changeId, at, changeId, at, changeId],
+    time ? time.startsOn || null : null,
+    time ? time.endsOn || null : null,
+    time?.startsAt ?? null,
+    time?.endsAt ?? null,
+    time ? at : 0,
+    time ? changeId : "",
   );
-  return { seq, changed: [{ kind: "item", id: item.itemId }], unchanged: [] };
+  if (time) redateEvents(sql, [item.itemId], item.setter, item.seq);
 }
+
+const eventDateIsSet = "An event's date is the day it starts, which the household sets.";
 
 /** An item that exists, with the space it lives in and the item it's under, or null. */
 export function findItem(
@@ -121,6 +185,8 @@ type ItemRow = {
   description_change_id: string;
   date_at: number;
   date_change_id: string;
+  time_at: number;
+  time_change_id: string;
 };
 
 type Field = "title" | "description" | "date";
@@ -140,6 +206,7 @@ export function setItemField(
   if ("refused" in checked) return checked;
   const found = itemFor(sql, memberId, itemId);
   if (!("item" in found)) return found.applied;
+  if (field === "date" && found.item.kind === "event") return { refused: eventDateIsSet };
 
   const key: RowKey = { kind: "item", id: itemId };
   const last = { at: found.item[`${field}_at`], changeId: found.item[`${field}_change_id`] };
@@ -218,6 +285,8 @@ export function moveItem(
   if (found.item.parent_id !== null) {
     return { refused: "An item under another moves with it. Take it out first." };
   }
+  const moving = [move.itemId, ...itemsUnder(sql, move.itemId)];
+  if (!eventsCanMoveTo(sql, moving, move.spaceId)) return { refused: eventNeedsCalendar };
 
   const key: RowKey = { kind: "item", id: move.itemId };
   const last = { at: found.item.space_at, changeId: found.item.space_change_id };
@@ -228,8 +297,8 @@ export function moveItem(
 }
 
 /** Moves an item and everything under it into a space, with their completions, body pages and
- *  what's on them, as change `seq` made by `setter`. Members who can't see the space are told to
- *  drop them, and those who see them again receive them. Returns the rows it moved. */
+ *  what's on them, as change `seq` made by `setter`, dating events by the space's calendar. Members
+ *  who can't see the space are told to drop them, and those who see them again receive them. */
 export function moveIntoSpace(
   sql: SqlStorage,
   itemId: string,
@@ -260,6 +329,7 @@ export function moveIntoSpace(
       id,
     );
   }
+  redateEvents(sql, items, setter, seq);
 
   const losing =
     ownerAfter === null || ownerBefore === ownerAfter
@@ -307,7 +377,32 @@ export function deleteItem(
 ): Applied {
   const found = itemFor(sql, memberId, remove.itemId);
   if (!("item" in found)) return found.applied;
+  return deleteFound(sql, remove.itemId, found.item, setter);
+}
 
+/** Deletes an item as `deleteItem` does, for the household itself rather than a member, as when
+ *  it was deleted in Google Calendar. Does nothing to an item that doesn't exist. */
+export function deleteItemForHousehold(sql: SqlStorage, itemId: string, setter: Setter): RowKey[] {
+  const [item] = sql
+    .exec<Pick<ItemRow, "owner_id" | "parent_id">>(
+      `SELECT spaces.owner_id, items.parent_id
+       FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,
+      itemId,
+    )
+    .toArray();
+  if (!item) return [];
+  const applied = deleteFound(sql, itemId, item, setter);
+  return "changed" in applied ? applied.changed : [];
+}
+
+function deleteFound(
+  sql: SqlStorage,
+  itemId: string,
+  item: Pick<ItemRow, "owner_id" | "parent_id">,
+  setter: Setter,
+): Applied {
+  const remove = { itemId };
+  const found = { item };
   const seq = nextSeq(sql);
   const children = sql
     .exec<{ id: string }>("SELECT id FROM items WHERE parent_id = ?", remove.itemId)
@@ -408,7 +503,7 @@ export function itemFor(
          items.parent_change_id, items.date, items.repeat, items.repeat_at, items.repeat_change_id,
          items.space_at, items.space_change_id,
          items.title_at, items.title_change_id, items.description_at, items.description_change_id,
-         items.date_at, items.date_change_id
+         items.date_at, items.date_change_id, items.time_at, items.time_change_id
        FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,
       itemId,
     )

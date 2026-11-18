@@ -154,9 +154,17 @@ export async function revokeAccess(token: string): Promise<GoogleAnswer<null>> {
   return { failed: `Google answered ${response.ok.status} to a revocation` };
 }
 
-/** What became of a call to Google's Calendar API: as `GoogleAnswer`, or that the calendar no
- *  longer exists, or that Google didn't accept the access token, which a fresh one may fix. */
-export type CalendarAnswer<T> = GoogleAnswer<T> | { gone: true } | { unauthorized: true };
+/** What became of a call to Google's Calendar API: as `GoogleAnswer`, or the calendar or event is
+ *  gone, the access token wasn't accepted, an event's id is taken or it changed since its etag,
+ *  Google refused the call as invalid, or it dropped the sync token. */
+export type CalendarAnswer<T> =
+  | GoogleAnswer<T>
+  | { gone: true }
+  | { unauthorized: true }
+  | { conflict: true }
+  | { changedSince: true }
+  | { invalid: string }
+  | { tokenDropped: true };
 
 /** Creates a calendar in the account an access token is for, and returns Google's id for it. */
 export async function createCalendar(
@@ -172,6 +180,16 @@ export async function createCalendar(
   return typeof id === "string" ? { ok: id } : { failed: "Google's new calendar has no id" };
 }
 
+/** Whether a calendar that Foyer created still exists. */
+export async function findCalendar(
+  accessToken: string,
+  calendarId: string,
+): Promise<CalendarAnswer<null>> {
+  const address = `${calendarsEndpoint}/${encodeURIComponent(calendarId)}`;
+  const answer = await callCalendars(accessToken, address, "GET");
+  return "ok" in answer ? { ok: null } : answer;
+}
+
 /** Renames a calendar that Foyer created. */
 export async function renameCalendar(
   accessToken: string,
@@ -181,6 +199,140 @@ export async function renameCalendar(
   const address = `${calendarsEndpoint}/${encodeURIComponent(calendarId)}`;
   const answer = await callCalendars(accessToken, address, "PATCH", { summary: name });
   return "ok" in answer ? { ok: null } : answer;
+}
+
+/** An event as Google's Calendar API sends it, with the fields Foyer reads. A repeating event's
+ *  series has `recurrence`, and each of its occurrences that differs from it `recurringEventId`. */
+export type GoogleEvent = {
+  id: string;
+  status?: string;
+  etag?: string;
+  summary?: string;
+  description?: string;
+  start?: GoogleEventTime;
+  end?: GoogleEventTime;
+  created?: string;
+  updated?: string;
+  recurrence?: string[];
+  recurringEventId?: string;
+};
+
+/** When an event starts or ends: a day for an all-day event, which ends the day after its last,
+ *  or a moment, as RFC 3339. */
+export type GoogleEventTime = { date?: string; dateTime?: string; timeZone?: string };
+
+/** One page of a calendar's events, and where the next page or the next read starts. */
+export type EventPage = {
+  events: GoogleEvent[];
+  nextPageToken?: string;
+  nextSyncToken?: string;
+  /** The calendar's time zone. */
+  timeZone?: string;
+};
+
+/** The fields Foyer writes to an event, as Google's Calendar API takes them. */
+export type GoogleEventFields = Pick<GoogleEvent, "summary" | "description"> & {
+  start: GoogleEventTime | NullableTime;
+  end: GoogleEventTime | NullableTime;
+};
+
+type NullableTime = { date: string | null; dateTime: string | null; timeZone?: null };
+
+/** Reads one page of a calendar's events: every event when `syncToken` is empty, or the ones
+ *  that changed since the read that gave it, including those deleted. */
+export async function listEvents(
+  accessToken: string,
+  calendarId: string,
+  from: { syncToken?: string; pageToken?: string },
+): Promise<CalendarAnswer<EventPage>> {
+  const query = new URLSearchParams({ maxResults: "250" });
+  if (from.syncToken) query.set("syncToken", from.syncToken);
+  if (from.pageToken) query.set("pageToken", from.pageToken);
+  const answer = await callCalendars(accessToken, `${eventsAddress(calendarId)}?${query}`, "GET");
+  if ("status" in answer && from.syncToken && answer.status === 410) return { tokenDropped: true };
+  if (!("ok" in answer)) return answer;
+  const page = answer.ok as {
+    items?: unknown;
+    nextPageToken?: unknown;
+    nextSyncToken?: unknown;
+    timeZone?: unknown;
+  };
+  return {
+    ok: {
+      events: Array.isArray(page.items) ? (page.items as GoogleEvent[]) : [],
+      ...(typeof page.nextPageToken === "string" ? { nextPageToken: page.nextPageToken } : {}),
+      ...(typeof page.nextSyncToken === "string" ? { nextSyncToken: page.nextSyncToken } : {}),
+      ...(typeof page.timeZone === "string" ? { timeZone: page.timeZone } : {}),
+    },
+  };
+}
+
+/** Reads one event of a calendar. */
+export async function readEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+): Promise<CalendarAnswer<GoogleEvent>> {
+  const answer = await callCalendars(accessToken, eventAddress(calendarId, eventId), "GET");
+  return "ok" in answer ? { ok: answer.ok as GoogleEvent } : answer;
+}
+
+/** Creates an event in a calendar, with an id that Foyer chose, so that sending it again finds the
+ *  id taken instead of making a second event. */
+export async function insertEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+  fields: GoogleEventFields,
+): Promise<CalendarAnswer<GoogleEvent>> {
+  const body = { id: eventId, ...fields };
+  const answer = await callCalendars(accessToken, eventsAddress(calendarId), "POST", body);
+  return "ok" in answer ? { ok: answer.ok as GoogleEvent } : answer;
+}
+
+/** Changes the fields Foyer keeps of an event, unless it changed in Google since the version its
+ *  etag names. Its other fields stay as they are. */
+export async function patchEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+  etag: string,
+  fields: GoogleEventFields,
+): Promise<CalendarAnswer<GoogleEvent>> {
+  const address = eventAddress(calendarId, eventId);
+  const answer = await callCalendars(accessToken, address, "PATCH", fields, { "If-Match": etag });
+  return "ok" in answer ? { ok: answer.ok as GoogleEvent } : answer;
+}
+
+/** Moves an event to another calendar in the same account, keeping its id. */
+export async function moveEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+  destination: string,
+): Promise<CalendarAnswer<GoogleEvent>> {
+  const query = new URLSearchParams({ destination });
+  const address = `${eventAddress(calendarId, eventId)}/move?${query}`;
+  const answer = await callCalendars(accessToken, address, "POST");
+  return "ok" in answer ? { ok: answer.ok as GoogleEvent } : answer;
+}
+
+/** Deletes an event from a calendar. */
+export async function deleteEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+): Promise<CalendarAnswer<null>> {
+  const answer = await callCalendars(accessToken, eventAddress(calendarId, eventId), "DELETE");
+  return "ok" in answer ? { ok: null } : answer;
+}
+
+function eventsAddress(calendarId: string): string {
+  return `${calendarsEndpoint}/${encodeURIComponent(calendarId)}/events`;
+}
+
+function eventAddress(calendarId: string, eventId: string): string {
+  return `${eventsAddress(calendarId)}/${encodeURIComponent(eventId)}`;
 }
 
 type TokenAnswer = {
@@ -203,21 +355,30 @@ async function callCalendars(
   accessToken: string,
   address: string,
   method: string,
-  body: unknown,
-): Promise<CalendarAnswer<unknown>> {
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<CalendarAnswer<unknown> | { gone: true; status: number }> {
   const response = await askGoogleSafely(
     new Request(address, {
       method,
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...headers,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }),
   );
   if ("failed" in response) return response;
   const { ok } = response;
   if (ok.status === 401) return { unauthorized: true };
-  if (ok.status === 404 || ok.status === 410) return { gone: true };
+  if (ok.status === 404 || ok.status === 410) return { gone: true, status: ok.status };
+  if (ok.status === 409) return { conflict: true };
+  if (ok.status === 412) return { changedSince: true };
+  if (ok.status === 400) return { invalid: await ok.text() };
   if (!ok.ok) return { failed: `Google's Calendar API answered ${ok.status}` };
-  return { ok: await ok.json() };
+  if (ok.status === 204) return { ok: null };
+  return { ok: await ok.json().catch(() => null) };
 }
 
 async function askGoogleSafely(request: Request): Promise<{ ok: Response } | { failed: string }> {

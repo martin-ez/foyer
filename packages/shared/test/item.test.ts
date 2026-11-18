@@ -10,14 +10,12 @@ import { describe, expect, it } from "vitest";
 
 describe("itemTitleProblem", () => {
   it("refuses a blank title", () => {
-    expect(itemTitleProblem("")).toBe("A task's title can't be blank.");
+    expect(itemTitleProblem("")).toBe("A title can't be blank.");
   });
 
   it("refuses a title over the limit, counting characters as code points", () => {
     expect(itemTitleLimit).toBe(500);
-    expect(itemTitleProblem("a".repeat(501))).toBe(
-      "A task's title can't be longer than 500 characters.",
-    );
+    expect(itemTitleProblem("a".repeat(501))).toBe("A title can't be longer than 500 characters.");
     expect(itemTitleProblem(`${"a".repeat(499)}🧺`)).toBe(null);
   });
 });
@@ -41,7 +39,7 @@ describe("itemDescriptionProblem", () => {
 
   it("refuses a description over the limit", () => {
     expect(itemDescriptionProblem("a".repeat(10_001))).toBe(
-      "A task's description can't be longer than 10,000 characters.",
+      "A description can't be longer than 10,000 characters.",
     );
   });
 });

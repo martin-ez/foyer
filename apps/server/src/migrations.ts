@@ -213,6 +213,88 @@ export const householdMigrations: readonly Migration[] = [
     created_at INTEGER NOT NULL
   );
   CREATE INDEX space_calendars_by_member ON space_calendars (member_id)`,
+  `PRAGMA defer_foreign_keys = on;
+  CREATE TABLE old_items AS SELECT * FROM items;
+  DROP TABLE items;
+  CREATE TABLE items (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('task', 'event', 'note')),
+    space_id TEXT NOT NULL REFERENCES spaces (id),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    date TEXT,
+    created_by TEXT REFERENCES members (id),
+    created_at INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    space_at INTEGER NOT NULL,
+    space_change_id TEXT NOT NULL,
+    title_at INTEGER NOT NULL,
+    title_change_id TEXT NOT NULL,
+    description_at INTEGER NOT NULL,
+    description_change_id TEXT NOT NULL,
+    date_at INTEGER NOT NULL,
+    date_change_id TEXT NOT NULL,
+    repeat TEXT,
+    repeat_from TEXT CHECK (repeat_from IN ('schedule', 'completion')),
+    repeat_at INTEGER NOT NULL DEFAULT 0,
+    repeat_change_id TEXT NOT NULL DEFAULT '',
+    parent_id TEXT,
+    parent_at INTEGER NOT NULL DEFAULT 0,
+    parent_change_id TEXT NOT NULL DEFAULT '',
+    starts_on TEXT,
+    ends_on TEXT,
+    starts_at INTEGER,
+    ends_at INTEGER,
+    time_at INTEGER NOT NULL DEFAULT 0,
+    time_change_id TEXT NOT NULL DEFAULT '',
+    CHECK (created_by IS NOT NULL OR kind = 'event'),
+    CHECK ((starts_on IS NULL) = (ends_on IS NULL)),
+    CHECK ((starts_at IS NULL) = (ends_at IS NULL)),
+    CHECK ((kind = 'event') = ((starts_on IS NULL) != (starts_at IS NULL)))
+  );
+  INSERT INTO items (id, kind, space_id, title, description, date, created_by, created_at, seq,
+    space_at, space_change_id, title_at, title_change_id, description_at, description_change_id,
+    date_at, date_change_id, repeat, repeat_from, repeat_at, repeat_change_id, parent_id, parent_at,
+    parent_change_id)
+  SELECT id, kind, space_id, title, description, date, created_by, created_at, seq,
+    space_at, space_change_id, title_at, title_change_id, description_at, description_change_id,
+    date_at, date_change_id, repeat, repeat_from, repeat_at, repeat_change_id, parent_id, parent_at,
+    parent_change_id
+  FROM old_items;
+  DROP TABLE old_items;
+  CREATE INDEX items_by_seq ON items (seq);
+  CREATE INDEX items_by_space ON items (space_id);
+  CREATE INDEX items_by_parent ON items (parent_id) WHERE parent_id IS NOT NULL;
+  ALTER TABLE space_calendars ADD COLUMN time_zone TEXT NOT NULL DEFAULT 'UTC';
+  UPDATE space_calendars SET time_zone = coalesce(
+    (SELECT time_zone FROM google_connections
+     WHERE google_connections.member_id = space_calendars.member_id),
+    'UTC');
+  ALTER TABLE space_calendars ADD COLUMN sync_token TEXT;
+  ALTER TABLE space_calendars ADD COLUMN read_at INTEGER;
+  ALTER TABLE space_calendars ADD COLUMN lost_at INTEGER;
+  CREATE UNIQUE INDEX space_calendars_by_google_id ON space_calendars (google_calendar_id);
+  CREATE TABLE google_events (
+    item_id TEXT PRIMARY KEY,
+    google_calendar_id TEXT NOT NULL,
+    google_event_id TEXT NOT NULL,
+    etag TEXT,
+    fields TEXT,
+    UNIQUE (google_calendar_id, google_event_id)
+  );
+  CREATE TABLE google_event_writes (
+    item_id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    tries INTEGER NOT NULL,
+    next_attempt_at INTEGER NOT NULL
+  );
+  CREATE TABLE google_event_removals (
+    google_calendar_id TEXT NOT NULL,
+    google_event_id TEXT NOT NULL,
+    tries INTEGER NOT NULL,
+    next_attempt_at INTEGER NOT NULL,
+    PRIMARY KEY (google_calendar_id, google_event_id)
+  )`,
 ];
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration

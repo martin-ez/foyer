@@ -1034,7 +1034,7 @@ describe("tasks and stickers", () => {
   });
 
   it("says why a task's title would be refused", () => {
-    expect(sync.titleProblem("   ")).toBe("A task's title can't be blank.");
+    expect(sync.titleProblem("   ")).toBe("A title can't be blank.");
     expect(sync.titleProblem(" Buy milk ")).toBe(null);
   });
 });
@@ -1511,5 +1511,128 @@ describe("nesting tasks", () => {
         value && "completionId" in value ? value.itemId : null,
       ),
     ).toEqual([party.id, food.id, cake.id]);
+  });
+});
+
+describe("events", () => {
+  const personal = {
+    id: "019a8f4e-5c00-7000-8000-0000000000a3",
+    kind: SpaceKind.PERSONAL,
+    ownerId: me,
+    name: "Personal",
+    calendarMemberId: me,
+    calendarState: CalendarState.SYNCING,
+  };
+  const work = { ...personal, id: "019a8f4e-5c00-7000-8000-0000000000a4", name: "Work" };
+  const startsAt = Date.parse("2026-11-20T19:00:00Z");
+  const endsAt = Date.parse("2026-11-20T21:00:00Z");
+  const dinner = {
+    seq: 4n,
+    row: {
+      case: "item" as const,
+      value: {
+        id: "019a8f4e-5c00-7000-8000-0000000000e1",
+        kind: ItemKind.EVENT,
+        spaceId: personal.id,
+        title: "Dinner",
+        date: "2026-11-20",
+        startsAt: timestampFromMs(startsAt),
+        endsAt: timestampFromMs(endsAt),
+      },
+    },
+  };
+  const dinnerId = dinner.row.value.id;
+
+  function changesIn(push: Push) {
+    return push.changes.map(({ change }) => ({ case: change.case, value: change.value }));
+  }
+
+  it("adds an event at once, with when it happens, and no sticker", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
+
+    const itemId = sync.addEvent(personal.id, {
+      title: " Dinner ",
+      description: "At home",
+      time: { allDay: false, startsAt, endsAt },
+    });
+
+    expect(changesIn(household().lastPush())).toEqual([
+      {
+        case: "itemCreate",
+        value: expect.objectContaining({
+          itemId,
+          kind: ItemKind.EVENT,
+          spaceId: personal.id,
+          title: "Dinner",
+          description: "At home",
+          startsOn: "",
+          endsOn: "",
+          startsAt: timestampFromMs(startsAt),
+          endsAt: timestampFromMs(endsAt),
+        }),
+      },
+    ]);
+    expect(sync.getState().items.get(itemId)).toMatchObject({
+      kind: ItemKind.EVENT,
+      title: "Dinner",
+      createdBy: me,
+      startsAt: timestampFromMs(startsAt),
+    });
+    expect(sync.getState().stickers.size).toBe(0);
+  });
+
+  it("changes when an event happens at once, from times to all day", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal), dinner], 4);
+
+    sync.setEventTime(dinnerId, { allDay: true, startsOn: "2026-11-21", endsOn: "2026-11-22" });
+
+    const [change] = household().lastPush().changes;
+    expect(change?.change.case).toBe("eventSetTime");
+    expect(change?.change.value).toMatchObject({
+      itemId: dinnerId,
+      startsOn: "2026-11-21",
+      endsOn: "2026-11-22",
+    });
+    expect(change?.change.value).not.toHaveProperty("startsAt");
+    expect(change?.change.value).not.toHaveProperty("endsAt");
+    expect(sync.getState().items.get(dinnerId)).toMatchObject({
+      startsOn: "2026-11-21",
+      endsOn: "2026-11-22",
+      startsAt: undefined,
+    });
+  });
+
+  it("moves and deletes an event at once", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal), spaceRow(3, work), dinner], 4);
+
+    sync.moveEvent(dinnerId, work.id);
+    const moved = sync.getState().items.get(dinnerId)?.spaceId;
+    sync.deleteEvent(dinnerId);
+
+    expect(household().pushes().flatMap(changesIn)).toEqual([
+      { case: "itemMove", value: expect.objectContaining({ itemId: dinnerId, spaceId: work.id }) },
+      { case: "itemDelete", value: expect.objectContaining({ itemId: dinnerId }) },
+    ]);
+    expect(moved).toBe(work.id);
+    expect(sync.getState().items.has(dinnerId)).toBe(false);
+  });
+
+  it("undoes an event the household refuses, and says why", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
+
+    const itemId = sync.addEvent(inbox.id, {
+      title: "Dinner",
+      description: "",
+      time: { allDay: true, startsOn: "2026-11-20", endsOn: "2026-11-20" },
+    });
+    const push = household().lastPush();
+    household().commit(push, {
+      [push.changes[0]?.changeId ?? ""]: "An event can only go in a space with a Google calendar.",
+    });
+
+    expect(sync.getState().items.has(itemId)).toBe(false);
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save adding “Dinner”: An event can only go in a space with a Google calendar.",
+    ]);
   });
 });

@@ -125,18 +125,32 @@ describe("creating tasks", () => {
   });
 
   it.each([
-    ["a blank title", { title: "   " }, "A task's title can't be blank."],
+    ["a blank title", { title: "   " }, "A title can't be blank."],
     [
       "a title over 500 characters",
       { title: "a".repeat(501) },
-      "A task's title can't be longer than 500 characters.",
+      "A title can't be longer than 500 characters.",
     ],
     [
       "a date that isn't a day",
       { date: "2026-02-30" },
       "A task's date must be a day, as in “2026-11-17”.",
     ],
-    ["an event, for now", { kind: ItemKind.EVENT }, "Only tasks can be created for now."],
+    ["a note, for now", { kind: ItemKind.NOTE }, "Only tasks and events can be created for now."],
+    [
+      "an event in a space without a Google calendar",
+      {
+        kind: ItemKind.EVENT,
+        startsOn: "2026-11-20",
+        endsOn: "2026-11-20",
+      },
+      "An event can only go in a space with a Google calendar.",
+    ],
+    [
+      "a time on a task",
+      { startsOn: "2026-11-20", endsOn: "2026-11-20" },
+      "Only events have a time.",
+    ],
     [
       "an id that isn't a UUID version 7",
       { itemId: "task-1" },
@@ -287,18 +301,18 @@ describe("editing tasks", () => {
   });
 
   it.each([
-    ["a blank title", itemSetTitle, "  ", "A task's title can't be blank."],
+    ["a blank title", itemSetTitle, "  ", "A title can't be blank."],
     [
       "a title over 500 characters",
       itemSetTitle,
       "a".repeat(501),
-      "A task's title can't be longer than 500 characters.",
+      "A title can't be longer than 500 characters.",
     ],
     [
       "a description over 10,000 characters",
       itemSetDescription,
       "a".repeat(10_001),
-      "A task's description can't be longer than 10,000 characters.",
+      "A description can't be longer than 10,000 characters.",
     ],
     [
       "a date that isn't a day",
@@ -325,7 +339,7 @@ describe("editing tasks", () => {
     );
 
     expect(resultOf(committed.results[0])).toEqual({
-      refused: "A task's description can't be longer than 10,000 characters.",
+      refused: "A description can't be longer than 10,000 characters.",
     });
   });
 

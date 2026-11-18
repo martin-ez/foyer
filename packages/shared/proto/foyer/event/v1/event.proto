@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package foyer.event.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Changes when an event happens, as one value: the change made last wins, by the device's clock.
+// Exactly one pair is set, as in Item. The household dates the event by its new start and writes
+// the change to its Google calendar. Anyone who can see the event can change it.
+message EventSetTime {
+  // An event the member sees.
+  string item_id = 1;
+  // The first day of an all-day event, as a plain ISO 8601 date.
+  string starts_on = 2;
+  // The last day of an all-day event, as a plain ISO 8601 date, never before starts_on.
+  string ends_on = 3;
+  // When an event with times starts.
+  google.protobuf.Timestamp starts_at = 4;
+  // When an event with times ends, never before starts_at.
+  google.protobuf.Timestamp ends_at = 5;
+}

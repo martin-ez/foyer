@@ -8,6 +8,7 @@ import { useHousehold } from "../shell/household";
 import { CalendarLabels } from "./calendar-labels";
 import { monthLayout, weekLayout } from "./calendar-layout";
 import { type CalendarSpan, type CalendarView, calendarPage, stepCalendar } from "./calendar-view";
+import { EventsPanel } from "./events-panel";
 import { ConnectGooglePrompt } from "./google-calendar-views";
 
 const spans: { span: CalendarSpan; name: string }[] = [
@@ -16,9 +17,9 @@ const spans: { span: CalendarSpan; name: string }[] = [
   { span: "month", name: "Month" },
 ];
 
-/** The household's calendar, open on today's day page, with ways to move to the previous or next
- *  page, back to today, and between month, week and day pages, as in Google Calendar. Tapping a
- *  day on a month or week page opens the day's page. */
+/** The household's calendar, open on today's day page, with ways to move between pages, back to
+ *  today, and between month, week and day pages; tapping a day opens its page. Above the page, the
+ *  upcoming events, which can be added, opened and changed there. */
 export function CalendarScreen() {
   const { state } = useHousehold();
   const [view, setView] = useState<CalendarView>(() => ({ span: "day", date: localToday() }));
@@ -42,6 +43,7 @@ export function CalendarScreen() {
         <Button title={`Next ${view.span}`} onPress={() => setView(stepCalendar(view, 1))} />
       </TitleBar>
       <ConnectGooglePrompt />
+      <EventsPanel />
       <PageView page={page} ruling={layout?.ruling}>
         {layout ? (
           <CalendarLabels

@@ -193,8 +193,12 @@ type ItemRow = {
   repeat: string | null;
   repeat_from: "schedule" | "completion" | null;
   parent_id: string | null;
-  created_by: string;
+  created_by: string | null;
   created_at: number;
+  starts_on: string | null;
+  ends_on: string | null;
+  starts_at: number | null;
+  ends_at: number | null;
   seq: number;
   owner_id: string | null;
 };
@@ -253,7 +257,8 @@ const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
 const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
   items.date, items.repeat, items.repeat_from, items.parent_id, items.created_by, items.created_at,
-  items.seq, spaces.owner_id FROM ${itemsWithOwner}`;
+  items.starts_on, items.ends_on, items.starts_at, items.ends_at, items.seq, spaces.owner_id
+  FROM ${itemsWithOwner}`;
 
 const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
@@ -477,8 +482,12 @@ function itemRow(item: ItemRow): VisibleRow {
     repeat: item.repeat ?? "",
     repeatFrom: item.repeat_from ? repeatFroms[item.repeat_from] : RepeatFrom.UNSPECIFIED,
     parentId: item.parent_id ?? "",
-    createdBy: item.created_by,
+    createdBy: item.created_by ?? "",
     createdAt: timestampFromMs(item.created_at),
+    startsOn: item.starts_on ?? "",
+    endsOn: item.ends_on ?? "",
+    ...(item.starts_at === null ? {} : { startsAt: timestampFromMs(item.starts_at) }),
+    ...(item.ends_at === null ? {} : { endsAt: timestampFromMs(item.ends_at) }),
   });
   return {
     row: create(RowSchema, { seq: BigInt(item.seq), row: { case: "item", value } }),
