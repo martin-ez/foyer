@@ -1,11 +1,11 @@
+import type { Box, CalendarLayout } from "@foyer/shared";
 import { StyleSheet, Text, View } from "react-native";
 import { describeDay, weekdayOf } from "../page/calendar-date";
-import type { Box } from "../page/page-drawing";
 import { useStickerDrag } from "../page/sticker-drag";
-import type { CalendarLayout } from "./calendar-layout";
 
-/** What a month or week page prints in words, as views laid out in its points: the weekdays'
- *  names, and each day's number, which opens the day's page when tapped. Today's is marked. */
+/** What a calendar page prints in words, as views laid out in its points: the weekdays' names,
+ *  and each day's number, which opens the day's page when tapped. Today's is marked. A day's page
+ *  prints none. */
 export function CalendarLabels({
   layout,
   today,
@@ -23,16 +23,18 @@ export function CalendarLabels({
           <Text style={styles.weekdayName}>{weekdayOf(date)}</Text>
         </View>
       ))}
-      {layout.days.map(({ date, label }) => (
-        <DayLabel
-          key={date}
-          date={date}
-          box={label}
-          named={named}
-          today={date === today}
-          onOpen={() => onOpenDay(date)}
-        />
-      ))}
+      {layout.days.map(({ date, label }) =>
+        label ? (
+          <DayLabel
+            key={date}
+            date={date}
+            box={label}
+            named={named}
+            today={date === today}
+            onOpen={() => onOpenDay(date)}
+          />
+        ) : null,
+      )}
     </>
   );
 }

@@ -20,8 +20,13 @@ message Sticker {
   string item_id = 6;
   // When it was placed, or last moved, by the clock of the device that did it.
   google.protobuf.Timestamp placed_at = 7;
-  // The member who placed it, or last moved it.
+  // The member who placed it, or last moved it. When the household places or moves an item's
+  // calendar stickers itself, the member whose change, or whose Google calendar, dated the item.
   string placed_by = 8;
+  // The day it shows its item on, as a plain ISO 8601 date such as "2026-11-17", on a calendar
+  // page: a day the page shows. A repeating task's stickers stay on the days it was ticked, shown
+  // as done for that occurrence. Empty on every other page.
+  string occurrence = 9;
 }
 
 // What a sticker shows, which sets its size. An app that doesn't know a kind draws a plain outline
@@ -37,8 +42,10 @@ enum StickerKind {
 }
 
 // Places a sticker on a page. Only someone who can see the page and the item can place it, and its
-// kind must be its item's. For now, stickers go only on space pages, and only the space's own items
-// go on them.
+// kind must be its item's. A space's page takes the space's own items, an item's body page the items
+// under it, and a calendar page tasks and events, on a day it shows. A device that gives an item a
+// date, or changes it, places or moves its calendar stickers in the same push, and the household
+// then keeps one on its day on each kind of calendar page.
 message StickerPlace {
   // A new UUID version 7, made by the device.
   string sticker_id = 1;
@@ -49,6 +56,9 @@ message StickerPlace {
   double y = 4;
   StickerKind kind = 5;
   string item_id = 6;
+  // The day it shows its item on, as in Sticker: required on a calendar page, and refused on any
+  // other.
+  string occurrence = 7;
 }
 
 // Moves a sticker within its page, which brings it to the top. Only someone who can see its item
@@ -58,6 +68,9 @@ message StickerMove {
   // Its new top-left corner, in points from the page's top-left corner, on the page.
   double x = 2;
   double y = 3;
+  // On a calendar page, the day it's moved to, which the page shows, or empty to keep its day.
+  // Refused on any other page.
+  string occurrence = 4;
 }
 
 // Peels a sticker off its page. Only someone who can see its item can remove it. Its item stays. A

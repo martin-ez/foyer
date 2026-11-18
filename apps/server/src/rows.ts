@@ -210,6 +210,7 @@ type StickerRow = {
   y: number;
   kind: "task" | "event" | "note";
   item_id: string;
+  occurrence: string | null;
   placed_at: number;
   placed_by: string;
   seq: number;
@@ -264,7 +265,8 @@ const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id ${
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
 
 const selectStickers = `SELECT stickers.id, stickers.page_id, stickers.x, stickers.y, stickers.kind,
-  stickers.item_id, stickers.placed_at, stickers.placed_by, stickers.seq, spaces.owner_id
+  stickers.item_id, stickers.occurrence, stickers.placed_at, stickers.placed_by, stickers.seq,
+  spaces.owner_id
   FROM ${stickersWithOwner}`;
 
 const completionsWithOwner = `completions JOIN items ON items.id = completions.item_id
@@ -505,6 +507,7 @@ function stickerRow(sticker: StickerRow): VisibleRow {
     itemId: sticker.item_id,
     placedAt: timestampFromMs(sticker.placed_at),
     placedBy: sticker.placed_by,
+    occurrence: sticker.occurrence ?? "",
   });
   return {
     row: create(RowSchema, { seq: BigInt(sticker.seq), row: { case: "sticker", value } }),

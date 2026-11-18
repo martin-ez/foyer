@@ -25,11 +25,17 @@ import {
 } from "./events";
 
 /** The events that haven't ended, soonest first, with ways to add one and to open one to change,
- *  move or delete it. Events go only in spaces that have a Google calendar. */
-export function EventsPanel() {
+ *  move or delete it: `open` is the event that's open, or "new" for a new one. Events go only in
+ *  spaces that have a Google calendar. */
+export function EventsPanel({
+  open,
+  onOpen: setOpen,
+}: {
+  open: string | "new" | null;
+  onOpen: (open: string | "new" | null) => void;
+}) {
   const { state } = useHousehold();
   const { height } = useWindowDimensions();
-  const [open, setOpen] = useState<string | "new" | null>(null);
   const withCalendar = state.spaces.filter(
     ({ calendarState }) => calendarState !== CalendarState.NONE,
   );

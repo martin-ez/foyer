@@ -313,9 +313,17 @@ export function itemDelete(itemId: string, made: Made = {}): ChangeInit {
   return { ...madeNow(made), change: { case: "itemDelete", value: { itemId } } };
 }
 
-/** Moves a sticker, made by the device now unless `made` says otherwise. */
-export function stickerMove(stickerId: string, x: number, y: number, made: Made = {}): ChangeInit {
-  return { ...madeNow(made), change: { case: "stickerMove", value: { stickerId, x, y } } };
+/** Moves a sticker, on a calendar page to the day `occurrence` names unless it's empty, made by
+ *  the device now unless `made` says otherwise. */
+export function stickerMove(
+  stickerId: string,
+  x: number,
+  y: number,
+  made: Made = {},
+  occurrence = "",
+): ChangeInit {
+  const value = { stickerId, x, y, occurrence };
+  return { ...madeNow(made), change: { case: "stickerMove", value } };
 }
 
 /** Removes a sticker, made by the device now unless `made` says otherwise. */

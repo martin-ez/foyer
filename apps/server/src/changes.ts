@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { clashingName, freeSpaceName, isId, spaceNameProblem } from "@foyer/shared";
+import { clashingName, freeSpaceName, isId, newId, spaceNameProblem } from "@foyer/shared";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
   type Change,
@@ -8,6 +8,7 @@ import {
   ChangeResultSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { itemsOfRows, settleCalendarStickers } from "./calendar-stickers";
 import { tickTask, untickTask } from "./completions";
 import { queueEventWrites } from "./event-sync";
 import { setEventTime } from "./events";
@@ -24,7 +25,8 @@ export type PushOutcome = { results: ChangeResult[]; changed: RowKey[]; unchange
 
 /** Applies a member's changes in order, each on its own, remembering what became of each by its id
  *  so that sending it again has no effect, and queues the events they change for Google. A change
- *  that fails unexpectedly is refused without being remembered, so sending it again retries it. */
+ *  that fails unexpectedly is refused without being remembered, so sending it again retries it.
+ *  Then keeps the calendar stickers of the items they changed on their days, as the member. */
 export function applyPush(
   storage: DurableObjectStorage,
   memberId: string,
@@ -55,6 +57,17 @@ export function applyPush(
       const refused = "Something went wrong while saving this change.";
       outcome.results.push(resultOf(change.changeId, { refused }));
     }
+  }
+  try {
+    const items = itemsOfRows(storage.sql, outcome.changed);
+    const setter = { at: now, changeId: newId() };
+    outcome.changed.push(
+      ...storage.transactionSync(() =>
+        settleCalendarStickers(storage.sql, items, setter, memberId),
+      ),
+    );
+  } catch (error) {
+    console.error(`Keeping calendar stickers on their days failed: ${error}`);
   }
   return outcome;
 }

@@ -1,7 +1,14 @@
-import { a2Landscape } from "@foyer/shared";
+import {
+  a2Landscape,
+  a4Portrait,
+  type Box,
+  type CalendarLayout,
+  calendarLayout,
+  calendarPageOf,
+  monthLayout,
+  weekLayout,
+} from "@foyer/shared";
 import { describe, expect, it } from "vitest";
-import { type CalendarLayout, monthLayout, weekLayout } from "../src/calendar/calendar-layout";
-import type { Box } from "../src/page/page-drawing";
 
 function within(box: Box) {
   return (
@@ -33,7 +40,9 @@ describe("monthLayout", () => {
     expect(november.days.map(({ date }) => date)).toEqual(
       Array.from({ length: 30 }, (_, day) => `2026-11-${String(day + 1).padStart(2, "0")}`),
     );
-    expect(november.days.every(({ box, label }) => within(box) && within(label))).toBe(true);
+    expect(november.days.every(({ box, label }) => within(box) && label && within(label))).toBe(
+      true,
+    );
   });
 
   it("puts each day in its weekday's column, Monday first", () => {
@@ -88,8 +97,64 @@ describe("weekLayout", () => {
 
   it("names each day above its space, on the page", () => {
     for (const { label, box } of week.days) {
-      expect(within(label) && within(box)).toBe(true);
-      expect(label.y + label.height).toBeLessThanOrEqual(box.y);
+      expect(label && within(label) && within(box)).toBe(true);
+      expect((label?.y ?? 0) + (label?.height ?? 0)).toBeLessThanOrEqual(box.y);
     }
   });
 });
+
+describe("stickers' space on calendar pages", () => {
+  it("keeps a month's day's stickers in its box, below its number", () => {
+    for (const { box, label, stickers } of monthLayout("2026-11", a2Landscape).days) {
+      expect(inside(stickers, box)).toBe(true);
+      expect(stickers.y).toBeGreaterThanOrEqual((label?.y ?? 0) + (label?.height ?? 0));
+    }
+  });
+
+  it("gives a week's day its whole box below its name", () => {
+    for (const { box, stickers } of weekLayout("2026-11-16", a2Landscape).days) {
+      expect(stickers).toEqual(box);
+    }
+  });
+
+  it("gives a day's page to the day, inside its margins, printing nothing", () => {
+    const day = calendarLayout("day:2026-11-17", a4Portrait);
+
+    expect(day?.days).toHaveLength(1);
+    expect(day?.days[0]?.date).toBe("2026-11-17");
+    expect(day?.days[0]?.label).toBeNull();
+    const stickers = day?.days[0]?.stickers;
+    expect(stickers && inside(stickers, { x: 0, y: 0, ...a4Portrait })).toBe(true);
+    expect(day?.ruling).toEqual({ shaded: [], lines: [] });
+  });
+});
+
+describe("calendarPageOf", () => {
+  it.each([
+    ["month:2026-11", { kind: "month", date: "2026-11" }],
+    ["week:2026-11-16", { kind: "week", date: "2026-11-16" }],
+    ["day:2026-11-17", { kind: "day", date: "2026-11-17" }],
+  ])("reads %s", (pageId, calendar) => {
+    expect(calendarPageOf(pageId)).toEqual(calendar);
+  });
+
+  it.each([
+    "week:2026-11-17",
+    "day:2026-11-31",
+    "month:2026-13",
+    "space:0190c6c4-6c2b-7d4e-8a1b-1234567890ab:1",
+    "day:2026-11-17:x",
+  ])("reads %s as no calendar page", (pageId) => {
+    expect(calendarPageOf(pageId)).toBeNull();
+    expect(calendarLayout(pageId, a4Portrait)).toBeNull();
+  });
+});
+
+function inside(inner: Box, outer: Box) {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width + 0.001 &&
+    inner.y + inner.height <= outer.y + outer.height + 0.001
+  );
+}

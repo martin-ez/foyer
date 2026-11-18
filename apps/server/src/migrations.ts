@@ -295,7 +295,39 @@ export const householdMigrations: readonly Migration[] = [
     next_attempt_at INTEGER NOT NULL,
     PRIMARY KEY (google_calendar_id, google_event_id)
   )`,
+  `ALTER TABLE stickers ADD COLUMN occurrence TEXT;
+  CREATE TABLE household_jobs (name TEXT PRIMARY KEY);
+  INSERT INTO household_jobs (name) VALUES ('place calendar stickers')`,
 ];
+
+/** Work on the household's data that needs the code as it is now, rather than as it was when a
+ *  migration was written, such as placing stickers with today's rules. A migration queues a job by
+ *  adding its name to the household_jobs table, and the household runs it once all migrations have
+ *  run. A job must have no effect on storage that has nothing for it to do. */
+export type HouseholdJob = (storage: DurableObjectStorage) => void;
+
+/** Runs, each in its own transaction, the jobs that migrations queued, and forgets them. A job
+ *  that fails is undone and stays queued, to run again next time. Queued jobs this code doesn't
+ *  know are left for code that does. */
+export function runJobs(
+  storage: DurableObjectStorage,
+  jobs: Readonly<Record<string, HouseholdJob>>,
+): void {
+  const { sql } = storage;
+  const queued = sql.exec<{ name: string }>("SELECT name FROM household_jobs").toArray();
+  for (const { name } of queued) {
+    const job = jobs[name];
+    if (!job) continue;
+    try {
+      storage.transactionSync(() => {
+        job(storage);
+        sql.exec("DELETE FROM household_jobs WHERE name = ?", name);
+      });
+    } catch (error) {
+      console.error(`The household's job “${name}” failed: ${error}`);
+    }
+  }
+}
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration
  *  that fails is undone and stops the rest. Storage that ran newer migrations is left as it is. */

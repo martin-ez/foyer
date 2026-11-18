@@ -87,7 +87,7 @@ export function TasksScreen() {
         />
       )}
       <View style={styles.fill}>
-        <PageView page={shown} onOpenTask={setOpenTaskId} />
+        <PageView page={shown} onOpenItem={setOpenTaskId} />
         {openTask ? null : panel === "spaces" ? (
           <SpacesPanel
             state={state}

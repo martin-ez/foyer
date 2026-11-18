@@ -15,14 +15,17 @@ import {
   type Size,
   zoomCamera,
 } from "./sheet-camera";
+import { tapSlop } from "./sticker-drag";
 
 /** A page lying on the desk, drawn by Skia in a canvas the size of the view. Pinching, or scrolling
- *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. */
+ *  with ctrl held, zooms it; dragging or scrolling moves it. It opens fitted to the desk. A click
+ *  that doesn't move is a tap. */
 export function PageSheet({
   size,
   ruling,
   label,
   onPoint,
+  onTap,
   children,
 }: {
   size: PageSize;
@@ -31,6 +34,9 @@ export function PageSheet({
   label: string;
   /** Called as the pointer moves over the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
+  /** Called when the page itself is clicked or tapped, rather than something on it, in points from
+   *  its top-left corner. */
+  onTap?: (at: Point) => void;
   /** Views above the page, laid out in its own points. Only those that ask for the pointer, such
    *  as stickers, take it. */
   children?: ReactNode;
@@ -40,6 +46,7 @@ export function PageSheet({
   const page = useRef(size);
   page.current = size;
   const pointing = useRef<((at: Point) => void) | undefined>(undefined);
+  const tapping = useRef<((at: Point) => void) | undefined>(undefined);
   const [desk, setDesk] = useState<{ view: Size; camera: Camera }>({
     view: { width: 0, height: 0 },
     camera: { x: 0, y: 0, scale: 0 },
@@ -67,6 +74,7 @@ export function PageSheet({
           camera: panCamera(camera, view, page.current, by),
         })),
       point: (at) => pointing.current?.(at),
+      tap: (at) => tapping.current?.(at),
     });
   }, [host]);
 
@@ -74,13 +82,15 @@ export function PageSheet({
   const shown = useRef(camera);
   shown.current = camera;
   const scale = useCallback(() => shown.current.scale || 1, []);
-  pointing.current = (at) => {
+  const onThePage = (at: Point, then?: (onPage: Point) => void) => {
     const onPage = pointOnPage(camera, at);
     const { width, height } = page.current;
     if (onPage.x >= 0 && onPage.y >= 0 && onPage.x <= width && onPage.y <= height) {
-      onPoint?.(onPage);
+      then?.(onPage);
     }
   };
+  pointing.current = (at) => onThePage(at, onPoint);
+  tapping.current = (at) => onThePage(at, onTap);
   return (
     <View ref={keepHost} style={styles.desk} onLayout={onLayout} accessibilityLabel={label}>
       <Canvas style={styles.fill}>
@@ -110,6 +120,8 @@ type Gestures = {
   zoom(factor: number, focus: Point, pan: Point): void;
   pan(by: Point): void;
   point(at: Point): void;
+  /** One pointer went down and up again without moving, or zooming with another. */
+  tap(at: Point): void;
 };
 
 type SafariTrackpadPinch = Event & { scale: number; clientX: number; clientY: number };
@@ -118,6 +130,7 @@ const still: Point = { x: 0, y: 0 };
 
 function followGestures(element: HTMLElement, gestures: Gestures): () => void {
   const pointers = new Map<number, Point>();
+  let tapFrom: { pointerId: number; at: Point } | null = null;
   let gestureScale = 1;
   const at = (event: { clientX: number; clientY: number }): Point => {
     const box = element.getBoundingClientRect();
@@ -129,6 +142,10 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
       "pointerdown",
       (event: PointerEvent) => {
         element.setPointerCapture(event.pointerId);
+        tapFrom =
+          pointers.size === 0 && event.button === 0
+            ? { pointerId: event.pointerId, at: at(event) }
+            : null;
         pointers.set(event.pointerId, at(event));
       },
     ],
@@ -152,8 +169,23 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
         gestures.zoom(distance(now, other) / apart, from, { x: to.x - from.x, y: to.y - from.y });
       },
     ],
-    ["pointerup", (event: PointerEvent) => pointers.delete(event.pointerId)],
-    ["pointercancel", (event: PointerEvent) => pointers.delete(event.pointerId)],
+    [
+      "pointerup",
+      (event: PointerEvent) => {
+        pointers.delete(event.pointerId);
+        const from = tapFrom;
+        if (from?.pointerId !== event.pointerId) return;
+        tapFrom = null;
+        if (distance(from.at, at(event)) < tapSlop) gestures.tap(at(event));
+      },
+    ],
+    [
+      "pointercancel",
+      (event: PointerEvent) => {
+        pointers.delete(event.pointerId);
+        tapFrom = null;
+      },
+    ],
     [
       "wheel",
       (event: WheelEvent) => {

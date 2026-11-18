@@ -19,6 +19,22 @@ export function doneTasks(
   return done;
 }
 
+/** Whether the task a sticker shows is done on the sticker's day: for a repeating task on a
+ *  calendar page, whether that occurrence was ticked, and otherwise whether the task is done. */
+export function isStickerDone(
+  sticker: Pick<Sticker, "itemId" | "occurrence">,
+  item: Item | undefined,
+  completions: Iterable<Completion>,
+): boolean {
+  if (!item || item.kind !== ItemKind.TASK) return false;
+  const onDay = item.repeat !== "" && sticker.occurrence !== "";
+  const occurrence = onDay ? sticker.occurrence : currentOccurrence(item);
+  for (const completion of completions) {
+    if (completion.itemId === item.id && completion.occurrence === occurrence) return true;
+  }
+  return false;
+}
+
 /** A space's tasks in list order: its top-level tasks in the order of their stickers on its pages,
  *  page by page, top to bottom, then left to right, each followed by the tasks under it, in the
  *  order of their stickers on its body page. A task with no such sticker comes last among them. */

@@ -6,7 +6,7 @@ import {
   type StickerKindName,
   type StickerOnPage,
   spacePageId,
-  stickerSizeOf,
+  stickerSizeOn,
   stickerSpotInSpace,
 } from "@foyer/shared";
 import { type Page, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
@@ -19,10 +19,10 @@ const kindNames: Partial<Record<StickerKind, StickerKindName>> = {
   [StickerKind.NOTE]: "note",
 };
 
-/** The size of a sticker of a kind, in points. Each kind has a fixed size, the same on every page
- *  for now. */
-export function stickerSize(kind: StickerKind): PageSize {
-  return stickerSizeOf(kindNames[kind] ?? null);
+/** The size of a sticker of a kind on a page, in points. Each kind has a fixed size, and every
+ *  sticker on a calendar page has the calendar's. */
+export function stickerSize(kind: StickerKind, pageId: string): PageSize {
+  return stickerSizeOn(pageId, kindNames[kind] ?? null);
 }
 
 /** The stickers on a page, in the order they stack, bottom first: by when they were placed or last
@@ -71,7 +71,7 @@ export function spotOnPage(
   newPageSize: PageSize,
 ): { at: Point; isNewPage: boolean } {
   const page = pages.get(pageId) ?? newPageSize;
-  const size = stickerSize(kind);
+  const size = stickerSize(kind, pageId);
   const lowest = { x: pageMargin, y: Math.max(page.height - pageMargin - size.height, 0) };
   const at = nextStickerSpot(page, onPage(pageId, stickers), kindNames[kind] ?? null) ?? lowest;
   return { at, isNewPage: !pages.has(pageId) };

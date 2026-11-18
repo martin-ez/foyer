@@ -903,7 +903,10 @@ describe("storage from before events", () => {
     const pageId = `space:${ids.space}:1`;
     await runInDurableObject(theHousehold(), async (_, { storage }) => {
       await storage.deleteAll();
-      migrate(storage, householdMigrations.slice(0, -1));
+      const events = householdMigrations.findIndex(
+        (migration) => typeof migration === "string" && migration.includes("TABLE google_events"),
+      );
+      migrate(storage, householdMigrations.slice(0, events));
       const { sql } = storage;
       const now = Date.now();
       sql.exec("UPDATE household SET seq = 5");

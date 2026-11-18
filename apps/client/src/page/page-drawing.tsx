@@ -1,18 +1,11 @@
-import type { PageSize } from "@foyer/shared";
+import type { PageSize, Ruling } from "@foyer/shared";
+
+export type { Box, Ruling } from "@foyer/shared";
+
 import { Line, Rect } from "react-native-skia";
 
 /** The colour of a page's paper. */
 export const paperColour = "#fffdf8";
-
-/** A rectangle on a page, in points from its top-left corner. */
-export type Box = { x: number; y: number; width: number; height: number };
-
-/** What's printed on a page's paper, such as a calendar's grid, in the page's own points: shaded
- *  boxes, with lines over them. */
-export type Ruling = {
-  shaded: readonly Box[];
-  lines: readonly { from: { x: number; y: number }; to: { x: number; y: number } }[];
-};
 
 const shadeColour = "#f1ece1";
 const lineColour = "#cfc6b4";

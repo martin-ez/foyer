@@ -1,6 +1,5 @@
-import { a2Landscape, a4Portrait } from "@foyer/shared";
+import { a2Landscape, a4Portrait, monthLayout, weekLayout } from "@foyer/shared";
 import { describe, it } from "vitest";
-import { monthLayout, weekLayout } from "../src/calendar/calendar-layout";
 import { DeskDrawing } from "../src/page/desk-drawing";
 import { PageDrawing } from "../src/page/page-drawing";
 import { fittedCamera, zoomCamera } from "../src/page/sheet-camera";

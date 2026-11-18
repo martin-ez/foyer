@@ -3,6 +3,9 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   a2Landscape,
   a4Portrait,
+  calendarPageId,
+  calendarPageKinds,
+  calendarStickerGap,
   itemPageId,
   newId,
   pageMargin,
@@ -26,6 +29,7 @@ import {
   type RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localToday } from "../src/page/calendar-date";
 import { stickersOn } from "../src/page/sticker-layout";
 import {
   type Connect,
@@ -194,6 +198,17 @@ function completionRow(
   completion: { id: string; itemId: string; doneBy: string; occurrence?: string },
 ): RowInit {
   return { seq: BigInt(seq), row: { case: "completion", value: completion } };
+}
+
+/** Whether a change places, moves or removes a sticker, or creates a page, as dating an item
+ *  does on the calendar's pages. */
+function onPages({ change }: Pick<Change, "change">): boolean {
+  return (
+    change.case === "pageCreate" ||
+    change.case === "stickerPlace" ||
+    change.case === "stickerMove" ||
+    change.case === "stickerRemove"
+  );
 }
 
 function memberRow(seq: number, member: { id: string; name: string }): RowInit {
@@ -932,7 +947,10 @@ describe("tasks and stickers", () => {
     sync.setDescription(task.id, "From the corner shop");
     sync.setDate(task.id, "2026-11-20");
 
-    expect(household().pushes().flatMap(changesIn)).toEqual([
+    const pushed = household()
+      .pushes()
+      .flatMap(({ changes }) => changes.filter((change) => !onPages(change)));
+    expect(pushed.map(({ change }) => ({ case: change.case, value: change.value }))).toEqual([
       {
         case: "itemSetTitle",
         value: expect.objectContaining({ itemId: task.id, title: "Buy oat milk" }),
@@ -1157,7 +1175,8 @@ describe("repeating tasks", () => {
   function pushed() {
     return household()
       .lastPush()
-      .changes.map(({ change }) => change);
+      .changes.filter((change) => !onPages(change))
+      .map(({ change }) => change);
   }
 
   function shownTask() {
@@ -1547,7 +1566,7 @@ describe("events", () => {
     return push.changes.map(({ change }) => ({ case: change.case, value: change.value }));
   }
 
-  it("adds an event at once, with when it happens, and no sticker", () => {
+  it("adds an event at once, with when it happens, and its stickers on the day it starts here", () => {
     startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
 
     const itemId = sync.addEvent(personal.id, {
@@ -1556,7 +1575,8 @@ describe("events", () => {
       time: { allDay: false, startsAt, endsAt },
     });
 
-    expect(changesIn(household().lastPush())).toEqual([
+    const push = household().lastPush();
+    expect(changesIn({ ...push, changes: push.changes.filter((each) => !onPages(each)) })).toEqual([
       {
         case: "itemCreate",
         value: expect.objectContaining({
@@ -1578,7 +1598,11 @@ describe("events", () => {
       createdBy: me,
       startsAt: timestampFromMs(startsAt),
     });
-    expect(sync.getState().stickers.size).toBe(0);
+    const day = localToday(new Date(startsAt));
+    const stickers = [...sync.getState().stickers.values()];
+    expect(stickers.map(({ pageId, occurrence, kind }) => [pageId, occurrence, kind])).toEqual(
+      calendarPageKinds.map((pageKind) => [calendarPageId(pageKind, day), day, StickerKind.EVENT]),
+    );
   });
 
   it("changes when an event happens at once, from times to all day", () => {
@@ -1634,5 +1658,183 @@ describe("events", () => {
     expect(sync.getState().problems).toEqual([
       "Couldn't save adding “Dinner”: An event can only go in a space with a Google calendar.",
     ]);
+  });
+});
+
+describe("calendar stickers", () => {
+  const today = "2026-11-17";
+  const task = { id: "019a8f4e-5c00-7000-8000-0000000000c1", spaceId: inbox.id, title: "Buy milk" };
+  const personal = {
+    id: "019a8f4e-5c00-7000-8000-0000000000a3",
+    kind: SpaceKind.PERSONAL,
+    ownerId: me,
+    name: "Personal",
+    calendarMemberId: me,
+    calendarState: CalendarState.SYNCING,
+  };
+
+  beforeEach(() => {
+    sync = new HouseholdSync({ memberId: me, connect, today: () => today });
+  });
+
+  function onCalendar(itemId: string) {
+    return [...sync.getState().stickers.values()]
+      .filter((sticker) => sticker.itemId === itemId && sticker.occurrence !== "")
+      .map(({ id, pageId, occurrence, x, y }) => ({ id, pageId, occurrence, x, y }))
+      .sort((a, b) => a.pageId.localeCompare(b.pageId) || a.occurrence.localeCompare(b.occurrence));
+  }
+
+  function days(itemId: string) {
+    return onCalendar(itemId).map(({ pageId, occurrence }) => `${pageId} ${occurrence}`);
+  }
+
+  function onDay(date: string) {
+    return calendarPageKinds.map((kind) => `${calendarPageId(kind, date)} ${date}`).sort();
+  }
+
+  function pushedCases() {
+    return household()
+      .lastPush()
+      .changes.map(({ change }) => change.case);
+  }
+
+  it("puts a task given a date on its day's month, week and day pages at once, in the same push", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+
+    sync.setDate(task.id, "2026-11-20");
+
+    expect(days(task.id)).toEqual(onDay("2026-11-20"));
+    expect(pushedCases()).toEqual([
+      "itemSetDate",
+      "pageCreate",
+      "pageCreate",
+      "pageCreate",
+      "stickerPlace",
+      "stickerPlace",
+      "stickerPlace",
+    ]);
+    expect([...sync.getState().pages.keys()].sort()).toEqual(
+      ["day:2026-11-20", "month:2026-11", "week:2026-11-16"].sort(),
+    );
+  });
+
+  it("moves a task's stickers to its new date, and takes them off when the date is cleared", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    sync.setDate(task.id, "2026-11-20");
+    const before = onCalendar(task.id);
+
+    sync.setDate(task.id, "2026-11-18");
+
+    expect(days(task.id)).toEqual(onDay("2026-11-18"));
+    const month = (stickers: typeof before) =>
+      stickers.find(({ pageId }) => pageId === "month:2026-11")?.id;
+    expect(month(onCalendar(task.id))).toBe(month(before));
+    expect(pushedCases()).toEqual([
+      "itemSetDate",
+      "pageCreate",
+      "stickerPlace",
+      "stickerMove",
+      "stickerMove",
+      "stickerRemove",
+    ]);
+
+    sync.setDate(task.id, "");
+
+    expect(onCalendar(task.id)).toEqual([]);
+  });
+
+  it("adds a task to a day with its sticker where it was tapped, and the rest on their days", () => {
+    startUpToDate([spaceRow(1, inbox)], 1);
+
+    const { itemId } = sync.addTask(inbox.id, "Buy milk", {
+      date: "2026-11-19",
+      spot: { pageId: "week:2026-11-16", at: { x: 700, y: 400 } },
+    });
+
+    expect(days(itemId)).toEqual(onDay("2026-11-19"));
+    expect(onCalendar(itemId).find(({ pageId }) => pageId === "week:2026-11-16")).toMatchObject({
+      x: 700,
+      y: 400,
+    });
+    expect(sync.getState().items.get(itemId)?.date).toBe("2026-11-19");
+  });
+
+  it("moves a task dropped on another day there, keeping the sticker where it was dropped", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    sync.setDate(task.id, "2026-11-17");
+    const week = onCalendar(task.id).find(({ pageId }) => pageId === "week:2026-11-16");
+
+    sync.moveToDay(week?.id ?? "", { x: 900, y: 500 }, "2026-11-21");
+
+    expect(sync.getState().items.get(task.id)?.date).toBe("2026-11-21");
+    expect(days(task.id)).toEqual(onDay("2026-11-21"));
+    expect(onCalendar(task.id).find(({ id }) => id === week?.id)).toMatchObject({
+      x: 900,
+      y: 500,
+      occurrence: "2026-11-21",
+    });
+  });
+
+  it("moves an event dropped on another day by as many days, keeping its times and length", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
+    const startsAt = new Date(2026, 10, 20, 19, 0).getTime();
+    const itemId = sync.addEvent(personal.id, {
+      title: "Dinner",
+      description: "",
+      time: { allDay: false, startsAt, endsAt: startsAt + 2 * 3_600_000 },
+    });
+    const month = onCalendar(itemId).find(({ pageId }) => pageId === "month:2026-11");
+
+    sync.moveToDay(month?.id ?? "", { x: 400, y: 600 }, "2026-11-23");
+
+    const [change] = household().lastPush().changes;
+    expect(change?.change.case).toBe("eventSetTime");
+    expect(change?.change.value).toMatchObject({
+      startsAt: timestampFromMs(new Date(2026, 10, 23, 19, 0).getTime()),
+      endsAt: timestampFromMs(new Date(2026, 10, 23, 21, 0).getTime()),
+    });
+    expect(days(itemId)).toEqual(onDay("2026-11-23"));
+  });
+
+  it("leaves a repeating task's stickers on the day ticked, and puts it on its next date", () => {
+    const bins = { ...task, date: today, repeat: "FREQ=WEEKLY;BYDAY=TU" };
+    startUpToDate(
+      [spaceRow(1, inbox), itemRow(2, { ...bins, repeatFrom: RepeatFrom.SCHEDULE })],
+      2,
+    );
+    sync.setDate(task.id, today);
+
+    sync.tickTask(task.id);
+
+    expect(days(task.id)).toEqual([...onDay(today), ...onDay("2026-11-24")].sort());
+
+    sync.untickTask(task.id, today);
+
+    expect(days(task.id)).toEqual(onDay(today));
+  });
+
+  it("places a dated item below what's already on its day", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    const { itemId } = sync.addTask(inbox.id, "Water the plants", { date: "2026-11-20" });
+
+    sync.setDate(task.id, "2026-11-20");
+
+    const onDayPage = (id: string) =>
+      onCalendar(id).find(({ pageId }) => pageId === "day:2026-11-20");
+    expect(onDayPage(task.id)?.y).toBeGreaterThan((onDayPage(itemId)?.y ?? 0) + calendarStickerGap);
+  });
+
+  it("keeps a sticker's day when it moves within it", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    sync.setDate(task.id, "2026-11-20");
+    const [first] = onCalendar(task.id);
+
+    sync.moveSticker(first?.id ?? "", 300, 300);
+
+    expect(onCalendar(task.id).find(({ id }) => id === first?.id)).toMatchObject({
+      x: 300,
+      y: 300,
+      occurrence: "2026-11-20",
+    });
   });
 });

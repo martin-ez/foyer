@@ -11,46 +11,54 @@ import { keepOnPage, stickerSize } from "./sticker-layout";
 
 /** The stickers on a page, stacked bottom first, in its own points, for a `PageSheet` to hold. One
  *  whose item the member sees can be dragged and tapped, and a task's can be ticked; one whose item
- *  they can't see is drawn hidden, in its spot and shape, and stays put. */
+ *  they can't see is drawn hidden, in its spot and shape, and stays put. An event's shows its
+ *  title. */
 export function PageStickers({
+  pageId,
   stickers,
   items,
-  done,
+  isDone,
   page,
   onSelect,
   onMove,
   onTick,
 }: {
+  pageId: string;
   stickers: readonly Sticker[];
   items: ReadonlyMap<string, Item>;
-  /** The ids of the tasks that are done. */
-  done: ReadonlySet<string>;
+  /** Whether the task a sticker shows is done, on its day on a calendar page. */
+  isDone: (sticker: Sticker) => boolean;
   page: PageSize;
   /** Called when a sticker is tapped. */
   onSelect: (stickerId: string) => void;
   /** Called when a sticker is let go somewhere else, with its new top-left corner. */
   onMove: (stickerId: string, to: Point) => void;
-  /** Called when a task's checkbox is tapped, with whether the task should now be done. */
-  onTick: (itemId: string, done: boolean) => void;
+  /** Called when a task's checkbox is tapped, with whether its task should now be done. */
+  onTick: (sticker: Sticker, done: boolean) => void;
 }) {
-  return stickers.map((sticker) => (
-    <StickerView
-      key={sticker.id}
-      sticker={sticker}
-      item={items.get(sticker.itemId)}
-      done={done.has(sticker.itemId)}
-      page={page}
-      onSelect={() => onSelect(sticker.id)}
-      onMove={(to) => onMove(sticker.id, to)}
-      onTick={() => onTick(sticker.itemId, !done.has(sticker.itemId))}
-    />
-  ));
+  return stickers.map((sticker) => {
+    const done = isDone(sticker);
+    return (
+      <StickerView
+        key={sticker.id}
+        sticker={sticker}
+        item={items.get(sticker.itemId)}
+        done={done}
+        size={stickerSize(sticker.kind, pageId)}
+        page={page}
+        onSelect={() => onSelect(sticker.id)}
+        onMove={(to) => onMove(sticker.id, to)}
+        onTick={() => onTick(sticker, !done)}
+      />
+    );
+  });
 }
 
 function StickerView({
   sticker,
   item,
   done,
+  size,
   page,
   onSelect,
   onMove,
@@ -59,12 +67,12 @@ function StickerView({
   sticker: Sticker;
   item: Item | undefined;
   done: boolean;
+  size: PageSize;
   page: PageSize;
   onSelect: () => void;
   onMove: (to: Point) => void;
   onTick: () => void;
 }) {
-  const size = stickerSize(sticker.kind);
   const [dragged, setDragged] = useState<Point | null>(null);
   const to = (by: Point) => keepOnPage({ x: sticker.x + by.x, y: sticker.y + by.y }, size, page);
   const drag = useStickerDrag(
@@ -84,6 +92,17 @@ function StickerView({
   );
   const at = dragged ? to(dragged) : { x: sticker.x, y: sticker.y };
   const task = sticker.kind === StickerKind.TASK;
+  const event = sticker.kind === StickerKind.EVENT;
+  const lines = size.height < 40 ? 1 : 2;
+  const look = !item
+    ? task || event
+      ? styles.hidden
+      : styles.outline
+    : task
+      ? styles.task
+      : event
+        ? styles.event
+        : styles.outline;
 
   return (
     <>
@@ -96,7 +115,8 @@ function StickerView({
         style={[
           styles.sticker,
           { left: at.x, top: at.y, width: size.width, height: size.height },
-          !task ? styles.outline : item ? styles.task : styles.hidden,
+          task ? styles.roomForCheckbox : null,
+          look,
           dragged ? styles.lifted : null,
         ]}
       >
@@ -104,11 +124,20 @@ function StickerView({
           <View style={styles.words}>
             <Text
               style={[styles.title, done ? styles.done : null]}
-              numberOfLines={item.repeat ? 1 : 2}
+              numberOfLines={item.repeat ? 1 : lines}
             >
               {item.title}
             </Text>
-            {item.repeat ? <Text style={styles.next}>Repeats, next on {item.date}</Text> : null}
+            {item.repeat && lines > 1 ? (
+              <Text style={styles.next}>Repeats, next on {item.date}</Text>
+            ) : null}
+          </View>
+        ) : null}
+        {event && item ? (
+          <View style={styles.words}>
+            <Text style={styles.title} numberOfLines={lines}>
+              {item.title}
+            </Text>
           </View>
         ) : null}
       </View>
@@ -163,10 +192,17 @@ const styles = StyleSheet.create({
     position: "absolute",
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: checkboxSize,
+    paddingLeft: 10,
     paddingRight: 10,
     borderRadius: 4,
     pointerEvents: "auto",
+  },
+  roomForCheckbox: { paddingLeft: checkboxSize },
+  event: {
+    backgroundColor: "#dcebf7",
+    borderColor: "#8fb3d1",
+    borderWidth: 1,
+    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.18)",
   },
   task: {
     backgroundColor: "#fff6c9",
