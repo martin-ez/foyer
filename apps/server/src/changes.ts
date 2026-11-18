@@ -23,10 +23,9 @@ import { moveSticker, placeSticker, removeSticker } from "./stickers";
  *  with no effect would have changed, which only the device that pushed them receives. */
 export type PushOutcome = { results: ChangeResult[]; changed: RowKey[]; unchanged: RowKey[] };
 
-/** Applies a member's changes in order, each on its own, remembering what became of each by its id
- *  so that sending it again has no effect, and queues the events they change for Google. A change
- *  that fails unexpectedly is refused without being remembered, so sending it again retries it.
- *  Then keeps the calendar stickers of the items they changed on their days, as the member. */
+/** Applies a member's changes in order, each on its own and remembered by its id, so that sending
+ *  it again has no effect, unless it failed unexpectedly. Queues the events they change for Google,
+ *  then keeps the calendar stickers of the items they changed on their days. */
 export function applyPush(
   storage: DurableObjectStorage,
   memberId: string,

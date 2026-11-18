@@ -25,12 +25,9 @@ const spans: { span: CalendarSpan; name: string }[] = [
 
 type Moving = { stickerId: string; at: Point; date: string };
 
-/** The household's calendar, open on today's day page, with ways to move between pages, back to
- *  today, and between month, week and day pages; tapping a day's number opens its page. Dated tasks
- *  and events are stickers on their days. Tapping an empty spot in a day adds something there, and
- *  dropping a sticker on another day asks first whether to change its date. Above the page, the
- *  upcoming events, which can be added, opened and changed there, or the item a tapped sticker
- *  shows. */
+/** The household's calendar, open on today's day page, with dated tasks and events as stickers on
+ *  their days. Tapping an empty spot in a day adds something there, and dropping a sticker on
+ *  another day asks first. Above the page, the upcoming events, or the item a tapped sticker shows. */
 export function CalendarScreen() {
   const { state, sync } = useHousehold();
   const [view, setView] = useState<CalendarView>(() => ({ span: "day", date: localToday() }));

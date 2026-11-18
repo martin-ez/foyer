@@ -17,12 +17,9 @@ type ItemRow = {
   created_by: string | null;
 };
 
-/** Keeps some items' calendar stickers on their days: a dated task or event has one on its day on
- *  each kind of calendar page, and an item without a date has none, apart from a repeating task's
- *  on the days it was ticked. Places, moves and removes them as one change, made by `setter`, and
- *  numbered only if anything changes. They're placed by `actor`, or when it's null by the member
- *  the item's date came from: the holder of an event's Google calendar, or the item's creator.
- *  Returns the rows it changed. */
+/** Keeps some items' calendar stickers on their days, as `planCalendarStickers` plans them, in one
+ *  change made by `setter`, and returns the rows it changed. They're placed by `actor`, or if null,
+ *  by the holder of an event's Google calendar or the item's creator. */
 export function settleCalendarStickers(
   sql: SqlStorage,
   itemIds: Iterable<string>,

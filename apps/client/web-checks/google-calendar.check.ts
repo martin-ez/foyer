@@ -1,5 +1,6 @@
 import { expect, type Page, type TestInfo, test } from "@playwright/test";
-import { describeDayInBrowser } from "./pages";
+import { describeWeekday, isInColumn, openWeek, show, tapInDay } from "./calendar-pages";
+import { describeDayInBrowser, describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { householdMembers, signIn } from "./sign-in";
 import { bundleBuildTimeout } from "./tasks";
@@ -186,9 +187,38 @@ test("adds, changes and deletes events, which reach Google Calendar and come bac
     await expect(tomorrowsPage.getByRole("button", { name: `Event: ${event}` })).toBeVisible();
   }
   await saveScreenshot(page, testInfo, "events-on-their-day");
+
   await page.getByRole("button", { name: "Today" }).click();
 
-  for (const event of [changed, added]) {
+  const fromDay = `Swimming ${Date.now()}`;
+  const weeks = 5;
+  await openWeek(page, weeks);
+  const wednesday = await describeWeekday(page, weeks, 2);
+  await tapInDay(page, wednesday, 4);
+  await page.getByRole("checkbox", { name: "New event" }).click();
+  await page.getByLabel("Title").fill(fromDay);
+  await page.getByRole("checkbox", { name: "All day" }).click();
+  await page.getByRole("checkbox", { name: "In Work" }).click();
+  await page.getByRole("button", { name: "Add event" }).click();
+  const onItsDay = page
+    .getByLabel(await describeWeekInBrowser(page, weeks), { exact: true })
+    .getByRole("button", { name: `Event: ${fromDay}` });
+  await expect(onItsDay).toBeVisible();
+  expect(await isInColumn(page, onItsDay, wednesday)).toBe(true);
+  await saveScreenshot(page, testInfo, "event-added-to-day");
+  await onItsDay.click();
+  await expect(page.getByLabel("Title")).toHaveValue(fromDay);
+  await page.getByRole("button", { name: "Close" }).click();
+  await tapInDay(page, wednesday, 8);
+  await page.getByRole("checkbox", { name: "New event" }).click();
+  await expect(page.getByRole("checkbox", { name: "In Work" })).toBeChecked();
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Today" }).click();
+  await show(page, "Day");
+  const fromDayListed = page.getByRole("button", { name: `Event: ${fromDay}` });
+  await expect(fromDayListed).toContainText("· Work");
+
+  for (const event of [changed, added, fromDayListed]) {
     await event.click();
     await page.getByRole("button", { name: "Delete event" }).click();
     await expect(event).toBeHidden();

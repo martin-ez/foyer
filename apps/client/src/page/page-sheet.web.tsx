@@ -120,7 +120,6 @@ type Gestures = {
   zoom(factor: number, focus: Point, pan: Point): void;
   pan(by: Point): void;
   point(at: Point): void;
-  /** One pointer went down and up again without moving, or zooming with another. */
   tap(at: Point): void;
 };
 

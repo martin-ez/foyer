@@ -52,10 +52,9 @@ type SyncConnection = { memberId: string; sessionId: string; live: LiveConnectio
 
 type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["message"];
 
-/** The household's hub, with its own SQLite storage. Starting it runs the storage migrations it
- *  hasn't run yet, and the jobs they queued, before it answers anything. It keeps devices in sync
- *  over WebSockets, which stay open while it sleeps, and answers their "ping" with "pong" without
- *  waking. */
+/** The household's hub, with its own SQLite storage. Starting it runs the migrations and jobs it
+ *  hasn't run yet, before it answers anything. It keeps devices in sync over WebSockets, which stay
+ *  open while it sleeps, and answers their "ping" with "pong" without waking. */
 export class Household extends DurableObject<Env> {
   readonly #signInCodes = new Map<string, SignInCode>();
   readonly #alarm: EarliestAlarm;

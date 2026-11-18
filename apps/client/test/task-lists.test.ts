@@ -7,6 +7,7 @@ import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { describe, expect, it } from "vitest";
 import {
   doneTasks,
+  isStickerDone,
   itemsUnder,
   openTasksUnder,
   spaceList,
@@ -115,6 +116,53 @@ describe("doneTasks", () => {
 
   it("leaves out completions of tasks the device doesn't hold", () => {
     expect(doneTasks(tasks(), [completion("a")])).toEqual(new Set());
+  });
+});
+
+describe("isStickerDone", () => {
+  const completion = (itemId: string, occurrence = "") =>
+    create(CompletionSchema, { id: `c${itemId}${occurrence}`, itemId, occurrence });
+  const onDay = (itemId: string, occurrence: string) =>
+    create(StickerSchema, {
+      id: `s${itemId}${occurrence}`,
+      pageId: `day:${occurrence}`,
+      itemId,
+      occurrence,
+    });
+  const bins = create(ItemSchema, {
+    ...task("a", inbox.id, "2026-11-24"),
+    repeat: "FREQ=WEEKLY;BYDAY=TU",
+  });
+
+  it("shows a repeating task's sticker as done on a day it was ticked, and open on its next date", () => {
+    const completions = [completion("a", "2026-11-17")];
+
+    expect(isStickerDone(onDay("a", "2026-11-17"), bins, completions)).toBe(true);
+    expect(isStickerDone(onDay("a", "2026-11-24"), bins, completions)).toBe(false);
+  });
+
+  it("shows a repeating task's sticker on a space's page as done when its next date is ticked", () => {
+    const onSpace = sticker("a", inbox.id, 1, 36);
+
+    expect(isStickerDone(onSpace, bins, [completion("a", "2026-11-17")])).toBe(false);
+    expect(isStickerDone(onSpace, bins, [completion("a", "2026-11-24")])).toBe(true);
+  });
+
+  it("shows every sticker of a task that doesn't repeat as done once it's ticked", () => {
+    const once = task("b", inbox.id, "2026-11-20");
+
+    expect(isStickerDone(onDay("b", "2026-11-20"), once, [completion("b")])).toBe(true);
+    expect(isStickerDone(sticker("b", inbox.id, 1, 36), once, [completion("b")])).toBe(true);
+    expect(isStickerDone(onDay("b", "2026-11-20"), once, [])).toBe(false);
+  });
+
+  it("never shows a sticker done when the member can't see its item, or it isn't a task", () => {
+    const event = create(ItemSchema, { id: "e", kind: ItemKind.EVENT, title: "Dinner" });
+
+    expect(
+      isStickerDone(onDay("a", "2026-11-17"), undefined, [completion("a", "2026-11-17")]),
+    ).toBe(false);
+    expect(isStickerDone(onDay("e", "2026-11-20"), event, [completion("e")])).toBe(false);
   });
 });
 

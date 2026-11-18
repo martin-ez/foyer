@@ -225,10 +225,9 @@ export class HouseholdSync {
     return clash === undefined ? null : `Another space you see is called “${clash}”.`;
   }
 
-  /** Adds a task to a space, with its sticker in the next free spot on the space's newest page, or
-   *  at the top of a new page when that one is full. Spaces at the start and end of the title are
-   *  dropped. Given a date, the task is on that day of the calendar's pages too, at `spot` on its
-   *  page if given. Returns the number of the page its sticker went on. */
+  /** Adds a task to a space, with its sticker in the next free spot on the space's newest page, and
+   *  given a date, on that day of the calendar's pages, at `spot` on its page if given. Spaces at the
+   *  title's ends are dropped. Returns the number of the space's page its sticker went on. */
   addTask(
     spaceId: string,
     title: string,
@@ -423,10 +422,9 @@ export class HouseholdSync {
     this.#make("moving a sticker", { case: "stickerMove", value: { stickerId, x, y } });
   }
 
-  /** Moves the item of a sticker on a calendar page to another day the page shows, with the
-   *  sticker where it was dropped and the item's stickers on the other calendar pages on the new
-   *  day: a task takes the day as its date, and an event moves by as many days, keeping its times
-   *  and length. */
+  /** Moves the item of a sticker on a calendar page to another day, the sticker staying where it
+   *  was dropped: a task takes the day as its date, and an event moves by as many days, keeping its
+   *  times and length. Its stickers on the other calendar pages go to the new day. */
   moveToDay(stickerId: string, at: Point, date: string): void {
     const sticker = this.#state.stickers.get(stickerId);
     const item = sticker && this.#state.items.get(sticker.itemId);
@@ -440,10 +438,9 @@ export class HouseholdSync {
     this.setDate(item.id, date, spot);
   }
 
-  /** Adds an event to a space that has a Google calendar, and returns its id. Spaces at the start
-   *  and end of the title are dropped. The household writes it to the space's calendar, and gives
-   *  it its date. Its stickers go on the calendar's pages on the day it starts on this device, at
-   *  `spot` on its page if given. */
+  /** Adds an event to a space that has a Google calendar, which the household writes it to and dates
+   *  it from, and returns its id. Its stickers go on the day it starts on this device, at `spot` on
+   *  its page if given. Spaces at the title's ends are dropped. */
   addEvent(
     spaceId: string,
     event: { title: string; description: string; time: EventTime },
@@ -492,14 +489,11 @@ export class HouseholdSync {
     this.#changed();
   }
 
-  /** The changes that put an item's stickers on a day on each calendar page, or take them off
-   *  when `date` is null, with the one on `spot`'s page where it says. */
   #onCalendar(itemId: string, kind: StickerKind, date: string | null, spot?: SpotOnDay) {
     const kept = this.#tickedDays(itemId);
     return this.#calendarPlanner().plan(itemId, kind, date, kept, date === null ? undefined : spot);
   }
 
-  /** Plans calendar stickers for one item after another, each around those planned before it. */
   #calendarPlanner() {
     const pages = new Map<string, PageSize>();
     for (const page of this.#state.pages.values()) {
@@ -565,7 +559,6 @@ export class HouseholdSync {
     };
   }
 
-  /** The days a repeating task was ticked on, whose stickers stay on the calendar's pages. */
   #tickedDays(itemId: string): Set<string> {
     const days = new Set<string>();
     if (!this.#state.items.get(itemId)?.repeat) return days;
@@ -575,7 +568,6 @@ export class HouseholdSync {
     return days;
   }
 
-  /** The day an event starts on, by this device's clock and time zone. */
   #dayOf(time: EventTime): string {
     return time.allDay ? time.startsOn : localToday(new Date(time.startsAt));
   }
@@ -1007,8 +999,6 @@ function eventTimeOf(item: Item): EventTime | null {
   return { allDay: false, startsAt: timestampMs(item.startsAt), endsAt: timestampMs(item.endsAt) };
 }
 
-/** An event moved from one day to another, keeping its times on the device's clock and its
- *  length. */
 function shiftEvent(time: EventTime, from: string, to: string): EventTime {
   const days = daysBetween(from, to);
   if (time.allDay) {

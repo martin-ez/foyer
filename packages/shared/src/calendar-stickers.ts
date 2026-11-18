@@ -119,11 +119,9 @@ export type CalendarStickerPlan = {
   remove: string[];
 };
 
-/** Plans an item's calendar stickers for its date, or for no date. On each kind of calendar page,
- *  a sticker already on its day stays where it is. Otherwise the item's sticker on another day of
- *  the same page moves to the next free spot of its day, or a new sticker is placed there, and its
- *  stickers on other pages of that kind are removed. With no date, they're all removed. Stickers
- *  on a `kept` day, such as a repeating task's ticked days, stay as they are. */
+/** Plans one sticker on an item's date on each kind of calendar page: one already on that day stays,
+ *  one on another day of the page moves to the day's next free spot, or a new one is placed there.
+ *  Any others are removed, except on a `kept` day, such as a repeating task's ticked days. */
 export function planCalendarStickers(options: {
   itemId: string;
   date: string | null;

@@ -31,9 +31,8 @@ type PageViewProps = {
   children?: ReactNode;
 };
 
-/** A page as everyone on it sees it: what's printed on it, its stickers, which can be moved,
- *  ticked and tapped to open their item, and where others on it are pointing. On a calendar page,
- *  a sticker moves within its day, staying inside its space, and one dropped outside any day goes
+/** A page as everyone on it sees it: what's printed on it, its stickers, which can be moved, ticked
+ *  and tapped, and where others on it are pointing. A calendar sticker dropped outside any day goes
  *  back. It's drawn, and this device is on the page, only while its screen is the one in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <ShownPage {...props} /> : null;

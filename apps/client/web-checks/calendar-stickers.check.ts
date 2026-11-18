@@ -1,14 +1,13 @@
 import { expect, type Locator, type Page, type TestInfo, test } from "@playwright/test";
+import { dayLabel, describeWeekday, isInColumn, openWeek, show, tapInDay } from "./calendar-pages";
 import { saveScreenshot } from "./screenshot";
 import { householdMembers, signIn } from "./sign-in";
-import { boxOf, bundleBuildTimeout, drag, pageTitle, stickerOf } from "./tasks";
+import { addTask, boxOf, bundleBuildTimeout, drag, openInbox, pageTitle, stickerOf } from "./tasks";
 
 test.beforeEach(() => {
   test.setTimeout(bundleBuildTimeout + 90_000);
 });
 
-/** The checks for the iPad's viewport and the phone's run at once as the same member, so each
- *  works on a week of its own, ahead of today, where nothing else puts tasks. */
 function weeksAhead(testInfo: TestInfo): number {
   return testInfo.project.name === "ipad" ? 3 : 4;
 }
@@ -19,56 +18,6 @@ async function openCalendar(page: Page, email?: string) {
   await page.getByRole("tab", { name: "Calendar" }).click();
 }
 
-function show(page: Page, span: "Day" | "Week" | "Month") {
-  return page.getByRole("radio", { name: span }).click();
-}
-
-/** Opens the week page `weeks` weeks from this one. */
-async function openWeek(page: Page, weeks: number) {
-  await show(page, "Week");
-  await page.getByRole("button", { name: "Today" }).click();
-  for (let step = 0; step < weeks; step += 1) {
-    await page.getByRole("button", { name: "Next week" }).click();
-  }
-}
-
-/** A weekday of the week `weeks` weeks from this one, counted from Monday as 0, as the app
- *  describes it, such as "Wednesday, December 9, 2026". */
-function describeWeekday(page: Page, weeks: number, weekday: number): Promise<string> {
-  return page.evaluate(
-    ([ahead, day]) => {
-      const now = new Date();
-      const monday = now.getDate() - ((now.getDay() + 6) % 7);
-      const date = new Date(now.getFullYear(), now.getMonth(), monday + 7 * ahead + day);
-      const format = { weekday: "long", day: "numeric", month: "long", year: "numeric" } as const;
-      return new Intl.DateTimeFormat(undefined, format).format(date);
-    },
-    [weeks, weekday] as const,
-  );
-}
-
-/** A day's column on a week page: the button with its name and number at the top of it. */
-function dayLabel(page: Page, day: string): Locator {
-  return page.getByRole("button", { name: `Open ${day}` });
-}
-
-/** Taps an empty spot in a day's column on a week page, `down` times its label's height below
- *  its label. */
-async function tapInDay(page: Page, day: string, down: number) {
-  const label = await boxOf(dayLabel(page, day));
-  await page.mouse.click(label.x + label.width / 3, label.y + label.height * (1 + down));
-}
-
-/** Whether a sticker sits in a day's column on a week page. */
-async function isInColumn(page: Page, sticker: Locator, day: string): Promise<boolean> {
-  const label = await boxOf(dayLabel(page, day));
-  const box = await boxOf(sticker);
-  const middle = box.x + box.width / 2;
-  return middle > label.x && middle < label.x + label.width;
-}
-
-/** Adds a task to a day of the open week page, by tapping an empty spot in it, and returns its
- *  title once it's saved. */
 async function addTaskToDay(
   page: Page,
   day: string,
@@ -177,6 +126,67 @@ test("moves a sticker within its day without asking", async ({ page }, testInfo)
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect.poll(async () => (await boxOf(sticker)).y).toBeGreaterThan(before.y + before.height);
   expect(await isInColumn(page, sticker, wednesday)).toBe(true);
+
+  await deleteTask(page, title);
+});
+
+test("puts a sticker dropped outside any day back without asking", async ({ page }, testInfo) => {
+  const weeks = weeksAhead(testInfo);
+  await openCalendar(page);
+  await openWeek(page, weeks);
+  const wednesday = await describeWeekday(page, weeks, 2);
+  const title = await addTaskToDay(page, wednesday, 12);
+  const sticker = stickerOf(page, title);
+  const before = await boxOf(sticker);
+  const label = await boxOf(dayLabel(page, wednesday));
+
+  const middle = before.y + before.height / 2;
+  await drag(page, sticker, { x: 0, y: label.y + label.height / 2 - middle });
+
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect.poll(async () => (await boxOf(sticker)).y).toBeCloseTo(before.y, 0);
+
+  await deleteTask(page, title);
+});
+
+test("ticks a task on the calendar, which shows as done on its other pages and devices", async ({
+  page,
+}, testInfo) => {
+  const weeks = weeksAhead(testInfo);
+  await openCalendar(page);
+  await openWeek(page, weeks);
+  const wednesday = await describeWeekday(page, weeks, 2);
+  const title = await addTaskToDay(page, wednesday, 2);
+  const done = (on: Page) => on.getByRole("checkbox", { name: `Done: ${title}` });
+
+  await done(page).click();
+
+  await expect(done(page)).toBeChecked();
+  const other = await page.context().newPage();
+  await openCalendar(other);
+  await openWeek(other, weeks);
+  await show(other, "Month");
+  await expect(done(other)).toBeChecked();
+  await done(other).click();
+  await expect(done(page)).not.toBeChecked();
+
+  await deleteTask(page, title);
+});
+
+test("gives an open task without a date the day tapped", async ({ page }, testInfo) => {
+  const weeks = weeksAhead(testInfo);
+  await openInbox(page);
+  const title = await addTask(page);
+  await page.getByRole("tab", { name: "Calendar" }).click();
+  await openWeek(page, weeks);
+  const wednesday = await describeWeekday(page, weeks, 2);
+
+  await tapInDay(page, wednesday, 3);
+  await page.getByRole("button", { name: `Put “${title}” on this day` }).click();
+
+  await expect(stickerOf(page, title)).toBeVisible();
+  expect(await isInColumn(page, stickerOf(page, title), wednesday)).toBe(true);
+  await saveScreenshot(page, testInfo, "undated-task-given-a-day");
 
   await deleteTask(page, title);
 });

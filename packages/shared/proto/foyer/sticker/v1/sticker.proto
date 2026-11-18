@@ -41,11 +41,9 @@ enum StickerKind {
   STICKER_KIND_NOTE = 3;
 }
 
-// Places a sticker on a page. Only someone who can see the page and the item can place it, and its
-// kind must be its item's. A space's page takes the space's own items, an item's body page the items
-// under it, and a calendar page tasks and events, on a day it shows. A device that gives an item a
-// date, or changes it, places or moves its calendar stickers in the same push, and the household
-// then keeps one on its day on each kind of calendar page.
+// Places a sticker on a page, where the member sees the page and the item, of its item's kind. A
+// space's page takes the space's items, an item's body page the items under it, and a calendar page
+// tasks and events on a day it shows; the household keeps those on their item's day.
 message StickerPlace {
   // A new UUID version 7, made by the device.
   string sticker_id = 1;

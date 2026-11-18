@@ -300,10 +300,9 @@ export const householdMigrations: readonly Migration[] = [
   INSERT INTO household_jobs (name) VALUES ('place calendar stickers')`,
 ];
 
-/** Work on the household's data that needs the code as it is now, rather than as it was when a
- *  migration was written, such as placing stickers with today's rules. A migration queues a job by
- *  adding its name to the household_jobs table, and the household runs it once all migrations have
- *  run. A job must have no effect on storage that has nothing for it to do. */
+/** Work on the household's data that needs today's code rather than the code of the migration
+ *  that queued it, by adding its name to the household_jobs table. It runs after every migration,
+ *  and must have no effect on storage that has nothing for it to do. */
 export type HouseholdJob = (storage: DurableObjectStorage) => void;
 
 /** Runs, each in its own transaction, the jobs that migrations queued, and forgets them. A job

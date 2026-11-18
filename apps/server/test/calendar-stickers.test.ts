@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { placeAllCalendarStickers } from "../src/calendar-stickers";
 import { fakeGoogle } from "../src/fake-google";
 import { theHousehold } from "../src/household";
-import { householdMigrations, migrate, runJobs } from "../src/migrations";
+import { runJobs } from "../src/migrations";
 import { connectGoogle, work } from "./calendar-helpers";
 import {
   type ChangeInit,
@@ -78,7 +78,6 @@ async function spaceOf(device: Device, kind: SpaceKind): Promise<string> {
   return [...spaces].find(([, each]) => each === kind)?.[0] ?? "";
 }
 
-/** The item's stickers on calendar pages that a device receives, as page and day, by kind of page. */
 async function calendarStickers(device: Device, itemId: string) {
   const { stickers } = await knownBy(device);
   return [...stickers.values()].filter(
@@ -103,7 +102,6 @@ function calendarPage(kind: CalendarPageKind, date: string): ChangeInit {
   return pageCreate({ pageId, kind: pageKinds[kind], ...sizeOf(kind) });
 }
 
-/** A task in a space, with its sticker on the space's first page, and a date unless it's empty. */
 function newTask(spaceId: string, date = "") {
   const task = itemCreate({ spaceId, date });
   const pageId = spacePageId(spaceId, 1);
@@ -115,7 +113,6 @@ function newTask(spaceId: string, date = "") {
   return { itemId: idOf(task), changes };
 }
 
-/** What a device that dates an item sends with it: its calendar pages and stickers on `date`. */
 function stickersOnDay(itemId: string, date: string, kind = 1): ChangeInit[] {
   return calendarPageKinds.flatMap((pageKind) => [
     calendarPage(pageKind, date),
@@ -375,6 +372,47 @@ describe("calendar stickers of events", () => {
     expect(daysOf(await calendarStickers(device, idOf(event)))).toEqual(onDay("2026-11-21"));
   });
 
+  it("moves an event's stickers when its calendar's time zone puts it on another day", async () => {
+    const { device, personal } = await withCalendar("America/Santo_Domingo");
+    const event = eventAt(personal, "2026-11-21T03:30:00Z", "2026-11-21T05:30:00Z");
+    await device.push(event);
+    const before = daysOf(await calendarStickers(device, idOf(event)));
+
+    for (const [, calendar] of fakeGoogle.calendars) calendar.timeZone = "Europe/Madrid";
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 60_000 });
+    await work();
+
+    expect(before).toEqual(onDay("2026-11-20"));
+    expect(daysOf(await calendarStickers(device, idOf(event)))).toEqual(onDay("2026-11-21"));
+  });
+
+  it("puts an event's stickers back on its day when Google refuses a change to its time", async () => {
+    const { device, personal } = await withCalendar("Europe/Madrid");
+    const event = eventAt(personal, "2026-11-20T19:00:00Z", "2026-11-20T21:00:00Z");
+    await device.push(event);
+    await work();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    fakeGoogle.refusingEvents = true;
+    await device.push({
+      changeId: newId(),
+      at: timestampFromMs(Date.now()),
+      change: {
+        case: "eventSetTime",
+        value: {
+          itemId: idOf(event),
+          startsAt: timestampFromMs(Date.parse("2026-11-23T19:00:00Z")),
+          endsAt: timestampFromMs(Date.parse("2026-11-23T21:00:00Z")),
+        },
+      },
+    });
+    const moved = daysOf(await calendarStickers(device, idOf(event)));
+    await work();
+
+    expect(moved).toEqual(onDay("2026-11-23"));
+    expect(daysOf(await calendarStickers(device, idOf(event)))).toEqual(onDay("2026-11-20"));
+  });
+
   it("places an event added in Google, and moves it when Google changes its day", async () => {
     const { device } = await withCalendar("Europe/Madrid");
     const [calendarId = ""] = [...fakeGoogle.calendars]
@@ -424,9 +462,6 @@ describe("items dated before calendar stickers", () => {
       );
       sql.exec("INSERT INTO household_jobs (name) VALUES ('place calendar stickers')");
       runJobs(storage, { "place calendar stickers": placeAllCalendarStickers });
-      runJobs(storage, { "place calendar stickers": placeAllCalendarStickers });
-      expect(sql.exec("SELECT name FROM household_jobs").toArray()).toEqual([]);
-      migrate(storage, householdMigrations);
     });
 
     const stickers = await calendarStickers(device, itemId);
@@ -434,13 +469,37 @@ describe("items dated before calendar stickers", () => {
     expect(stickers.every(({ placedBy }) => placedBy === memberId)).toBe(true);
   });
 
-  it("leaves a job the household doesn't know for code that does", async () => {
+  it("runs each queued job once, and leaves a job it doesn't know for code that does", async () => {
+    const ran: string[] = [];
+    const job = (name: string) => () => {
+      ran.push(name);
+    };
+
     await runInDurableObject(theHousehold(), async (_, { storage }) => {
-      storage.sql.exec("INSERT INTO household_jobs (name) VALUES ('later')");
-      runJobs(storage, { "place calendar stickers": placeAllCalendarStickers });
-      expect(storage.sql.exec("SELECT name FROM household_jobs").toArray()).toEqual([
-        { name: "later" },
-      ]);
+      storage.sql.exec("INSERT INTO household_jobs (name) VALUES ('first'), ('later')");
+      runJobs(storage, { first: job("first") });
+      runJobs(storage, { first: job("first"), later: job("later") });
+      runJobs(storage, { first: job("first"), later: job("later") });
     });
+
+    expect(ran).toEqual(["first", "later"]);
+  });
+
+  it("runs a job that failed again next time", async () => {
+    let tries = 0;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runInDurableObject(theHousehold(), async (_, { storage }) => {
+      storage.sql.exec("INSERT INTO household_jobs (name) VALUES ('flaky')");
+      const flaky = () => {
+        tries += 1;
+        if (tries === 1) throw new Error("Not this time");
+      };
+      runJobs(storage, { flaky });
+      runJobs(storage, { flaky });
+      runJobs(storage, { flaky });
+    });
+
+    expect(tries).toBe(2);
   });
 });

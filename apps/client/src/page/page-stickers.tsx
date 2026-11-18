@@ -10,9 +10,8 @@ import { useStickerDrag } from "./sticker-drag";
 import { keepOnPage, stickerSize } from "./sticker-layout";
 
 /** The stickers on a page, stacked bottom first, in its own points, for a `PageSheet` to hold. One
- *  whose item the member sees can be dragged and tapped, and a task's can be ticked; one whose item
- *  they can't see is drawn hidden, in its spot and shape, and stays put. An event's shows its
- *  title. */
+ *  whose item the member sees can be dragged and tapped, and a task's ticked; one whose item they
+ *  can't see is drawn hidden, in its spot and shape, and stays put. */
 export function PageStickers({
   pageId,
   stickers,
