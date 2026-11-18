@@ -59,6 +59,20 @@ export function dayAt(pageId: string, page: PageSize, at: PagePoint): string | n
   return day?.date ?? null;
 }
 
+/** Where a calendar sticker put at `at` on a day goes so that it stays inside the day's space on
+ *  the page: as close to `at` as that allows. Anywhere on the page for a day it doesn't show. */
+export function keepInDay(pageId: string, page: PageSize, date: string, at: PagePoint): PagePoint {
+  const box = calendarLayout(pageId, page)?.days.find((day) => day.date === date)?.box;
+  const area = box ?? { x: 0, y: 0, ...page };
+  const { width, height } = calendarStickerSize;
+  const clamp = (value: number, from: number, size: number, length: number) =>
+    Math.min(Math.max(value, from), Math.max(from + length - size, from));
+  return {
+    x: clamp(at.x, area.x, width, area.width),
+    y: clamp(at.y, area.y, height, area.height),
+  };
+}
+
 /** A sticker on a page, as placing calendar stickers needs it. `occurrence` is the day it's on, on
  *  a calendar page, and empty on any other page. */
 export type PlacedSticker = {

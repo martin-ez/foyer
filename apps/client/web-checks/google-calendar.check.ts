@@ -1,4 +1,5 @@
 import { expect, type Page, type TestInfo, test } from "@playwright/test";
+import { describeDayInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { householdMembers, signIn } from "./sign-in";
 import { bundleBuildTimeout } from "./tasks";
@@ -178,6 +179,14 @@ test("adds, changes and deletes events, which reach Google Calendar and come bac
   const added = page.getByRole("button", { name: `Event: ${fromGoogle}` });
   await expect(added).toContainText("added in Google Calendar", { timeout: 90_000 });
   await saveScreenshot(page, testInfo, "events-from-google");
+
+  await page.getByRole("button", { name: "Next day" }).click();
+  const tomorrowsPage = page.getByLabel(await describeDayInBrowser(page, 1), { exact: true });
+  for (const event of [`${title} with Sam`, fromGoogle]) {
+    await expect(tomorrowsPage.getByRole("button", { name: `Event: ${event}` })).toBeVisible();
+  }
+  await saveScreenshot(page, testInfo, "events-on-their-day");
+  await page.getByRole("button", { name: "Today" }).click();
 
   for (const event of [changed, added]) {
     await event.click();

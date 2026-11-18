@@ -1,4 +1,4 @@
-import { dayAt } from "@foyer/shared";
+import { dayAt, keepInDay } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { useIsFocused } from "expo-router";
@@ -33,8 +33,8 @@ type PageViewProps = {
 
 /** A page as everyone on it sees it: what's printed on it, its stickers, which can be moved,
  *  ticked and tapped to open their item, and where others on it are pointing. On a calendar page,
- *  a sticker moves within its day, and one dropped outside any day goes back. It's drawn, and this
- *  device is on the page, only while its screen is the one in front. */
+ *  a sticker moves within its day, staying inside its space, and one dropped outside any day goes
+ *  back. It's drawn, and this device is on the page, only while its screen is the one in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <ShownPage {...props} /> : null;
 }
@@ -61,8 +61,10 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
     }
     const { width, height } = stickerSize(sticker.kind, pageId);
     const date = dayAt(pageId, size, { x: to.x + width / 2, y: to.y + height / 2 });
-    if (date === sticker.occurrence) sync.moveSticker(stickerId, to.x, to.y);
-    else if (date !== null && onItsDay(sticker)) onDropOnDay?.(sticker, to, date);
+    if (date === null) return;
+    const at = keepInDay(pageId, size, date, to);
+    if (date === sticker.occurrence) sync.moveSticker(stickerId, at.x, at.y);
+    else if (onItsDay(sticker)) onDropOnDay?.(sticker, at, date);
   };
   const onItsDay = (sticker: Sticker) => {
     const item = state.items.get(sticker.itemId);

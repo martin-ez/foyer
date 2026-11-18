@@ -1,4 +1,4 @@
-import { calendarLayout, calendarStickerSize, dayAt } from "@foyer/shared";
+import { calendarLayout, dayAt, keepInDay } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { useState } from "react";
 import { Button, Pressable, StyleSheet, Text, View } from "react-native";
@@ -6,7 +6,6 @@ import { describeDay, localToday } from "../page/calendar-date";
 import { describePage, pageIdOf, sizeOf } from "../page/open-page";
 import { PageView } from "../page/page-view";
 import type { Point } from "../page/sheet-camera";
-import { keepOnPage } from "../page/sticker-layout";
 import { TitleBar } from "../shell/bars";
 import { useHousehold } from "../shell/household";
 import type { SpotOnDay } from "../sync/household-sync";
@@ -51,7 +50,7 @@ export function CalendarScreen() {
     const date = dayAt(pageId, size, at);
     if (date === null) return;
     setOpened(null);
-    setAdding({ date, spot: { pageId, at: keepOnPage(at, calendarStickerSize, size) } });
+    setAdding({ date, spot: { pageId, at: keepInDay(pageId, size, date, at) } });
   };
 
   return (

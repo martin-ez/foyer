@@ -8,6 +8,7 @@ import {
   calendarStickerGap,
   calendarStickerSize,
   dayAt,
+  keepInDay,
   type PlacedSticker,
   pileStep,
   planCalendarStickers,
@@ -122,6 +123,22 @@ describe("dayAt", () => {
     expect(dayAt(day, a4Portrait, { x: 300, y: 700 })).toBe("2026-11-17");
     const area = areaOf(week, "2026-11-20");
     expect(dayAt(week, a2Landscape, { x: area.x + 1, y: area.y + 1 })).toBe("2026-11-20");
+  });
+});
+
+describe("keepInDay", () => {
+  it("keeps a sticker inside its day's space, as close as it can to where it was put", () => {
+    const box = calendarLayout(week, a2Landscape)?.days.find(({ date }) => date === "2026-11-18")
+      ?.box ?? { x: 0, y: 0, width: 0, height: 0 };
+
+    expect(keepInDay(week, a2Landscape, "2026-11-18", { x: box.x + 10, y: box.y + 300 })).toEqual({
+      x: box.x + 10,
+      y: box.y + 300,
+    });
+    expect(keepInDay(week, a2Landscape, "2026-11-18", { x: box.x + box.width - 5, y: 0 })).toEqual({
+      x: box.x + box.width - calendarStickerSize.width,
+      y: box.y,
+    });
   });
 });
 

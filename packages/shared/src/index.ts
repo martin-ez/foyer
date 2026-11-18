@@ -19,6 +19,7 @@ export {
   calendarStickerGap,
   calendarStickerSize,
   dayAt,
+  keepInDay,
   type PlacedSticker,
   pileStep,
   planCalendarStickers,
