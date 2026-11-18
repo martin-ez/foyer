@@ -6,7 +6,6 @@ const checksBackendPort = 8788;
 const backend = `http://localhost:${checksBackendPort}`;
 const webDevServer = "http://localhost:8081";
 
-/** Where the checks' backend keeps its household, emptied when it starts. */
 const checksStorage = ".wrangler/web-checks";
 
 const cloudSessionChromium = "/opt/pw-browsers/chromium";

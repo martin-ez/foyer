@@ -20,7 +20,6 @@ async function capture(page: Page, title: string) {
   await expect(field).toHaveValue("");
 }
 
-/** Another tab signed in as the same member, so another of their devices. */
 async function sameMemberOnAnotherDevice(page: Page): Promise<Page> {
   const other = await page.context().newPage();
   await open(other);

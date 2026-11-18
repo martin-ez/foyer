@@ -29,8 +29,6 @@ async function openCalendar(page: Page, email?: string) {
   await page.getByRole("tab", { name: "Calendar" }).click();
 }
 
-/** Signs in, creates a space of the check's own for the tasks it adds, and opens the Calendar.
- *  Returns the space's name. */
 async function openCalendarWithSpaceOfItsOwn(page: Page): Promise<string> {
   await openApp(page);
   const space = await createSpaceOfItsOwn(page);
