@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { finishConnecting, isConnecting } from "./connecting";
 import { cookie, readCookie, sessionCookie } from "./cookies";
-import { fakeConsentPage } from "./fake-google";
+import { fakeCalendarPage, fakeConsentPage } from "./fake-google";
 import {
   googleCallbackPath as callbackPath,
   googleAccountFor,
@@ -26,6 +26,9 @@ type StartedSignIn = { state?: string; codeVerifier?: string; app: App };
  *  `foyer://signed-in` with a one-time code. Someone who isn't let in returns with an error. */
 export async function handleSignIn(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === "/auth/dev/google/calendar") {
+    return isDevelopment(url) ? fakeCalendarPage(request) : new Response(null, { status: 404 });
+  }
   if (request.method !== "GET") return new Response(null, { status: 405 });
   switch (url.pathname) {
     case "/auth/google":

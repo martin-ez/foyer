@@ -2,6 +2,8 @@ import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/p
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   clashingName,
+  type EventTime,
+  eventTimeFields,
   formatRepeat,
   freeSpaceName,
   itemPageId,
@@ -376,6 +378,42 @@ export class HouseholdSync {
     this.#make("moving a sticker", { case: "stickerMove", value: { stickerId, x, y } });
   }
 
+  /** Adds an event to a space that has a Google calendar, and returns its id. Spaces at the start
+   *  and end of the title are dropped. The household writes it to the space's calendar, and gives
+   *  it its date. */
+  addEvent(spaceId: string, event: { title: string; description: string; time: EventTime }) {
+    const itemId = newId();
+    const title = event.title.trim();
+    const { description } = event;
+    const value = { itemId, kind: ItemKind.EVENT, spaceId, title, description };
+    this.#make(`adding “${title}”`, {
+      case: "itemCreate",
+      value: { ...value, ...timeChange(event.time) },
+    });
+    return itemId;
+  }
+
+  /** Changes when an event happens. */
+  setEventTime(itemId: string, time: EventTime): void {
+    const title = this.#state.items.get(itemId)?.title ?? "an event";
+    this.#make(`changing when “${title}” happens`, {
+      case: "eventSetTime",
+      value: { itemId, ...timeChange(time) },
+    });
+  }
+
+  /** Moves an event to another space that has a Google calendar, and so to that calendar. */
+  moveEvent(itemId: string, spaceId: string): void {
+    const title = this.#state.items.get(itemId)?.title ?? "an event";
+    this.#make(`moving “${title}”`, { case: "itemMove", value: { itemId, spaceId } });
+  }
+
+  /** Deletes an event, in Google Calendar too. */
+  deleteEvent(itemId: string): void {
+    const title = this.#state.items.get(itemId)?.title ?? "an event";
+    this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
+  }
+
   /** Forgets the refused changes the state reports. */
   dismissProblems(): void {
     this.#problems = [];
@@ -649,7 +687,9 @@ export class HouseholdSync {
         case "itemCreate": {
           const { itemId, kind, spaceId, title, description, date } = change.change.value;
           if (!items.has(itemId)) {
-            const item = { id: itemId, kind, spaceId, title, description, date };
+            const { startsOn, endsOn, startsAt, endsAt } = change.change.value;
+            const time = { startsOn, endsOn, startsAt, endsAt };
+            const item = { id: itemId, kind, spaceId, title, description, date, ...time };
             const created = { createdBy: this.#memberId, createdAt: at };
             items.set(itemId, create(ItemSchema, { ...item, ...created }));
           }
@@ -691,6 +731,12 @@ export class HouseholdSync {
           const { itemId, date } = change.change.value;
           const item = items.get(itemId);
           if (item) items.set(itemId, { ...item, date });
+          break;
+        }
+        case "eventSetTime": {
+          const { itemId, startsOn, endsOn, startsAt, endsAt } = change.change.value;
+          const item = items.get(itemId);
+          if (item) items.set(itemId, { ...item, startsOn, endsOn, startsAt, endsAt });
           break;
         }
         case "itemSetRepeat": {
@@ -780,6 +826,16 @@ export class HouseholdSync {
       problems: [...this.#problems],
     };
   }
+}
+
+function timeChange(time: EventTime) {
+  const { startsOn, endsOn, startsAt, endsAt } = eventTimeFields(time);
+  return {
+    startsOn,
+    endsOn,
+    ...(startsAt === null ? {} : { startsAt: timestampFromMs(startsAt) }),
+    ...(endsAt === null ? {} : { endsAt: timestampFromMs(endsAt) }),
+  };
 }
 
 function namesOf(spaces: Iterable<Space>): string[] {

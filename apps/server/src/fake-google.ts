@@ -1,20 +1,55 @@
 import { newId } from "@foyer/shared";
 import { toBase64Url } from "./secrets";
 
-/** A calendar that the fake Google holds: the account it's in, its name and its time zone. */
-export type FakeCalendar = { subject: string; name: string; timeZone: string };
+/** A calendar that the fake Google holds: the account it's in, its name, its time zone and its
+ *  events by id, including those deleted. `version` counts its events' changes, and sync tokens
+ *  from before `droppedBefore` are no longer accepted. */
+export type FakeCalendar = {
+  subject: string;
+  name: string;
+  timeZone: string;
+  events: Map<string, FakeEvent>;
+  version: number;
+  droppedBefore: number;
+};
+
+/** An event that the fake Google holds, as Google's Calendar API sends it, with the version of its
+ *  calendar that last changed it. */
+export type FakeEvent = {
+  id: string;
+  status: "confirmed" | "cancelled";
+  etag: string;
+  summary?: string;
+  description?: string;
+  start: FakeEventTime;
+  end: FakeEventTime;
+  created: string;
+  updated: string;
+  recurrence?: string[];
+  version: number;
+};
+
+/** When a fake event starts or ends: a day, or a moment as RFC 3339. */
+export type FakeEventTime = { date?: string; dateTime?: string };
+
+/** The fields of an event that a test sets as if someone changed it in Google Calendar. */
+export type FakeEventFields = Partial<
+  Pick<FakeEvent, "summary" | "description" | "start" | "end" | "recurrence">
+>;
 
 /** The account that the fake Google's page offers besides the one asked for. */
 export const fakeOtherAccount = "fake-google-other-account";
 
-/** Stands in for Google's token and revocation endpoints and the Calendar API's calendars, so
- *  agents, web checks and tests connect without Google. Its codes and tokens name their account,
- *  so they survive a restart; calendars and revoked access are only kept in memory. */
+/** Stands in for Google's token and revocation endpoints and Calendar API, so agents, web checks
+ *  and tests connect without Google. Its codes and tokens name their account, so they survive a
+ *  restart; calendars, events and revoked access are only kept in memory. */
 export class FakeGoogle {
   /** The calendars it holds, by id. */
   readonly calendars = new Map<string, FakeCalendar>();
   /** While true, every request fails, as when Google can't be reached. */
   down = false;
+  /** While true, Google refuses every event it's asked to create or change as invalid. */
+  refusingEvents = false;
   readonly #grants = new Map<string, string>();
   readonly #revoked = new Set<string>();
 
@@ -42,12 +77,76 @@ export class FakeGoogle {
     return [...this.calendars.values()].filter((calendar) => calendar.subject === subject);
   }
 
+  /** The events in a calendar that aren't deleted, or none when it doesn't exist. */
+  eventsOf(calendarId: string): FakeEvent[] {
+    const events = this.calendars.get(calendarId)?.events.values() ?? [];
+    return [...events].filter(({ status }) => status !== "cancelled");
+  }
+
+  /** Adds an event to a calendar, as if someone added it in Google Calendar, and returns it. */
+  addEvent(calendarId: string, fields: FakeEventFields): FakeEvent {
+    const calendar = this.#calendar(calendarId);
+    const now = new Date().toISOString();
+    const event: FakeEvent = {
+      id: `google${newId().replaceAll("-", "")}`,
+      status: "confirmed",
+      etag: "",
+      start: {},
+      end: {},
+      created: now,
+      updated: now,
+      version: 0,
+    };
+    calendar.events.set(event.id, event);
+    this.changeEvent(calendarId, event.id, fields);
+    return event;
+  }
+
+  /** Changes an event's fields, as if someone changed it in Google Calendar. */
+  changeEvent(calendarId: string, eventId: string, fields: FakeEventFields): void {
+    const event = this.#calendar(calendarId).events.get(eventId);
+    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
+    Object.assign(event, fields);
+    this.#touch(calendarId, event);
+  }
+
+  /** Deletes an event, as if someone deleted it in Google Calendar. */
+  removeEvent(calendarId: string, eventId: string): void {
+    const event = this.#calendar(calendarId).events.get(eventId);
+    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
+    event.status = "cancelled";
+    this.#touch(calendarId, event);
+  }
+
+  /** Stops accepting a calendar's sync tokens given so far, as Google sometimes does, so the next
+   *  read must read every event again. */
+  dropSyncTokens(calendarId: string): void {
+    const calendar = this.#calendar(calendarId);
+    calendar.droppedBefore = calendar.version + 1;
+  }
+
   /** Forgets everything, as a fresh start would. */
   reset(): void {
     this.calendars.clear();
     this.#grants.clear();
     this.#revoked.clear();
     this.down = false;
+    this.refusingEvents = false;
+  }
+
+  #calendar(calendarId: string): FakeCalendar {
+    const calendar = this.calendars.get(calendarId);
+    if (!calendar) throw new Error(`There's no calendar ${calendarId}`);
+    return calendar;
+  }
+
+  #touch(calendarId: string, event: FakeEvent): void {
+    const calendar = this.#calendar(calendarId);
+    calendar.version += 1;
+    event.version = calendar.version;
+    event.etag = `"${calendar.version}-${newId()}"`;
+    const updated = Math.max(Date.now(), Date.parse(event.updated) + 1);
+    event.updated = new Date(updated).toISOString();
   }
 
   /** Answers a request made to Google, as Google would. */
@@ -109,32 +208,158 @@ export class FakeGoogle {
     const bearer = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
     const held = this.#accepted(bearer, "access");
     if (!held) return Response.json({ error: { code: 401 } }, { status: 401 });
-    const calendarId = decodeURIComponent(url.pathname.slice(calendarsPath.length + 1));
-    const body = (await request.json().catch(() => ({}))) as {
-      summary?: unknown;
-      timeZone?: unknown;
-    };
+    const [calendarId = "", collection, eventId, action] = url.pathname
+      .slice(calendarsPath.length + 1)
+      .split("/")
+      .map(decodeURIComponent);
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
     if (calendarId === "" && request.method === "POST") {
       const id = `fake-${newId()}@group.calendar.google.com`;
-      const calendar = {
+      const calendar: FakeCalendar = {
         subject: held.subject,
         name: String(body.summary ?? ""),
         timeZone: String(body.timeZone ?? "UTC"),
+        events: new Map(),
+        version: 0,
+        droppedBefore: 0,
       };
       this.calendars.set(id, calendar);
       return Response.json(calendarAnswer(id, calendar));
     }
     const calendar = this.calendars.get(calendarId);
-    if (!calendar || calendar.subject !== held.subject) {
-      return Response.json({ error: { code: 404 } }, { status: 404 });
+    if (!calendar || calendar.subject !== held.subject) return notFound();
+    if (collection === "events") {
+      return this.#eventsCall(request, url, { calendarId, calendar, eventId, action, body });
     }
+    if (collection !== undefined) return notFound();
     if (request.method === "PATCH") {
       if (typeof body.summary === "string") calendar.name = body.summary;
       return Response.json(calendarAnswer(calendarId, calendar));
     }
     if (request.method === "GET") return Response.json(calendarAnswer(calendarId, calendar));
     return new Response(null, { status: 405 });
+  }
+
+  #eventsCall(
+    request: Request,
+    url: URL,
+    call: {
+      calendarId: string;
+      calendar: FakeCalendar;
+      eventId: string | undefined;
+      action: string | undefined;
+      body: Record<string, unknown>;
+    },
+  ): Response {
+    const { calendarId, calendar, eventId, action, body } = call;
+    if (eventId === undefined) {
+      if (request.method === "GET") return this.#listEvents(calendar, url);
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const id = String(body.id ?? `google${newId().replaceAll("-", "")}`);
+      if (!/^[a-v0-9]{5,1024}$/.test(id)) return invalid("Invalid resource id value.");
+      if (calendar.events.has(id)) return Response.json({ error: { code: 409 } }, { status: 409 });
+      const problem = this.#eventProblem(body);
+      if (problem) return invalid(problem);
+      const now = new Date().toISOString();
+      const event: FakeEvent = {
+        id,
+        status: "confirmed",
+        etag: "",
+        start: {},
+        end: {},
+        created: now,
+        updated: now,
+        version: 0,
+      };
+      applyFields(event, body);
+      calendar.events.set(id, event);
+      this.#touch(calendarId, event);
+      return Response.json(eventAnswer(event));
+    }
+    const event = calendar.events.get(eventId);
+    if (!event) return notFound();
+    if (action === "move" && request.method === "POST") {
+      if (event.status === "cancelled") return notFound();
+      const destinationId = url.searchParams.get("destination") ?? "";
+      const destination = this.calendars.get(destinationId);
+      if (!destination || destination.subject !== calendar.subject) return notFound();
+      const moved: FakeEvent = { ...event, start: { ...event.start }, end: { ...event.end } };
+      destination.events.set(eventId, moved);
+      this.#touch(destinationId, moved);
+      event.status = "cancelled";
+      this.#touch(calendarId, event);
+      return Response.json(eventAnswer(moved));
+    }
+    if (action !== undefined) return notFound();
+    if (request.method === "GET") return Response.json(eventAnswer(event));
+    if (event.status === "cancelled") return new Response(null, { status: 410 });
+    if (request.method === "DELETE") {
+      event.status = "cancelled";
+      this.#touch(calendarId, event);
+      return new Response(null, { status: 204 });
+    }
+    if (request.method !== "PATCH") return new Response(null, { status: 405 });
+    const expected = request.headers.get("If-Match");
+    if (expected !== null && expected !== event.etag) {
+      return Response.json({ error: { code: 412 } }, { status: 412 });
+    }
+    const changed = { ...event, start: { ...event.start }, end: { ...event.end } };
+    applyFields(changed, body);
+    const problem = this.#eventProblem(changed);
+    if (problem) return invalid(problem);
+    Object.assign(event, changed);
+    this.#touch(calendarId, event);
+    return Response.json(eventAnswer(event));
+  }
+
+  #listEvents(calendar: FakeCalendar, url: URL): Response {
+    const pageToken = url.searchParams.get("pageToken");
+    const syncToken = url.searchParams.get("syncToken");
+    const pageSize = Number(url.searchParams.get("maxResults") ?? "250") || 250;
+    let since: number | null = null;
+    let offset = 0;
+    if (pageToken) {
+      const [sinceText = "", offsetText = "0"] = pageToken.replace(/^fake-page\./, "").split(".");
+      since = sinceText === "full" ? null : Number(sinceText);
+      offset = Number(offsetText);
+    } else if (syncToken) {
+      since = Number(syncToken.replace(/^fake-sync\./, ""));
+      if (!Number.isInteger(since) || since < calendar.droppedBefore) {
+        return Response.json({ error: { code: 410 } }, { status: 410 });
+      }
+    }
+    const events = [...calendar.events.values()]
+      .filter((event) => (since === null ? event.status !== "cancelled" : event.version > since))
+      .sort((a, b) => a.version - b.version);
+    const page = events.slice(offset, offset + pageSize);
+    const more = offset + pageSize < events.length;
+    return Response.json({
+      kind: "calendar#events",
+      timeZone: calendar.timeZone,
+      items: page.map(eventAnswer),
+      ...(more
+        ? { nextPageToken: `fake-page.${since ?? "full"}.${offset + pageSize}` }
+        : { nextSyncToken: `fake-sync.${calendar.version}` }),
+    });
+  }
+
+  #eventProblem(event: Record<string, unknown>): string | null {
+    if (this.refusingEvents) return "Invalid event.";
+    const start = event.start as FakeEventTime | undefined;
+    const end = event.end as FakeEventTime | undefined;
+    if (!start || !end) return "Missing time.";
+    if (
+      Boolean(start.date) !== Boolean(end.date) ||
+      Boolean(start.dateTime) === Boolean(start.date)
+    ) {
+      return "Start and end times must either both be date or both be dateTime.";
+    }
+    const from = Date.parse(start.date ?? start.dateTime ?? "");
+    const to = Date.parse(end.date ?? end.dateTime ?? "");
+    if (Number.isNaN(from) || Number.isNaN(to)) return "Invalid time.";
+    if (start.date ? to <= from : to < from) return "The specified time range is empty.";
+    return null;
   }
 
   #accepted(text: string, kind: "access" | "refresh"): { subject: string; grant: string } | null {
@@ -188,6 +413,97 @@ export function fakeConsentPage(url: URL): Response {
   });
 }
 
+/** The fake Google's calendars and their events, on a page of the backend, to change them locally
+ *  as if in Google Calendar: add an event, change its title or delete it, delete a calendar, or
+ *  drop a calendar's sync tokens. Each change returns to the page. */
+export async function fakeCalendarPage(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === "POST") {
+    const form = await formIn(request);
+    const calendarId = form.get("calendar") ?? "";
+    const eventId = form.get("event") ?? "";
+    try {
+      switch (form.get("action")) {
+        case "add-event":
+          fakeGoogle.addEvent(calendarId, fakeEventFields(form));
+          break;
+        case "change-title":
+          fakeGoogle.changeEvent(calendarId, eventId, { summary: form.get("title") ?? "" });
+          break;
+        case "delete-event":
+          fakeGoogle.removeEvent(calendarId, eventId);
+          break;
+        case "delete-calendar":
+          fakeGoogle.calendars.delete(calendarId);
+          break;
+        case "drop-sync-tokens":
+          fakeGoogle.dropSyncTokens(calendarId);
+          break;
+      }
+    } catch (error) {
+      return new Response(String(error), { status: 400 });
+    }
+    return new Response(null, { status: 303, headers: { Location: url.pathname } });
+  }
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+
+  const form = (action: string, fields: string, label: string, calendarId: string, eventId = "") =>
+    `<form method="post" style="display: inline">
+<input type="hidden" name="action" value="${action}">
+<input type="hidden" name="calendar" value="${escapeHtml(calendarId)}">
+<input type="hidden" name="event" value="${escapeHtml(eventId)}">
+${fields}<button>${escapeHtml(label)}</button></form>`;
+  const calendars = [...fakeGoogle.calendars].map(([id, calendar]) => {
+    const name = `${calendar.name} (${calendar.subject})`;
+    const events = fakeGoogle.eventsOf(id).map((event) => {
+      const [from, to] = [event.start, event.end].map((time) => time.date ?? time.dateTime);
+      const summary = escapeHtml(event.summary ?? "");
+      const when = `${from} to ${to}`;
+      const title = `<input name="title" aria-label="New title of ${summary}" value="${summary}">`;
+      return `<li><strong>${escapeHtml(event.summary ?? "(No title)")}</strong>, ${escapeHtml(when)}
+${form("change-title", title, "Change title", id, event.id)}
+${form("delete-event", "", `Delete ${event.summary ?? "event"}`, id, event.id)}</li>`;
+    });
+    return `<section aria-label="${escapeHtml(name)}">
+<h2>${escapeHtml(name)}</h2>
+<p>Time zone: ${escapeHtml(calendar.timeZone)}</p>
+<ul>${events.join("") || "<li>No events</li>"}</ul>
+${form(
+  "add-event",
+  `<input name="title" aria-label="Title" placeholder="Title" required>
+<input name="starts" aria-label="Starts" placeholder="2026-11-20 or 2026-11-20T19:00:00Z" required>
+<input name="ends" aria-label="Ends" placeholder="2026-11-21 or 2026-11-20T20:00:00Z" required>`,
+  "Add event",
+  id,
+)}
+${form("delete-calendar", "", "Delete calendar", id)}
+${form("drop-sync-tokens", "", "Drop sync tokens", id)}
+</section>`;
+  });
+  const html = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Fake Google Calendar</title></head>
+<body style="font-family: sans-serif; padding: 24px">
+<h1>Fake Google Calendar</h1>
+<p>Stands in for Google Calendar while developing Foyer. All-day events end the day after their last day, as in Google.</p>
+${calendars.join("") || "<p>No calendars yet.</p>"}
+</body>
+</html>`;
+  return new Response(html, {
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
+
+function fakeEventFields(form: URLSearchParams): FakeEventFields {
+  const time = (value: string): FakeEventTime =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value) ? { date: value } : { dateTime: value };
+  return {
+    summary: form.get("title") ?? "",
+    start: time(form.get("starts") ?? ""),
+    end: time(form.get("ends") ?? ""),
+  };
+}
+
 const calendarsPath = "/calendar/v3/calendars";
 
 async function formIn(request: Request): Promise<URLSearchParams> {
@@ -196,6 +512,30 @@ async function formIn(request: Request): Promise<URLSearchParams> {
 
 function calendarAnswer(id: string, calendar: FakeCalendar) {
   return { kind: "calendar#calendar", id, summary: calendar.name, timeZone: calendar.timeZone };
+}
+
+function eventAnswer({ version: _, ...event }: FakeEvent) {
+  return { kind: "calendar#event", ...event };
+}
+
+function applyFields(event: FakeEvent, body: Record<string, unknown>): void {
+  if (typeof body.summary === "string") event.summary = body.summary;
+  if (typeof body.description === "string") event.description = body.description;
+  for (const end of ["start", "end"] as const) {
+    const time = body[end];
+    if (time === undefined || time === null || typeof time !== "object") continue;
+    const merged: Record<string, unknown> = { ...event[end], ...time };
+    for (const [key, value] of Object.entries(merged)) if (value === null) delete merged[key];
+    event[end] = merged as FakeEventTime;
+  }
+}
+
+function notFound(): Response {
+  return Response.json({ error: { code: 404 } }, { status: 404 });
+}
+
+function invalid(message: string): Response {
+  return Response.json({ error: { code: 400, message } }, { status: 400 });
 }
 
 function idClaims(subject: string, clientId: string) {

@@ -1,4 +1,13 @@
 export { calendarName } from "./calendar";
+export {
+  dayIn,
+  type EventTime,
+  type EventTimeFields,
+  eventDate,
+  eventTimeFields,
+  readEventTime,
+  sameEventTime,
+} from "./event";
 export { isId, newId } from "./id";
 export {
   itemDescriptionLimit,

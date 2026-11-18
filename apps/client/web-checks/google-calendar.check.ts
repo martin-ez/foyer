@@ -105,3 +105,83 @@ test("returns without connecting when someone cancels", async ({ page }, testInf
   await openAccount(page);
   await expect(page.getByText("Google Calendar: Not connected")).toBeVisible();
 });
+
+async function ensurePersonalSpace(page: Page, name: string) {
+  await openSpaces(page);
+  if ((await page.getByText(name, { exact: true }).count()) === 0) {
+    await page.getByLabel("New space's name").fill(name);
+    await page.getByRole("button", { name: "Create personal" }).click();
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Hide spaces" }).click();
+}
+
+function dayFromToday(days: number): string {
+  const day = new Date();
+  day.setDate(day.getDate() + days);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+}
+
+test("adds, changes and deletes events, which reach Google Calendar and come back from it", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(bundleBuildTimeout + 180_000);
+  const email = memberOfItsOwnFor(testInfo);
+  const tomorrow = dayFromToday(1);
+  const title = `Dentist ${Date.now()}`;
+  await signInDisconnected(page, email);
+  await connectAtFakeGoogle(page, /^Continue as /);
+  await ensurePersonalSpace(page, "Work");
+  await page.getByRole("tab", { name: "Calendar" }).click();
+
+  await page.getByRole("button", { name: "New event" }).click();
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel("First day").fill(tomorrow);
+  await page.getByLabel("Starts at").fill("7pm");
+  await expect(page.getByText("Times are as in 19:00.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add event" })).toBeDisabled();
+  await page.getByLabel("Starts at").fill("19:00");
+  await page.getByLabel("Last day").fill(tomorrow);
+  await page.getByLabel("Ends at").fill("20:00");
+  await page.getByRole("checkbox", { name: "In Work" }).click();
+  await saveScreenshot(page, testInfo, "event-editor");
+  await page.getByRole("button", { name: "Add event" }).click();
+  const listed = page.getByRole("button", { name: `Event: ${title}` });
+  await expect(listed).toContainText("8:00");
+  await expect(listed).toContainText("· Work");
+  await saveScreenshot(page, testInfo, "events-upcoming");
+
+  await listed.click();
+  await page.getByRole("button", { name: "Move to Personal" }).click();
+  await expect(page.getByText("In Personal")).toBeVisible();
+  await page.getByLabel("Title").fill(`${title} with Sam`);
+  await page.getByRole("checkbox", { name: "All day" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Close" }).click();
+  const changed = page.getByRole("button", { name: `Event: ${title} with Sam` });
+  await expect(changed).toContainText("all day");
+
+  const google = await page.context().newPage();
+  const calendar = google.getByRole("region", { name: `Foyer · Personal (dev:${email})` });
+  await expect(async () => {
+    await google.goto("/auth/dev/google/calendar");
+    await expect(calendar).toContainText(`${title} with Sam`, { timeout: 1000 });
+  }).toPass({ timeout: 30_000 });
+  const fromGoogle = `Haircut ${Date.now()}`;
+  await calendar.getByLabel("Title", { exact: true }).fill(fromGoogle);
+  await calendar.getByLabel("Starts").fill(tomorrow);
+  await calendar.getByLabel("Ends").fill(dayFromToday(2));
+  await calendar.getByRole("button", { name: "Add event" }).click();
+  await google.close();
+
+  const added = page.getByRole("button", { name: `Event: ${fromGoogle}` });
+  await expect(added).toContainText("added in Google Calendar", { timeout: 90_000 });
+  await saveScreenshot(page, testInfo, "events-from-google");
+
+  for (const event of [changed, added]) {
+    await event.click();
+    await page.getByRole("button", { name: "Delete event" }).click();
+    await expect(event).toBeHidden();
+  }
+});

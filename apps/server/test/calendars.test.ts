@@ -1,11 +1,9 @@
 import { reset, runInDurableObject } from "cloudflare:test";
 import { env, withEnv } from "cloudflare:workers";
 import { toBinary } from "@bufbuild/protobuf";
-import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-web";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   App,
-  CalendarService,
   type GoogleConnection,
   GoogleConnectionState,
 } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
@@ -15,8 +13,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { longestRetryDelay } from "../src/calendars";
 import { fakeGoogle } from "../src/fake-google";
 import { theHousehold } from "../src/household";
-import worker from "../src/index";
 import { backendUrl, localBackendUrl, locationOf, requestBackend } from "./backend";
+import { calendars, connectGoogle, work } from "./calendar-helpers";
 import { Device, idOf, signIn, spaceCreate, spaceRename } from "./sync-device";
 
 const alex = "member@example.com";
@@ -48,56 +46,10 @@ async function connect(token: string): Promise<Device> {
   return device;
 }
 
-function calendars(
-  token?: string,
-  at: { baseUrl?: string; settings?: Partial<Cloudflare.Env> } = {},
-) {
-  const { baseUrl = backendUrl, settings } = at;
-  const transport = createConnectTransport({
-    baseUrl,
-    fetch: (input, init) =>
-      settings
-        ? (withEnv({ ...env, ...settings }, () =>
-            worker.fetch(
-              new Request(input, { ...init, redirect: "manual" }) as Parameters<
-                typeof worker.fetch
-              >[0],
-            ),
-          ) as Promise<Response>)
-        : requestBackend(input.toString(), init),
-  });
-  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-  const client = createClient(CalendarService, transport);
-  return {
-    startConnecting: (app = App.WEB, timeZone = "Europe/Madrid") =>
-      client.startConnecting({ app, timeZone }, { headers }),
-    disconnect: () => client.disconnect({}, { headers }),
-  };
-}
-
-async function connectGoogle(
-  token: string,
-  options: { app?: App; account?: string; scope?: string; returned?: (callback: URL) => void } = {},
-): Promise<URL> {
-  const { address } = await calendars(token).startConnecting(options.app);
-  const google = new URL(address);
-  const callback = new URL(google.searchParams.get("redirect_uri") ?? "");
-  const account = options.account ?? google.searchParams.get("login_hint") ?? "";
-  const scope = options.scope ?? google.searchParams.get("scope") ?? "";
-  callback.searchParams.set("code", fakeGoogle.codeFor(account, scope));
-  callback.searchParams.set("state", google.searchParams.get("state") ?? "");
-  options.returned?.(callback);
-  return locationOf(await requestBackend(callback.toString()));
-}
-
 async function choicesAt(address: string): Promise<Map<string, string>> {
   const page = await (await requestBackend(address)).text();
   const links = [...page.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)];
   return new Map(links.map(([, href = "", label = ""]) => [label, href.replaceAll("&amp;", "&")]));
-}
-
-async function work(): Promise<void> {
-  await runInDurableObject(theHousehold(), (household) => household.alarm());
 }
 
 async function received(device: Device): Promise<Row[]> {
@@ -413,20 +365,29 @@ describe("making calendars", () => {
     expect(calendarNames(alexsAccount)).toEqual([]);
   });
 
-  it("keeps renaming the other calendars when one was deleted in Google", async () => {
+  it("makes a calendar deleted in Google again, in the same account, and keeps renaming the others", async () => {
     const { token, device } = await member(alex);
     const gardenId = await createShared(device, "Garden");
     const holidaysId = await createShared(device, "Holidays");
     await connectGoogle(token);
     await work();
+    const [gardenCalendar] = [...fakeGoogle.calendars].find(
+      ([, calendar]) => calendar.name === "Foyer · Garden",
+    ) ?? [""];
 
-    for (const [id, calendar] of fakeGoogle.calendars) {
-      if (calendar.name === "Foyer · Garden") fakeGoogle.calendars.delete(id);
-    }
+    fakeGoogle.calendars.delete(gardenCalendar);
     await device.push(spaceRename(gardenId, "Allotment"), spaceRename(holidaysId, "Trips"));
     await work();
+    await work();
 
-    expect(calendarNames(alexsAccount)).toEqual(["Foyer · Personal", "Foyer · Trips"]);
+    expect(calendarNames(alexsAccount)).toEqual([
+      "Foyer · Allotment",
+      "Foyer · Personal",
+      "Foyer · Trips",
+    ]);
+    expect(fakeGoogle.calendars.has(gardenCalendar)).toBe(false);
+    const garden = await spaceNamed(device, "Allotment");
+    expect(garden?.calendarState).toBe(CalendarState.SYNCING);
   });
 
   it("keeps using the member's access after its access token expires", async () => {

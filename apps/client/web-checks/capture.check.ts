@@ -139,7 +139,7 @@ test("makes a capture key that a Shortcut captures with, then replaces and remov
     data: { title: " " },
   });
   expect(blank.status()).toBe(400);
-  expect(await blank.json()).toMatchObject({ message: "A task's title can't be blank." });
+  expect(await blank.json()).toMatchObject({ message: "A title can't be blank." });
 
   await openShortcuts(page);
   await expect(page.getByText(/, and last used on /)).toBeVisible();

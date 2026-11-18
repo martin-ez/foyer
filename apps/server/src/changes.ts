@@ -9,6 +9,8 @@ import {
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { tickTask, untickTask } from "./completions";
+import { queueEventWrites } from "./event-sync";
+import { setEventTime } from "./events";
 import { createItem, deleteItem, moveItem, setItemField, setItemRepeat } from "./items";
 import { setItemParent } from "./nesting";
 import { createPage } from "./pages";
@@ -20,8 +22,8 @@ import { moveSticker, placeSticker, removeSticker } from "./stickers";
  *  with no effect would have changed, which only the device that pushed them receives. */
 export type PushOutcome = { results: ChangeResult[]; changed: RowKey[]; unchanged: RowKey[] };
 
-/** Applies a member's changes in order, each on its own, and remembers what became of each by its
- *  id, so that a change sent again is answered the same way and has no further effect. A change
+/** Applies a member's changes in order, each on its own, remembering what became of each by its id
+ *  so that sending it again has no effect, and queues the events they change for Google. A change
  *  that fails unexpectedly is refused without being remembered, so sending it again retries it. */
 export function applyPush(
   storage: DurableObjectStorage,
@@ -40,6 +42,7 @@ export function applyPush(
       const applied = storage.transactionSync(() => {
         const applied = apply(storage.sql, memberId, change, now);
         remember(storage.sql, change.changeId, memberId, applied, now);
+        if ("seq" in applied) queueEventWrites(storage.sql, applied.changed);
         return applied;
       });
       outcome.results.push(resultOf(change.changeId, applied));
@@ -125,6 +128,8 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return setItemRepeat(sql, memberId, setter, change.change.value);
     case "itemSetParent":
       return setItemParent(sql, memberId, setter, change.change.value);
+    case "eventSetTime":
+      return setEventTime(sql, memberId, setter, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

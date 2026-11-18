@@ -211,7 +211,7 @@ describe("capturing with a key", () => {
     expect(answer.status).toBe(400);
     expect(await answer.json()).toEqual({
       code: "invalid_argument",
-      message: "A task's title can't be blank.",
+      message: "A title can't be blank.",
     });
   });
 });
@@ -222,11 +222,11 @@ describe("refusing a capture", () => {
 
     expect(await codeOf(capture(key, "   "))).toEqual({
       code: Code.InvalidArgument,
-      message: "A task's title can't be blank.",
+      message: "A title can't be blank.",
     });
     expect(await codeOf(capture(key, "a".repeat(itemTitleLimit + 1)))).toEqual({
       code: Code.InvalidArgument,
-      message: `A task's title can't be longer than ${itemTitleLimit} characters.`,
+      message: `A title can't be longer than ${itemTitleLimit} characters.`,
     });
     expect(await device.updates()).toEqual([]);
   });

@@ -3,6 +3,7 @@ syntax = "proto3";
 package foyer.sync.v1;
 
 import "foyer/calendar/v1/calendar.proto";
+import "foyer/event/v1/event.proto";
 import "foyer/item/v1/item.proto";
 import "foyer/member/v1/member.proto";
 import "foyer/page/v1/page.proto";
@@ -62,6 +63,7 @@ message Change {
     foyer.task.v1.TaskUntick task_untick = 16;
     foyer.item.v1.ItemSetRepeat item_set_repeat = 17;
     foyer.item.v1.ItemSetParent item_set_parent = 18;
+    foyer.event.v1.EventSetTime event_set_time = 19;
   }
 }
 

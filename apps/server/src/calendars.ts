@@ -1,6 +1,13 @@
 import { calendarName } from "@foyer/shared";
 import { isOnAllowlist } from "./allowlist";
 import {
+  EventSync,
+  readIntervalWhileAway,
+  readIntervalWhileConnected,
+  type SpaceCalendar,
+  wakeWaitingWrites,
+} from "./event-sync";
+import {
   type CalendarAnswer,
   calendarClient,
   calendarScope,
@@ -33,6 +40,8 @@ export const longestRetryDelay = 60 * minute;
 
 type SpaceToMake = { id: string; name: string; time_zone: string };
 
+type LostCalendar = { space_id: string; name: string; time_zone: string };
+
 type HeldCalendar = {
   space_id: string;
   google_calendar_id: string;
@@ -42,25 +51,36 @@ type HeldCalendar = {
 
 type Done = "done" | "failed" | "access-stopped";
 
-/** Keeps members' Google connections, and a Google calendar for each space except the Inbox in
- *  its holder's account. `changed` sends devices the rows that changed, and `wake` asks for the
- *  household's alarm, which runs `work`, at a time. */
+/** Keeps members' Google connections, a Google calendar for each space except the Inbox in its
+ *  holder's account, and those calendars' events in step with Foyer's. The household's alarm runs
+ *  `work`; it reads more often while `devicesConnected` says a device is connected. */
 export class Calendars {
   readonly #storage: DurableObjectStorage;
   readonly #changed: (keys: RowKey[]) => void;
   readonly #wake: (at: number) => void;
+  readonly #devicesConnected: () => boolean;
+  readonly #events: EventSync;
   #retryDelay = minute;
   #nextAttemptAt = 0;
+  #readNow = false;
   #running: Promise<void> = Promise.resolve();
 
   constructor(
     storage: DurableObjectStorage,
     changed: (keys: RowKey[]) => void,
     wake: (at: number) => void,
+    devicesConnected: () => boolean,
   ) {
     this.#storage = storage;
     this.#changed = changed;
     this.#wake = wake;
+    this.#devicesConnected = devicesConnected;
+    this.#events = new EventSync(
+      storage,
+      (memberId, call) => this.#withAccess(memberId, call),
+      changed,
+      (spaceId) => this.#calendarLost(spaceId),
+    );
   }
 
   /** Exchanges what Google sent back for access to a member's calendars, and keeps it, resuming
@@ -112,9 +132,11 @@ export class Calendars {
         seq,
       );
       sql.exec("DELETE FROM tombstones WHERE kind = 'google_connection' AND id = ?", memberId);
+      wakeWaitingWrites(sql);
       return [connectionKey(memberId), ...this.#touchHeldSpaces(memberId, seq)];
     });
     this.#changed(changed);
+    this.#readNow = true;
     this.soon();
     return "connected";
   }
@@ -148,16 +170,23 @@ export class Calendars {
   }
 
   /** Asks for Google's work to be done now, if there is any: after a change that may need a
-   *  calendar made or renamed. */
+   *  calendar made or renamed, or an event written. */
   soon(): void {
     if (!this.#hasWork()) return;
     this.#nextAttemptAt = 0;
     this.#wake(Date.now());
   }
 
-  /** Makes and renames the calendars spaces wait for, one run at a time. Access Google refuses
-   *  needs reconnecting and pauses its spaces. After a failure, it asks to run again later, waiting
-   *  twice as long each time, up to `longestRetryDelay`. */
+  /** Reads every calendar's changes from Google now, as when a device connects. */
+  readSoon(): void {
+    if (this.#calendarsDueToReadAt(Number.POSITIVE_INFINITY).length === 0) return;
+    this.#readNow = true;
+    this.#wake(Date.now());
+  }
+
+  /** Makes and renames calendars, writes waiting event changes and reads the calendars due, one run
+   *  at a time. Access Google refuses pauses its spaces, and failing to make, rename or read a
+   *  calendar waits twice as long each time, up to `longestRetryDelay`. */
   work(): Promise<void> {
     const run = this.#running.then(() => this.#work());
     this.#running = run.catch(() => {});
@@ -165,25 +194,61 @@ export class Calendars {
   }
 
   async #work(): Promise<void> {
-    if (Date.now() < this.#nextAttemptAt) {
-      this.#wake(this.#nextAttemptAt);
-      return;
+    try {
+      await this.#workNow();
+    } finally {
+      this.#wakeForNextWork();
     }
+  }
+
+  async #workNow(): Promise<void> {
     let failed = false;
-    for (const memberId of this.#connectedMembers()) {
-      if ((await this.#workFor(memberId)) === "failed") failed = true;
+    if (Date.now() >= this.#nextAttemptAt) {
+      for (const memberId of this.#connectedMembers()) {
+        if ((await this.#workFor(memberId)) === "failed") failed = true;
+      }
     }
-    if (!failed) {
+    for (const memberId of await this.#events.writeDue()) this.#accessStopped(memberId);
+    if (Date.now() < this.#nextAttemptAt) return;
+    const due = this.#calendarsDueToReadAt(this.#readNow ? Number.POSITIVE_INFINITY : Date.now());
+    this.#readNow = false;
+    for (const calendar of due) {
+      const outcome = await this.#events.read(calendar);
+      if (typeof outcome === "object") this.#accessStopped(outcome.accessStopped);
+      if (outcome === "failed") failed = true;
+    }
+    if (failed) {
+      this.#nextAttemptAt = Date.now() + this.#retryDelay;
+      this.#retryDelay = Math.min(this.#retryDelay * 2, longestRetryDelay);
+    } else {
       this.#retryDelay = minute;
       this.#nextAttemptAt = 0;
-      return;
     }
-    this.#nextAttemptAt = Date.now() + this.#retryDelay;
-    this.#retryDelay = Math.min(this.#retryDelay * 2, longestRetryDelay);
-    this.#wake(this.#nextAttemptAt);
+  }
+
+  #wakeForNextWork(): void {
+    const times = [this.#events.nextWriteAt()];
+    if (this.#nextAttemptAt > Date.now()) times.push(this.#nextAttemptAt);
+    else if (this.#hasCalendarWork()) times.push(Date.now());
+    const interval = this.#devicesConnected() ? readIntervalWhileConnected : readIntervalWhileAway;
+    for (const calendar of this.#calendarsDueToReadAt(Number.POSITIVE_INFINITY)) {
+      times.push(Math.max((calendar.read_at ?? 0) + interval, this.#nextAttemptAt));
+    }
+    const next = times.filter((time): time is number => time !== null);
+    if (next.length > 0) this.#wake(Math.max(Math.min(...next), Date.now()));
   }
 
   async #workFor(memberId: string): Promise<Done> {
+    for (const calendar of this.#calendarsToRemake(memberId)) {
+      const name = calendarName(calendar.name);
+      const made = await this.#withAccess(memberId, (token) =>
+        createCalendar(token, { name, timeZone: calendar.time_zone }),
+      );
+      if ("revoked" in made) return this.#accessStopped(memberId);
+      if (!("ok" in made))
+        return failure(`Making again the calendar of space ${calendar.space_id}`, made);
+      this.#remakeCalendar(calendar.space_id, made.ok, name);
+    }
     for (const space of this.#calendarsToMake(memberId)) {
       const name = calendarName(space.name);
       const made = await this.#withAccess(memberId, (token) =>
@@ -191,7 +256,7 @@ export class Calendars {
       );
       if ("revoked" in made) return this.#accessStopped(memberId);
       if (!("ok" in made)) return failure(`Making a calendar for space ${space.id}`, made);
-      this.#keepCalendar(memberId, space.id, made.ok, name);
+      this.#keepCalendar(memberId, space.id, made.ok, name, space.time_zone);
     }
     for (const calendar of this.#calendarsToRename(memberId)) {
       const name = calendarName(calendar.name);
@@ -200,8 +265,10 @@ export class Calendars {
       );
       if ("revoked" in renamed) return this.#accessStopped(memberId);
       if ("gone" in renamed) {
-        console.error(`The calendar of space ${calendar.space_id} is no longer in Google.`);
-      } else if (!("ok" in renamed)) {
+        this.#calendarLost(calendar.space_id);
+        continue;
+      }
+      if (!("ok" in renamed)) {
         return failure(`Renaming the calendar of space ${calendar.space_id}`, renamed);
       }
       this.#storage.sql.exec(
@@ -285,7 +352,13 @@ export class Calendars {
     return "access-stopped";
   }
 
-  #keepCalendar(memberId: string, spaceId: string, calendarId: string, name: string): void {
+  #keepCalendar(
+    memberId: string,
+    spaceId: string,
+    calendarId: string,
+    name: string,
+    timeZone: string,
+  ): void {
     const { sql } = this.#storage;
     const kept = this.#storage.transactionSync(() => {
       if (sql.exec("SELECT 1 FROM space_calendars WHERE space_id = ?", spaceId).toArray().length) {
@@ -294,18 +367,75 @@ export class Calendars {
       }
       sql.exec(
         `INSERT INTO space_calendars (space_id, member_id, google_calendar_id, name_in_google,
-           created_at)
-         VALUES (?, ?, ?, ?, ?)`,
+           created_at, time_zone)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         spaceId,
         memberId,
         calendarId,
         name,
         Date.now(),
+        timeZone,
       );
       sql.exec("UPDATE spaces SET seq = ? WHERE id = ?", nextSeq(sql), spaceId);
       return true;
     });
     if (kept) this.#changed([{ kind: "space", id: spaceId }]);
+  }
+
+  #calendarLost(spaceId: string): void {
+    const { sql } = this.#storage;
+    this.#storage.transactionSync(() => {
+      const [calendar] = sql
+        .exec<{ google_calendar_id: string }>(
+          "SELECT google_calendar_id FROM space_calendars WHERE space_id = ? AND lost_at IS NULL",
+          spaceId,
+        )
+        .toArray();
+      if (!calendar) return;
+      console.error(`The calendar of space ${spaceId} is no longer in Google, so it's made again.`);
+      sql.exec(
+        `UPDATE space_calendars SET lost_at = ?, sync_token = NULL, read_at = NULL
+         WHERE space_id = ?`,
+        Date.now(),
+        spaceId,
+      );
+      sql.exec(
+        "DELETE FROM google_events WHERE google_calendar_id = ?",
+        calendar.google_calendar_id,
+      );
+      sql.exec(
+        "DELETE FROM google_event_removals WHERE google_calendar_id = ?",
+        calendar.google_calendar_id,
+      );
+      const events = sql
+        .exec<{ id: string }>("SELECT id FROM items WHERE space_id = ? AND kind = 'event'", spaceId)
+        .toArray();
+      for (const { id } of events) {
+        sql.exec(
+          `INSERT INTO google_event_writes (item_id, version, tries, next_attempt_at)
+           VALUES (?, 1, 0, 0)
+           ON CONFLICT (item_id) DO UPDATE SET version = version + 1, tries = 0, next_attempt_at = 0`,
+          id,
+        );
+      }
+    });
+    this.#nextAttemptAt = 0;
+    this.#wake(Date.now());
+  }
+
+  #remakeCalendar(spaceId: string, calendarId: string, name: string): void {
+    const { sql } = this.#storage;
+    this.#storage.transactionSync(() => {
+      sql.exec(
+        `UPDATE space_calendars SET google_calendar_id = ?, name_in_google = ?, lost_at = NULL,
+           sync_token = NULL, read_at = NULL
+         WHERE space_id = ?`,
+        calendarId,
+        name,
+        spaceId,
+      );
+      wakeWaitingWrites(sql);
+    });
   }
 
   #touchHeldSpaces(memberId: string, seq: number): RowKey[] {
@@ -355,13 +485,42 @@ export class Calendars {
       .toArray();
   }
 
+  #calendarsToRemake(memberId: string): LostCalendar[] {
+    return this.#storage.sql
+      .exec<LostCalendar>(
+        `SELECT space_calendars.space_id, spaces.name, space_calendars.time_zone
+         FROM space_calendars JOIN spaces ON spaces.id = space_calendars.space_id
+         WHERE space_calendars.member_id = ? AND space_calendars.lost_at IS NOT NULL
+         ORDER BY space_calendars.lost_at, space_calendars.space_id`,
+        memberId,
+      )
+      .toArray();
+  }
+
+  #calendarsDueToReadAt(time: number): SpaceCalendar[] {
+    const interval = this.#devicesConnected() ? readIntervalWhileConnected : readIntervalWhileAway;
+    return this.#storage.sql
+      .exec<SpaceCalendar>(
+        `SELECT space_calendars.space_id, space_calendars.member_id,
+           space_calendars.google_calendar_id, space_calendars.time_zone,
+           space_calendars.sync_token, space_calendars.read_at, space_calendars.lost_at
+         FROM space_calendars JOIN google_connections
+           ON google_connections.member_id = space_calendars.member_id
+           AND google_connections.state = 'connected'
+         WHERE space_calendars.lost_at IS NULL
+         ORDER BY space_calendars.created_at, space_calendars.space_id`,
+      )
+      .toArray()
+      .filter(({ read_at }) => read_at === null || read_at + interval <= time);
+  }
+
   #calendarsToRename(memberId: string): HeldCalendar[] {
     return this.#storage.sql
       .exec<HeldCalendar>(
         `SELECT space_calendars.space_id, space_calendars.google_calendar_id,
            space_calendars.name_in_google, spaces.name
          FROM space_calendars JOIN spaces ON spaces.id = space_calendars.space_id
-         WHERE space_calendars.member_id = ?`,
+         WHERE space_calendars.member_id = ? AND space_calendars.lost_at IS NULL`,
         memberId,
       )
       .toArray()
@@ -369,9 +528,16 @@ export class Calendars {
   }
 
   #hasWork(): boolean {
+    const nextWrite = this.#events.nextWriteAt();
+    return this.#hasCalendarWork() || (nextWrite !== null && nextWrite <= Date.now());
+  }
+
+  #hasCalendarWork(): boolean {
     return this.#connectedMembers().some(
       (memberId) =>
-        this.#calendarsToMake(memberId).length > 0 || this.#calendarsToRename(memberId).length > 0,
+        this.#calendarsToMake(memberId).length > 0 ||
+        this.#calendarsToRename(memberId).length > 0 ||
+        this.#calendarsToRemake(memberId).length > 0,
     );
   }
 }
