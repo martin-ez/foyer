@@ -78,3 +78,7 @@ Then comment on the pull request with the images and what was checked. Link each
 ## Signing in locally
 
 Signing in with Google needs a Google OAuth client, set in `apps/server/.dev.vars` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, as [Google sign-in](deploying.md#google-sign-in) explains. Without one, open `http://localhost:8787/auth/dev?email=you@example.com` to sign in as an email on the allowlist, which works while `.dev.vars` sets `DEV_SIGN_IN=1`. Add `&app=ipad` to return to the iPad app instead, at `foyer://signed-in`.
+
+## Connecting Google Calendar locally
+
+While `.dev.vars` sets `DEV_SIGN_IN=1`, connecting Google Calendar uses a fake Google, in `apps/server/src/fake-google.ts`, instead of Google, even when `.dev.vars` sets a Google client. "Connect Google Calendar" opens its page at `http://localhost:8787/auth/dev/google`, which offers to continue as the member's own account, as another account, or without calendar access, and to cancel, and returns as Google would. The fake keeps the calendars it makes in memory, so they're forgotten when the backend restarts. The backend's tests connect to the same fake, and can make it fail or revoke a member's access.

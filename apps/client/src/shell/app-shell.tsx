@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BackendStatus } from "../backend/backend-status";
+import { GoogleCalendarEntry } from "../calendar/google-calendar-views";
 import { CapturePanel } from "../capture/capture-panel";
 import { ShortcutsPanel } from "../capture/shortcuts-panel";
 import { SignedInAs } from "../session/session-screens";
@@ -109,6 +110,7 @@ function AccountPanel({ alongSide }: { alongSide: boolean }) {
   return (
     <View style={[styles.panel, alongSide ? styles.panelLeft : styles.panelRight]}>
       <SignedInAs member={member} onSignOut={signOut} />
+      <GoogleCalendarEntry />
       <BackendStatus />
       <Button
         title={shortcutsShown ? "Hide Shortcuts" : "Shortcuts"}

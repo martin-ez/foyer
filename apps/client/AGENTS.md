@@ -35,7 +35,8 @@ Run `pnpm check` before declaring any task done.
 ## The app's frame
 
 - **Destinations:** once someone is signed in, `src/app/(household)/_layout.tsx` shows the frame, `src/shell/app-shell.tsx`. It's built with Expo Router's headless tabs (`expo-router/ui`) and holds three destinations: Calendar, Notebook and Tasks. Each is a route with its own address, such as `/tasks`. `/` opens the Calendar.
-- **The bar** runs along the bottom of narrow windows and along the side of wider ones. It holds a Capture button, which opens a field above the open destination that adds tasks to the Inbox (`src/capture/`), the sync status, and an account menu with sign-out, the backend's status and Shortcuts, where members manage the capture key an iOS Shortcut captures with.
+- **The bar** runs along the bottom of narrow windows and along the side of wider ones. It holds a Capture button, which opens a field above the open destination that adds tasks to the Inbox (`src/capture/`), the sync status, and an account menu with sign-out, the member's Google Calendar connection, the backend's status and Shortcuts, where members manage the capture key an iOS Shortcut captures with.
+- **Google Calendar:** connect, reconnect and disconnect it with `useGoogleCalendar()` from `src/calendar/google-calendar-views.tsx`, which also says why connecting just didn't work. The web app leaves for Google and comes back to its first page; the iPad app connects in the system's sign-in sheet.
 - **Hidden destinations** stay mounted and keep their state. React Activity isn't used to hide them: Skia's canvas crashes when it's shown again. A page is drawn, and the device is on it on the live lane, only while its destination is in front (`src/page/page-view.tsx`).
 - **Sync:** the destinations share one connection to the household. Read it with `useHousehold()` from `src/shell/household.tsx`.
 

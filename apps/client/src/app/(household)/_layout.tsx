@@ -1,3 +1,4 @@
+import { GoogleCalendarProvider } from "../../calendar/google-calendar-views";
 import { CheckingSession, SessionUnreachable, SignIn } from "../../session/session-screens";
 import { useSession } from "../../session/use-session";
 import { AppShell } from "../../shell/app-shell";
@@ -18,9 +19,11 @@ export default function HouseholdLayout() {
     case "signed-in":
       return (
         <HouseholdProvider member={session.member} onSignOut={signOut} onSignedOut={check}>
-          <TickingProvider>
-            <AppShell />
-          </TickingProvider>
+          <GoogleCalendarProvider>
+            <TickingProvider>
+              <AppShell />
+            </TickingProvider>
+          </GoogleCalendarProvider>
         </HouseholdProvider>
       );
   }

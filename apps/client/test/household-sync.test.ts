@@ -11,9 +11,10 @@ import {
   stickerGap,
   taskStickerSize,
 } from "@foyer/shared";
+import { GoogleConnectionState } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
 import { ItemKind, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
-import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { CalendarState, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import {
   type Change,
@@ -122,7 +123,14 @@ class HouseholdEnd {
 
 function spaceRow(
   seq: number,
-  space: { id?: string; kind?: SpaceKind; ownerId?: string; name: string },
+  space: {
+    id?: string;
+    kind?: SpaceKind;
+    ownerId?: string;
+    name: string;
+    calendarMemberId?: string;
+    calendarState?: CalendarState;
+  },
 ): RowInit {
   const value = { id: newId(), kind: SpaceKind.SHARED, ...space };
   return { seq: BigInt(seq), row: { case: "space", value } };
@@ -336,6 +344,50 @@ describe("pages", () => {
     });
 
     expect(sync.getState().pages.size).toBe(0);
+  });
+});
+
+describe("Google Calendar", () => {
+  const connected = (seq: number, state = GoogleConnectionState.CONNECTED): RowInit => ({
+    seq: BigInt(seq),
+    row: { case: "googleConnection", value: { memberId: me, state } },
+  });
+
+  it("knows whether the member is connected, and when their access needs reconnecting", () => {
+    startUpToDate();
+    const before = sync.getState().googleConnection;
+
+    household().update(connected(3));
+    const after = sync.getState().googleConnection;
+    household().update(connected(4, GoogleConnectionState.NEEDS_RECONNECTING));
+
+    expect(before).toBeNull();
+    expect(after?.state).toBe(GoogleConnectionState.CONNECTED);
+    expect(sync.getState().googleConnection?.state).toBe(GoogleConnectionState.NEEDS_RECONNECTING);
+  });
+
+  it("forgets the connection once the member disconnects", () => {
+    startUpToDate([spaceRow(1, inbox), connected(2)]);
+
+    household().update({
+      seq: 3n,
+      row: { case: "deleted", value: { kind: RowKind.GOOGLE_CONNECTION, id: me } },
+    });
+
+    expect(sync.getState().googleConnection).toBeNull();
+  });
+
+  it("keeps where each space's calendar stands", () => {
+    startUpToDate();
+
+    household().update(
+      spaceRow(3, { ...home, calendarMemberId: me, calendarState: CalendarState.PAUSED }),
+    );
+
+    expect(sync.getState().spaces.find(({ id }) => id === home.id)).toMatchObject({
+      calendarMemberId: me,
+      calendarState: CalendarState.PAUSED,
+    });
   });
 });
 

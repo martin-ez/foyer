@@ -1,6 +1,13 @@
 import { env } from "cloudflare:workers";
+import { finishConnecting, isConnecting } from "./connecting";
 import { cookie, readCookie, sessionCookie } from "./cookies";
-import { googleAccountFor, googleClient, googleSignInAddress } from "./google";
+import { fakeConsentPage } from "./fake-google";
+import {
+  googleCallbackPath as callbackPath,
+  googleAccountFor,
+  googleClient,
+  googleSignInAddress,
+} from "./google";
 import { type Member, theHousehold } from "./household";
 import { isLocalAddress } from "./local";
 import { newSecret, sha256, toBase64Url } from "./secrets";
@@ -9,7 +16,6 @@ type App = "web" | "ipad";
 
 type SignInError = "not-in-household" | "failed";
 
-const callbackPath = "/auth/google/callback";
 const startedSignInCookieName = "foyer_sign_in";
 const startedSignInLifetimeSeconds = 10 * 60;
 
@@ -28,6 +34,8 @@ export async function handleSignIn(request: Request): Promise<Response> {
       return finishGoogleSignIn(request, url);
     case "/auth/dev":
       return signInWithoutGoogle(url);
+    case "/auth/dev/google":
+      return isDevelopment(url) ? fakeConsentPage(url) : new Response(null, { status: 404 });
     default:
       return new Response(null, { status: 404 });
   }
@@ -49,6 +57,7 @@ async function startGoogleSignIn(url: URL): Promise<Response> {
 }
 
 async function finishGoogleSignIn(request: Request, url: URL): Promise<Response> {
+  if (isConnecting(url)) return finishConnecting(url);
   const { state, codeVerifier, app } = startedSignIn(request);
   const done = cookie(startedSignInCookieName, "", { path: callbackPath, maxAge: 0, url });
 
@@ -76,7 +85,7 @@ async function finishGoogleSignIn(request: Request, url: URL): Promise<Response>
 }
 
 async function signInWithoutGoogle(url: URL): Promise<Response> {
-  if (env.DEV_SIGN_IN !== "1" || !isLocalAddress(url)) return new Response(null, { status: 404 });
+  if (!isDevelopment(url)) return new Response(null, { status: 404 });
   const member = await theHousehold().joinWithoutGoogle(url.searchParams.get("email") ?? "");
   return signIn(url, appIn(url), member);
 }
@@ -128,6 +137,10 @@ function startedSignIn(request: Request): StartedSignIn {
   const [state, codeVerifier, app] =
     readCookie(request.headers, startedSignInCookieName)?.split(".") ?? [];
   return { state, codeVerifier, app: app === "ipad" ? "ipad" : "web" };
+}
+
+function isDevelopment(url: URL): boolean {
+  return env.DEV_SIGN_IN === "1" && isLocalAddress(url);
 }
 
 function appIn(url: URL): App {

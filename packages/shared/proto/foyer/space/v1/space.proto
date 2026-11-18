@@ -13,6 +13,27 @@ message Space {
   string owner_id = 3;
   // Such as "Work" or "Home". Empty for the Inbox, which has no name.
   string name = 4;
+  // The member whose Google account holds the space's calendar. Empty until it has one. Only the
+  // household sets it.
+  string calendar_member_id = 5;
+  // Whether the space's calendar exists and is kept in step with Google. Only the household sets
+  // it.
+  CalendarState calendar_state = 6;
+}
+
+// Where a space's Google calendar stands. Each space except the Inbox gets one: a personal space's
+// in its owner's Google account, a shared space's in its creator's, or, if they haven't connected
+// Google, in the account of the member who connected first.
+enum CalendarState {
+  CALENDAR_STATE_UNSPECIFIED = 0;
+  // The space has no calendar yet: nobody who can hold it has connected Google, or the household is
+  // still creating it. The Inbox always has none.
+  CALENDAR_STATE_NONE = 1;
+  // The calendar exists and the household can use it.
+  CALENDAR_STATE_SYNCING = 2;
+  // The calendar exists, but its holder's access stopped working or they disconnected. Connecting
+  // again resumes it.
+  CALENDAR_STATE_PAUSED = 3;
 }
 
 // Who a space is for, which decides who sees it.

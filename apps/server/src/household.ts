@@ -8,6 +8,7 @@ import {
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { isOnAllowlist } from "./allowlist";
+import { Calendars, type ConnectingAnswer, type ConnectingResult } from "./calendars";
 import {
   type CaptureKey,
   captureKeyOf,
@@ -20,7 +21,7 @@ import { applyPush } from "./changes";
 import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
 import { householdMigrations, migrate } from "./migrations";
 import { canSeePage } from "./pages";
-import { latestSeq, nextSeq, pullRows, readRows, type VisibleRow } from "./rows";
+import { latestSeq, nextSeq, pullRows, type RowKey, readRows, type VisibleRow } from "./rows";
 import { hashSecret, newSecret } from "./secrets";
 import { canSee, createFirstSpaces } from "./spaces";
 
@@ -55,15 +56,22 @@ type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["mes
  *  open while it sleeps, and answers their "ping" with "pong" without waking. */
 export class Household extends DurableObject<Env> {
   readonly #signInCodes = new Map<string, SignInCode>();
+  readonly #alarm: EarliestAlarm;
   readonly #live: LiveLane;
+  readonly #calendars: Calendars;
 
   constructor(ctx: DurableObjectState, bindings: Env) {
     super(ctx, bindings);
     migrate(ctx.storage, householdMigrations);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
-    this.#live = new LiveLane(ctx, (memberId, pageId) =>
-      canSeePage(ctx.storage.sql, memberId, pageId),
+    this.#alarm = new EarliestAlarm(ctx.storage);
+    const wake = (at: number) => this.#alarm.at(at);
+    this.#live = new LiveLane(
+      ctx,
+      (memberId, pageId) => canSeePage(ctx.storage.sql, memberId, pageId),
+      wake,
     );
+    this.#calendars = new Calendars(ctx.storage, (keys) => this.#changed(keys), wake);
   }
 
   /** Opens a sync connection for the session the Worker checked, named by the headers in
@@ -134,9 +142,11 @@ export class Household extends DurableObject<Env> {
     this.#live.closed(socket);
   }
 
-  /** Takes devices the household hasn't heard from for a minute off their pages. */
+  /** Takes devices the household hasn't heard from for a minute off their pages, and makes and
+   *  renames the Google calendars that spaces wait for. */
   override async alarm(): Promise<void> {
     this.#live.checkForSilence();
+    await this.#calendars.work();
   }
 
   #push(sender: WebSocket, memberId: string, push: Push): void {
@@ -146,11 +156,16 @@ export class Household extends DurableObject<Env> {
     const { results, changed, unchanged } = applyPush(this.ctx.storage, memberId, push, now);
     this.#sendUpdates(readRows(sql, changed));
     if (changed.length > 0) this.#live.checkSight();
+    if (changed.some(({ kind }) => kind === "space")) this.#calendars.soon();
     const asTheyAre = readRows(sql, unchanged)
       .filter(({ visibleTo }) => visibleTo === null || visibleTo === memberId)
       .map(({ row }) => row);
     if (asTheyAre.length > 0) sendIfOpen(sender, { case: "updates", value: { rows: asTheyAre } });
     sendIfOpen(sender, { case: "committed", value: { pushId: push.pushId, results } });
+  }
+
+  #changed(keys: RowKey[]): void {
+    this.#sendUpdates(readRows(this.ctx.storage.sql, keys));
   }
 
   #sendUpdates(rows: VisibleRow[]): void {
@@ -231,6 +246,28 @@ export class Household extends DurableObject<Env> {
       existing ??
       this.join({ subject: `dev:${address}`, email: address, name: address.split("@")[0] ?? "" })
     );
+  }
+
+  /** Google's id for the account a member signs in with, or null for a member who doesn't
+   *  exist. */
+  googleSubjectOf(memberId: string): string | null {
+    const [member] = this.ctx.storage.sql
+      .exec<{ google_subject: string }>("SELECT google_subject FROM members WHERE id = ?", memberId)
+      .toArray();
+    return member?.google_subject ?? null;
+  }
+
+  /** Connects a member's Google account with what Google sent back after they allowed access to
+   *  Foyer's calendars, then makes the calendars their spaces wait for. Every device of theirs
+   *  receives their connection, and every member who sees a space they hold its new state. */
+  connectGoogle(memberId: string, answer: ConnectingAnswer): Promise<ConnectingResult> {
+    return this.#calendars.connect(memberId, answer);
+  }
+
+  /** Disconnects a member's Google account, revoking Foyer's access at Google. The spaces they hold
+   *  become paused. */
+  disconnectGoogle(memberId: string): Promise<void> {
+    return this.#calendars.disconnect(memberId);
   }
 
   /** Starts a session for a member and returns its token, of which only a hash is stored. Removes
@@ -358,6 +395,26 @@ export class Household extends DurableObject<Env> {
       member: { id: session.member_id, name: session.name },
       renewed,
     };
+  }
+}
+
+class EarliestAlarm {
+  readonly #storage: DurableObjectStorage;
+  #setting = Promise.resolve();
+
+  constructor(storage: DurableObjectStorage) {
+    this.#storage = storage;
+  }
+
+  at(time: number): void {
+    this.#setting = this.#setting
+      .then(async () => {
+        const current = await this.#storage.getAlarm();
+        if (current === null || current <= Date.now() || time < current) {
+          await this.#storage.setAlarm(time);
+        }
+      })
+      .catch((error) => console.error(`Setting the household's alarm failed: ${error}`));
   }
 }
 

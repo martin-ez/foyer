@@ -13,6 +13,7 @@ import {
   signedOutCloseCode,
   spaceNameProblem,
 } from "@foyer/shared";
+import type { GoogleConnection } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
 import {
   type Item,
   ItemKind,
@@ -67,6 +68,8 @@ export type SyncState = {
   stickers: ReadonlyMap<string, Sticker>;
   /** The completions of the tasks the member sees, by id: one each time a task was ticked. */
   completions: ReadonlyMap<string, Completion>;
+  /** The member's connection to their Google account, or null when they aren't connected. */
+  googleConnection: GoogleConnection | null;
   /** How many changes the household hasn't saved yet. */
   unsaved: number;
   /** A sentence for each change the household refused, which the device undid. */
@@ -117,6 +120,7 @@ export class HouseholdSync {
   readonly #items = new Map<string, { seq: bigint; item: Item }>();
   readonly #stickers = new Map<string, { seq: bigint; sticker: Sticker }>();
   readonly #completions = new Map<string, { seq: bigint; completion: Completion }>();
+  readonly #googleConnections = new Map<string, { seq: bigint; connection: GoogleConnection }>();
   readonly #rowsOfKind = {
     member: this.#members,
     space: this.#spaces,
@@ -124,6 +128,7 @@ export class HouseholdSync {
     item: this.#items,
     sticker: this.#stickers,
     completion: this.#completions,
+    googleConnection: this.#googleConnections,
   };
   readonly #deleted = new Map<string, bigint>();
   #pending: Pending[] = [];
@@ -535,6 +540,11 @@ export class HouseholdSync {
             this.#completions.set(row.value.id, { seq, completion: row.value });
           }
           break;
+        case "googleConnection":
+          if (this.#isNewer("googleConnection", row.value.memberId, seq, this.#googleConnections)) {
+            this.#googleConnections.set(row.value.memberId, { seq, connection: row.value });
+          }
+          break;
         case "deleted": {
           const kind = rowKindNames[row.value.kind];
           const rows = kind && this.#rowsOfKind[kind];
@@ -765,6 +775,7 @@ export class HouseholdSync {
       items,
       stickers,
       completions,
+      googleConnection: this.#googleConnections.get(this.#memberId)?.connection ?? null,
       unsaved: this.#pending.length,
       problems: [...this.#problems],
     };
@@ -779,7 +790,14 @@ function namesOf(spaces: Iterable<Space>): string[] {
 
 type ChangeInit = MessageInitShape<typeof ChangeSchema>["change"];
 
-type RowKindName = "member" | "space" | "page" | "item" | "sticker" | "completion";
+type RowKindName =
+  | "member"
+  | "space"
+  | "page"
+  | "item"
+  | "sticker"
+  | "completion"
+  | "googleConnection";
 
 const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.MEMBER]: "member",
@@ -788,6 +806,7 @@ const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.ITEM]: "item",
   [RowKind.STICKER]: "sticker",
   [RowKind.COMPLETION]: "completion",
+  [RowKind.GOOGLE_CONNECTION]: "googleConnection",
 };
 
 const kindOrder: Record<SpaceKind, number> = {

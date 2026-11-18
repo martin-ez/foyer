@@ -8,6 +8,7 @@ import { useHousehold } from "../shell/household";
 import { CalendarLabels } from "./calendar-labels";
 import { monthLayout, weekLayout } from "./calendar-layout";
 import { type CalendarSpan, type CalendarView, calendarPage, stepCalendar } from "./calendar-view";
+import { ConnectGooglePrompt } from "./google-calendar-views";
 
 const spans: { span: CalendarSpan; name: string }[] = [
   { span: "day", name: "Day" },
@@ -40,6 +41,7 @@ export function CalendarScreen() {
         <Button title={`Previous ${view.span}`} onPress={() => setView(stepCalendar(view, -1))} />
         <Button title={`Next ${view.span}`} onPress={() => setView(stepCalendar(view, 1))} />
       </TitleBar>
+      <ConnectGooglePrompt />
       <PageView page={page} ruling={layout?.ruling}>
         {layout ? (
           <CalendarLabels

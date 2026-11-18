@@ -494,7 +494,8 @@ describe("catching up with tasks and stickers", () => {
     const rows = replies.flatMap(({ rows }) => rows);
     const seqs = rows.map(({ seq }) => Number(seq));
     expect(seqs).toEqual(seqs.toSorted((a, b) => a - b));
-    expect(new Set(rows.map(({ row }) => row.value?.id)).size).toBe(rows.length);
+    const ids = rows.map(({ row }) => (row.value && "id" in row.value ? row.value.id : undefined));
+    expect(new Set(ids).size).toBe(rows.length);
     expect(stickersIn(rows)).toHaveLength(200);
     expect(rows.filter(({ row }) => row.case === "item")).toHaveLength(200);
   });
