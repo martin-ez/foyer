@@ -8,6 +8,7 @@ import {
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { isOnAllowlist } from "./allowlist";
+import { placeAllCalendarStickers } from "./calendar-stickers";
 import { Calendars, type ConnectingAnswer, type ConnectingResult } from "./calendars";
 import {
   type CaptureKey,
@@ -19,7 +20,7 @@ import {
 } from "./capture";
 import { applyPush } from "./changes";
 import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
-import { householdMigrations, migrate } from "./migrations";
+import { householdMigrations, migrate, runJobs } from "./migrations";
 import { canSeePage } from "./pages";
 import { latestSeq, nextSeq, pullRows, type RowKey, readRows, type VisibleRow } from "./rows";
 import { hashSecret, newSecret } from "./secrets";
@@ -51,7 +52,7 @@ type SyncConnection = { memberId: string; sessionId: string; live: LiveConnectio
 
 type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["message"];
 
-/** The household's hub, with its own SQLite storage. Starting it runs the storage migrations it
+/** The household's hub, with its own SQLite storage. Starting it runs the migrations and jobs it
  *  hasn't run yet, before it answers anything. It keeps devices in sync over WebSockets, which stay
  *  open while it sleeps, and answers their "ping" with "pong" without waking. */
 export class Household extends DurableObject<Env> {
@@ -63,6 +64,7 @@ export class Household extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, bindings: Env) {
     super(ctx, bindings);
     migrate(ctx.storage, householdMigrations);
+    runJobs(ctx.storage, { "place calendar stickers": placeAllCalendarStickers });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     this.#alarm = new EarliestAlarm(ctx.storage);
     const wake = (at: number) => this.#alarm.at(at);

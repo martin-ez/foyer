@@ -35,6 +35,13 @@ describe("describeSticker", () => {
     expect(describeSticker(sticker(StickerKind.TASK), undefined)).toBe("Task, hidden");
   });
 
+  it("names an event's sticker by its title, and hides it from a member who can't see it", () => {
+    const event = { ...task, kind: ItemKind.EVENT, title: "Dinner" };
+
+    expect(describeSticker(sticker(StickerKind.EVENT), event)).toBe("Event: Dinner");
+    expect(describeSticker(sticker(StickerKind.EVENT), undefined)).toBe("Event, hidden");
+  });
+
   it("calls a sticker of a kind the app can't draw yet a sticker", () => {
     expect(describeSticker(sticker(99 as StickerKind), undefined)).toBe("Sticker");
   });

@@ -1,4 +1,4 @@
-import { isId } from "@foyer/shared";
+import { calendarPageOf, isId, showsDay } from "@foyer/shared";
 import {
   StickerKind,
   type StickerMove,
@@ -26,9 +26,9 @@ type PageRow = {
   height: number;
 };
 
-/** Places a sticker for an item on a page, where the member sees both. For now, a space's page
- *  takes its top-level items, and an item's body page the items under it. Its corner must be on the
- *  page. */
+/** Places a sticker for an item on a page, where the member sees both. A space's page takes its
+ *  top-level items, an item's body page the items under it, and a calendar page tasks and events,
+ *  on a day the page shows. Its corner must be on the page. */
 export function placeSticker(
   sql: SqlStorage,
   memberId: string,
@@ -48,12 +48,16 @@ export function placeSticker(
     )
     .toArray();
   if (!page || !canSeePage(sql, memberId, page.id)) return { refused: "There's no such page." };
-  if (page.kind !== "space" && page.kind !== "item") {
-    return { refused: "Stickers can only go on a space's pages or an item's body page for now." };
-  }
+  const onCalendar = calendarPageOf(page.id) !== null;
+  const dayProblem = occurrenceProblem(page.id, sticker.occurrence);
+  if (dayProblem) return { refused: dayProblem };
+  if (onCalendar && sticker.occurrence === "") return { refused: calendarNeedsDay };
   const item = findItem(sql, sticker.itemId);
   if (!item || !canSee(sql, memberId, item.spaceId)) return { refused: "There's no such item." };
   if (item.kind !== kind) return { refused: "A sticker must be of the same kind as its item." };
+  if (onCalendar && kind === "note") {
+    return { refused: "Only tasks and events go on calendar pages for now." };
+  }
   if (page.kind === "space" && item.spaceId !== page.space_id) {
     return { refused: "A space's page only holds the space's own items." };
   }
@@ -67,14 +71,16 @@ export function placeSticker(
 
   const seq = nextSeq(sql);
   sql.exec(
-    `INSERT INTO stickers (id, page_id, x, y, kind, item_id, placed_at, placed_change_id, placed_by, seq)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO stickers (id, page_id, x, y, kind, item_id, occurrence, placed_at,
+       placed_change_id, placed_by, seq)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sticker.stickerId,
     page.id,
     sticker.x,
     sticker.y,
     kind,
     sticker.itemId,
+    onCalendar ? sticker.occurrence : null,
     setter.at,
     setter.changeId,
     memberId,
@@ -83,8 +89,9 @@ export function placeSticker(
   return { seq, changed: [{ kind: "sticker", id: sticker.stickerId }], unchanged: [] };
 }
 
-/** Moves a sticker within its page and brings it to the top, unless a later move or placing won.
- *  Only a member who sees its item can move it. Moving a removed sticker has no effect. */
+/** Moves a sticker within its page and brings it to the top, unless a later move or placing won,
+ *  and on a calendar page to the day it names, if any. Only a member who sees its item can move it.
+ *  Moving a removed sticker has no effect. */
 export function moveSticker(
   sql: SqlStorage,
   memberId: string,
@@ -95,6 +102,8 @@ export function moveSticker(
   if ("refused" in found || "removed" in found) return found.applied;
   const { sticker } = found;
   if (!isOnPage(move, sticker)) return { refused: offPage };
+  const dayProblem = occurrenceProblem(sticker.page_id, move.occurrence);
+  if (dayProblem) return { refused: dayProblem };
 
   const key: RowKey = { kind: "sticker", id: move.stickerId };
   if (!isLater(setter, { at: sticker.placed_at, changeId: sticker.placed_change_id })) {
@@ -102,10 +111,12 @@ export function moveSticker(
   }
   const seq = nextSeq(sql);
   sql.exec(
-    `UPDATE stickers SET x = ?, y = ?, placed_at = ?, placed_change_id = ?, placed_by = ?, seq = ?
+    `UPDATE stickers SET x = ?, y = ?, occurrence = coalesce(?, occurrence), placed_at = ?,
+       placed_change_id = ?, placed_by = ?, seq = ?
      WHERE id = ?`,
     move.x,
     move.y,
+    move.occurrence === "" ? null : move.occurrence,
     setter.at,
     setter.changeId,
     memberId,
@@ -212,6 +223,14 @@ function stickerExisted(sql: SqlStorage, stickerId: string): boolean {
 }
 
 const offPage = "A sticker's top-left corner must be on its page.";
+
+const calendarNeedsDay = "A sticker on a calendar page must say which day it's on.";
+
+function occurrenceProblem(pageId: string, occurrence: string): string | null {
+  if (occurrence === "") return null;
+  if (!calendarPageOf(pageId)) return "Only a sticker on a calendar page is on a day.";
+  return showsDay(pageId, occurrence) ? null : "A sticker must be on a day its page shows.";
+}
 
 function isOnPage(at: { x: number; y: number }, page: { width: number; height: number }): boolean {
   return (

@@ -1,6 +1,6 @@
 import { reset } from "cloudflare:test";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, dayPageId, itemPageId, newId, spacePageId } from "@foyer/shared";
+import { a4Portrait, itemPageId, newId, spacePageId } from "@foyer/shared";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
@@ -194,17 +194,15 @@ describe("placing stickers", () => {
     expect(resultOf(committed.results[0])).toEqual({ refused: "There's no such page." });
   });
 
-  it("refuses a sticker on a calendar page, for now", async () => {
+  it("refuses a sticker on a space's page that says which day it's on", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
-    const { itemId } = await newTaskWithoutSticker(device, inbox);
-    const day = { pageId: dayPageId("2026-11-17"), kind: PageKind.DAY, ...a4Portrait };
-    await device.push(pageCreate(day));
+    const { itemId, pageId } = await newTaskWithoutSticker(device, inbox);
 
-    const committed = await device.push(stickerPlace({ pageId: day.pageId, itemId }));
+    const committed = await device.push(stickerPlace({ pageId, itemId, occurrence: "2026-11-17" }));
 
     expect(resultOf(committed.results[0])).toEqual({
-      refused: "Stickers can only go on a space's pages or an item's body page for now.",
+      refused: "Only a sticker on a calendar page is on a day.",
     });
   });
 

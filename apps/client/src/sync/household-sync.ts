@@ -1,7 +1,12 @@
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { timestampFromMs, timestampMs } from "@bufbuild/protobuf/wkt";
 import {
+  addDays,
+  afterPlan,
+  type CalendarPageKind,
+  calendarPageOf,
   clashingName,
+  daysBetween,
   type EventTime,
   eventTimeFields,
   formatRepeat,
@@ -9,7 +14,10 @@ import {
   itemPageId,
   itemTitleProblem,
   newId,
+  type PageSize,
+  type PlacedSticker,
   pageSizeFor,
+  planCalendarStickers,
   type RepeatFrom,
   type RepeatRule,
   signedOutCloseCode,
@@ -40,6 +48,7 @@ import {
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { type Completion, CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { localToday } from "../page/calendar-date";
+import type { Point } from "../page/sheet-camera";
 import { spotInSpace, spotOnPage } from "../page/sticker-layout";
 import { currentOccurrence, firstDateOf, repeatFromKind, tickOf } from "../tasks/repeats";
 import { itemsUnder } from "../tasks/task-lists";
@@ -49,6 +58,10 @@ import { itemsUnder } from "../tasks/task-lists";
 export type ItemsUnderDeleted = "delete" | "move-up" | "to-top";
 
 import { LiveLane } from "./live-lane";
+
+/** A spot on a calendar page that someone picked for an item's sticker, such as where they tapped
+ *  to add it, or where they dropped it. */
+export type SpotOnDay = { pageId: string; at: Point };
 
 /** Where the device stands with the household. */
 export type SyncStatus = "connecting" | "catching-up" | "up-to-date" | "offline" | "signed-out";
@@ -212,18 +225,24 @@ export class HouseholdSync {
     return clash === undefined ? null : `Another space you see is called “${clash}”.`;
   }
 
-  /** Adds a task to a space, with its sticker in the next free spot on the space's newest page, or
-   *  at the top of a new page when that one is full. Spaces at the start and end of the title are
-   *  dropped. Returns the number of the page its sticker went on. */
-  addTask(spaceId: string, title: string): { itemId: string; pageNumber: number } {
+  /** Adds a task to a space, with its sticker in the next free spot on the space's newest page, and
+   *  given a date, on that day of the calendar's pages, at `spot` on its page if given. Spaces at the
+   *  title's ends are dropped. Returns the number of the space's page its sticker went on. */
+  addTask(
+    spaceId: string,
+    title: string,
+    dated?: { date: string; spot?: SpotOnDay },
+  ): { itemId: string; pageNumber: number } {
     const itemId = newId();
     const trimmed = title.trim();
+    const date = dated?.date ?? "";
     const create: ChangeInit = {
       case: "itemCreate",
-      value: { itemId, kind: ItemKind.TASK, spaceId, title: trimmed },
+      value: { itemId, kind: ItemKind.TASK, spaceId, title: trimmed, date },
     };
     const { changes, pageNumber } = this.#stickOn(spaceId, itemId);
-    this.#make(`adding “${trimmed}”`, create, ...changes);
+    const calendar = dated ? this.#onCalendar(itemId, StickerKind.TASK, date, dated.spot) : [];
+    this.#make(`adding “${trimmed}”`, create, ...changes, ...calendar);
     return { itemId, pageNumber };
   }
 
@@ -245,9 +264,15 @@ export class HouseholdSync {
     this.#make("changing a task's description", { case: "itemSetDescription", value });
   }
 
-  /** Changes a task's date, a plain ISO 8601 date, or clears it when empty. */
-  setDate(itemId: string, date: string): void {
-    this.#make("changing a task's date", { case: "itemSetDate", value: { itemId, date } });
+  /** Changes a task's date, a plain ISO 8601 date, or clears it when empty, moving its stickers on
+   *  the calendar's pages to that day, at `spot` on its page if given, or taking them off. */
+  setDate(itemId: string, date: string, spot?: SpotOnDay): void {
+    const calendar = this.#onCalendar(itemId, StickerKind.TASK, date || null, spot);
+    this.#make(
+      "changing a task's date",
+      { case: "itemSetDate", value: { itemId, date } },
+      ...calendar,
+    );
   }
 
   /** Sets the rule a task repeats by, and where its next date comes from, or stops it repeating
@@ -266,6 +291,7 @@ export class HouseholdSync {
       const today = this.#today();
       const date = firstDateOf({ rule, from }, "", today) ?? today;
       changes.unshift({ case: "itemSetDate", value: { itemId, date } });
+      changes.push(...this.#onCalendar(itemId, StickerKind.TASK, date));
     }
     this.#make(`making “${title}” repeat`, ...changes);
   }
@@ -351,13 +377,21 @@ export class HouseholdSync {
     this.tickTasks([itemId]);
   }
 
-  /** Ticks several tasks at once, as `tickTask` ticks each. */
+  /** Ticks several tasks at once, as `tickTask` ticks each. A repeating task's stickers stay on the
+   *  calendar's pages on the day ticked, and it gets new ones on its next date. */
   tickTasks(itemIds: readonly string[]): void {
     const today = this.#today();
-    const ticks = itemIds.map((itemId): ChangeInit => {
+    const calendar = this.#calendarPlanner();
+    const ticks = itemIds.flatMap((itemId): ChangeInit[] => {
       const item = this.#state.items.get(itemId);
       const ticked = item ? tickOf(item, today) : { occurrence: "", nextDate: "" };
-      return { case: "taskTick", value: { completionId: newId(), itemId, ...ticked } };
+      const tick: ChangeInit = {
+        case: "taskTick",
+        value: { completionId: newId(), itemId, ...ticked },
+      };
+      if (ticked.nextDate === "") return [tick];
+      const kept = new Set([...this.#tickedDays(itemId), ticked.occurrence]);
+      return [tick, ...calendar.plan(itemId, StickerKind.TASK, ticked.nextDate, kept)];
     });
     const first = this.#state.items.get(itemIds[0] ?? "")?.title ?? "a task";
     const describe =
@@ -366,40 +400,75 @@ export class HouseholdSync {
   }
 
   /** Unticks a task's occurrence, whoever ticked it: by default its current one. If ticking a
-   *  repeating task moved it, it goes back to the occurrence unless its date changed since. */
+   *  repeating task moved it, it goes back to the occurrence unless its date changed since, and so
+   *  do its stickers on the calendar's pages. */
   untickTask(itemId: string, occurrence?: string): void {
     const item = this.#state.items.get(itemId);
     const value = { itemId, occurrence: occurrence ?? (item ? currentOccurrence(item) : "") };
-    this.#make(`unticking “${item?.title ?? "a task"}”`, { case: "taskUntick", value });
+    const back = item?.repeat && value.occurrence !== "" ? value.occurrence : null;
+    const kept = new Set([...this.#tickedDays(itemId)].filter((day) => day !== back));
+    const calendar =
+      back === null ? [] : this.#calendarPlanner().plan(itemId, StickerKind.TASK, back, kept);
+    this.#make(
+      `unticking “${item?.title ?? "a task"}”`,
+      { case: "taskUntick", value },
+      ...calendar,
+    );
   }
 
-  /** Moves a sticker within its page, which brings it to the top. */
+  /** Moves a sticker within its page, which brings it to the top, keeping its day on a calendar
+   *  page. */
   moveSticker(stickerId: string, x: number, y: number): void {
     this.#make("moving a sticker", { case: "stickerMove", value: { stickerId, x, y } });
   }
 
-  /** Adds an event to a space that has a Google calendar, and returns its id. Spaces at the start
-   *  and end of the title are dropped. The household writes it to the space's calendar, and gives
-   *  it its date. */
-  addEvent(spaceId: string, event: { title: string; description: string; time: EventTime }) {
+  /** Moves the item of a sticker on a calendar page to another day, the sticker staying where it
+   *  was dropped: a task takes the day as its date, and an event moves by as many days, keeping its
+   *  times and length. Its stickers on the other calendar pages go to the new day. */
+  moveToDay(stickerId: string, at: Point, date: string): void {
+    const sticker = this.#state.stickers.get(stickerId);
+    const item = sticker && this.#state.items.get(sticker.itemId);
+    if (!sticker || !item || sticker.occurrence === date) return;
+    const spot = { pageId: sticker.pageId, at };
+    if (item.kind === ItemKind.EVENT) {
+      const time = eventTimeOf(item);
+      if (time) this.setEventTime(item.id, shiftEvent(time, sticker.occurrence, date), spot);
+      return;
+    }
+    this.setDate(item.id, date, spot);
+  }
+
+  /** Adds an event to a space that has a Google calendar, which the household writes it to and dates
+   *  it from, and returns its id. Its stickers go on the day it starts on this device, at `spot` on
+   *  its page if given. Spaces at the title's ends are dropped. */
+  addEvent(
+    spaceId: string,
+    event: { title: string; description: string; time: EventTime },
+    spot?: SpotOnDay,
+  ) {
     const itemId = newId();
     const title = event.title.trim();
     const { description } = event;
     const value = { itemId, kind: ItemKind.EVENT, spaceId, title, description };
-    this.#make(`adding “${title}”`, {
-      case: "itemCreate",
-      value: { ...value, ...timeChange(event.time) },
-    });
+    const day = this.#dayOf(event.time);
+    this.#make(
+      `adding “${title}”`,
+      { case: "itemCreate", value: { ...value, ...timeChange(event.time) } },
+      ...this.#onCalendar(itemId, StickerKind.EVENT, day, spot),
+    );
     return itemId;
   }
 
-  /** Changes when an event happens. */
-  setEventTime(itemId: string, time: EventTime): void {
+  /** Changes when an event happens, moving its stickers on the calendar's pages to the day it now
+   *  starts on this device, at `spot` on its page if given. */
+  setEventTime(itemId: string, time: EventTime, spot?: SpotOnDay): void {
     const title = this.#state.items.get(itemId)?.title ?? "an event";
-    this.#make(`changing when “${title}” happens`, {
-      case: "eventSetTime",
-      value: { itemId, ...timeChange(time) },
-    });
+    const day = this.#dayOf(time);
+    this.#make(
+      `changing when “${title}” happens`,
+      { case: "eventSetTime", value: { itemId, ...timeChange(time) } },
+      ...this.#onCalendar(itemId, StickerKind.EVENT, day, spot),
+    );
   }
 
   /** Moves an event to another space that has a Google calendar, and so to that calendar. */
@@ -418,6 +487,89 @@ export class HouseholdSync {
   dismissProblems(): void {
     this.#problems = [];
     this.#changed();
+  }
+
+  #onCalendar(itemId: string, kind: StickerKind, date: string | null, spot?: SpotOnDay) {
+    const kept = this.#tickedDays(itemId);
+    return this.#calendarPlanner().plan(itemId, kind, date, kept, date === null ? undefined : spot);
+  }
+
+  #calendarPlanner() {
+    const pages = new Map<string, PageSize>();
+    for (const page of this.#state.pages.values()) {
+      if (calendarPageOf(page.id)) pages.set(page.id, { width: page.width, height: page.height });
+    }
+    let stickers: PlacedSticker[] = [...this.#state.stickers.values()]
+      .filter(({ occurrence }) => occurrence !== "")
+      .map(({ id, pageId, itemId, x, y, occurrence }) => ({
+        id,
+        pageId,
+        itemId,
+        x,
+        y,
+        occurrence,
+      }));
+    const createPage = (pageId: string, size: PageSize): ChangeInit[] => {
+      const calendar = calendarPageOf(pageId);
+      if (!calendar || pages.has(pageId)) return [];
+      pages.set(pageId, size);
+      const value = { pageId, kind: calendarPageKinds[calendar.kind], ...size };
+      return [{ case: "pageCreate", value }];
+    };
+    return {
+      plan: (
+        itemId: string,
+        kind: StickerKind,
+        date: string | null,
+        kept: ReadonlySet<string>,
+        spot?: SpotOnDay,
+      ): ChangeInit[] => {
+        const changes: ChangeInit[] = [];
+        if (spot && date !== null) {
+          const moving = stickers.find(
+            (each) =>
+              each.itemId === itemId && each.pageId === spot.pageId && !kept.has(each.occurrence),
+          );
+          const placed = { ...spot.at, occurrence: date };
+          if (moving) {
+            changes.push({ case: "stickerMove", value: { stickerId: moving.id, ...placed } });
+            stickers = stickers.map((each) => (each === moving ? { ...each, ...placed } : each));
+          } else {
+            const stickerId = newId();
+            const size = sizeOfCalendarPage(spot.pageId, pages);
+            changes.push(...createPage(spot.pageId, size));
+            const value = { stickerId, pageId: spot.pageId, kind, itemId, ...placed };
+            changes.push({ case: "stickerPlace", value });
+            stickers = [...stickers, { id: stickerId, pageId: spot.pageId, itemId, ...placed }];
+          }
+        }
+        const plan = planCalendarStickers({ itemId, date, kept, stickers, pages });
+        for (const page of plan.pages) changes.push(...createPage(page.pageId, page.size));
+        for (const { stickerId, pageId, x, y, occurrence } of plan.place) {
+          const value = { stickerId, pageId, x, y, kind, itemId, occurrence };
+          changes.push({ case: "stickerPlace", value });
+        }
+        for (const value of plan.move) changes.push({ case: "stickerMove", value });
+        for (const stickerId of plan.remove) {
+          changes.push({ case: "stickerRemove", value: { stickerId } });
+        }
+        stickers = afterPlan(stickers, itemId, plan);
+        return changes;
+      },
+    };
+  }
+
+  #tickedDays(itemId: string): Set<string> {
+    const days = new Set<string>();
+    if (!this.#state.items.get(itemId)?.repeat) return days;
+    for (const { itemId: ticked, occurrence } of this.#state.completions.values()) {
+      if (ticked === itemId && occurrence !== "") days.add(occurrence);
+    }
+    return days;
+  }
+
+  #dayOf(time: EventTime): string {
+    return time.allDay ? time.startsOn : localToday(new Date(time.startsAt));
   }
 
   #placedStickers(item: Item): Sticker[] {
@@ -696,19 +848,21 @@ export class HouseholdSync {
           break;
         }
         case "stickerPlace": {
-          const { stickerId, pageId, x, y, kind, itemId } = change.change.value;
+          const { stickerId, pageId, x, y, kind, itemId, occurrence } = change.change.value;
           if (!stickers.has(stickerId) && !this.#deleted.has(`sticker ${stickerId}`)) {
-            const sticker = { id: stickerId, pageId, x, y, kind, itemId };
+            const sticker = { id: stickerId, pageId, x, y, kind, itemId, occurrence };
             const placed = { placedAt: at, placedBy: this.#memberId };
             stickers.set(stickerId, create(StickerSchema, { ...sticker, ...placed }));
           }
           break;
         }
         case "stickerMove": {
-          const { stickerId, x, y } = change.change.value;
+          const { stickerId, x, y, occurrence } = change.change.value;
           const sticker = stickers.get(stickerId);
           if (sticker) {
-            stickers.set(stickerId, { ...sticker, x, y, placedAt: at, placedBy: this.#memberId });
+            const day = occurrence === "" ? sticker.occurrence : occurrence;
+            const placed = { placedAt: at, placedBy: this.#memberId };
+            stickers.set(stickerId, { ...sticker, x, y, occurrence: day, ...placed });
           }
           break;
         }
@@ -826,6 +980,41 @@ export class HouseholdSync {
       problems: [...this.#problems],
     };
   }
+}
+
+const calendarPageKinds: Record<CalendarPageKind, PageKind> = {
+  month: PageKind.MONTH,
+  week: PageKind.WEEK,
+  day: PageKind.DAY,
+};
+
+function sizeOfCalendarPage(pageId: string, pages: ReadonlyMap<string, PageSize>): PageSize {
+  const calendar = calendarPageOf(pageId);
+  return pages.get(pageId) ?? pageSizeFor(calendar?.kind ?? "day");
+}
+
+function eventTimeOf(item: Item): EventTime | null {
+  if (item.startsOn !== "") return { allDay: true, startsOn: item.startsOn, endsOn: item.endsOn };
+  if (!item.startsAt || !item.endsAt) return null;
+  return { allDay: false, startsAt: timestampMs(item.startsAt), endsAt: timestampMs(item.endsAt) };
+}
+
+function shiftEvent(time: EventTime, from: string, to: string): EventTime {
+  const days = daysBetween(from, to);
+  if (time.allDay) {
+    return {
+      allDay: true,
+      startsOn: addDays(time.startsOn, days),
+      endsOn: addDays(time.endsOn, days),
+    };
+  }
+  const startsAt = new Date(time.startsAt);
+  startsAt.setDate(startsAt.getDate() + days);
+  return {
+    allDay: false,
+    startsAt: startsAt.getTime(),
+    endsAt: startsAt.getTime() + time.endsAt - time.startsAt,
+  };
 }
 
 function timeChange(time: EventTime) {

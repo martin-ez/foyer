@@ -1,5 +1,5 @@
 # How do tasks work?
-Decided in #10, #21, #22, #23 and #59
+Decided in #10, #21, #22, #23, #59 and #27
 
 **Applies when:** capturing, completing, repeating or showing tasks.
 
@@ -27,9 +27,7 @@ Decided in #10, #21, #22, #23 and #59
   - **Ticking an overdue task skips what was missed:** a weekly task due two Tuesdays ago and ticked today moves to the next Tuesday after today. Only today's tick is recorded. "Today" is the device's own date, so the device works out the next date and sends it.
   - **Fields:** items gain `repeat`, the rule, empty for a task that doesn't repeat, and `repeat_from`, `schedule` or `completion`. A repeating task always has a date: its next occurrence. The household refuses clearing it, and refuses a rule on a task without one, so a device setting a rule on a task without a date sends the rule's first date from today in the same push.
   - **Changes:** `ItemSetRepeat {item_id, repeat, repeat_from}` sets the rule, or stops the task repeating when empty; the rule and where its next date comes from change together, and the change made last wins. On a repeating task, `TaskTick` names its occurrence, the task's date, and its `next_date`. The household records the completion, and sets the task's date to `next_date` with the tick's time, so it settles with other date changes: the one made last wins. `TaskUntick` removes that completion, and puts the date back to the occurrence if the tick moved it and nothing has changed it since.
-  - **Stickers:** a repeating task has one sticker on its space's page, which shows its next date.
-
-Stickers for each occurrence on calendar days, with the ticked day's sticker shown as done, are built by #27.
+  - **Stickers:** a repeating task has one sticker on its space's page, which shows its next date, and one on each calendar page on its next date. Ticking it leaves its calendar stickers on the day ticked, shown as done for that occurrence, and places new ones on its next date; unticking removes those (`what-does-a-stickers-position-mean.md`).
 
 **Why:** Capture has to be as fast as Todoist's, so it can't ask what kind of item something is; sorting later, as in Getting Things Done, keeps it instant. The native app is iPad-only, and the Action Button is on the iPhone, so a Shortcut that calls the household works there without Foyer open and without native code. A Shortcut may go unused for months, so its key doesn't expire, and since it can only add tasks to its member's Inbox, one key per member is enough. Seeing finished work stay on the page is satisfying, and visible progress is part of designing Foyer like a game whose goal is an organised household. Repeating chores are table stakes for replacing Todoist: one task that moves forward keeps lists short, and completion records keep the history of what got done. RRULEs are the one way of describing repeats that Google Calendar also uses, so Foyer doesn't keep a second one next to it. Some chores follow the calendar and others follow when they were last done, so each rule says which. Ticking a chore that was missed for weeks should leave it ready for its next day, not for the ones already gone. One way of ticking every task, repeating or not, keeps that history for all of them. Anyone can untick a task, as anyone can edit what's in a space they see (`who-can-see-what.md`). Lists hide ticked tasks, as Todoist's do, so they show what's left to do, while the page keeps the record.
 

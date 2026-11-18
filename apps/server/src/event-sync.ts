@@ -1,4 +1,5 @@
 import { newId, sameEventTime } from "@foyer/shared";
+import { settleCalendarStickers } from "./calendar-stickers";
 import { isLater, type Setter } from "./changes";
 import { redateEvents, storedEventTime, writeEventTime } from "./events";
 import {
@@ -423,6 +424,7 @@ export class EventSync {
     const at = updatedAt(event) ?? Date.now();
     const created = Date.parse(event.created ?? "");
     const itemId = newId();
+    const setter = { at, changeId: newId() };
     const changed = this.#storage.transactionSync(() => {
       const seq = nextSeq(sql);
       insertItem(sql, {
@@ -435,7 +437,7 @@ export class EventSync {
         time: fields.time,
         createdBy: null,
         createdAt: Number.isNaN(created) ? at : created,
-        setter: { at, changeId: newId() },
+        setter,
         seq,
       });
       sql.exec(
@@ -447,7 +449,8 @@ export class EventSync {
         event.etag ?? null,
         JSON.stringify(fields),
       );
-      return [{ kind: "item", id: itemId }] satisfies RowKey[];
+      const stickers = settleCalendarStickers(sql, [itemId], setter, null);
+      return [{ kind: "item", id: itemId }, ...stickers] satisfies RowKey[];
     });
     this.#changed(changed);
   }
@@ -491,6 +494,9 @@ export class EventSync {
           );
         }
         keys = [{ kind: "item", id: itemId }];
+        if (fieldsWon.includes("time")) {
+          keys.push(...settleCalendarStickers(sql, [itemId], setter, null));
+        }
       }
       this.#keepLink(link, event);
       const after = this.#event(itemId);
@@ -526,7 +532,8 @@ export class EventSync {
       );
       writeEventTime(sql, itemId, google.time, setter, seq);
       this.#keepLink(link, event);
-      return [{ kind: "item", id: itemId }] satisfies RowKey[];
+      const stickers = settleCalendarStickers(sql, [itemId], setter, null);
+      return [{ kind: "item", id: itemId }, ...stickers] satisfies RowKey[];
     });
     this.#changed(changed);
   }
@@ -564,7 +571,10 @@ export class EventSync {
         .map(({ id }) => id);
       const setter = { at: Date.now(), changeId: newId() };
       const redated = redateEvents(sql, events, setter, nextSeq(sql));
-      return redated.map((id): RowKey => ({ kind: "item", id }));
+      return [
+        ...redated.map((id): RowKey => ({ kind: "item", id })),
+        ...settleCalendarStickers(sql, redated, setter, null),
+      ];
     });
     this.#changed(changed);
   }

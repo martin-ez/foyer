@@ -1,5 +1,34 @@
 export { calendarName } from "./calendar";
 export {
+  type Box,
+  type CalendarLayout,
+  calendarLayout,
+  calendarPageOf,
+  type DayOnPage,
+  dayLayout,
+  monthLayout,
+  type Ruling,
+  weekLayout,
+} from "./calendar-layout";
+export {
+  afterPlan,
+  type CalendarPageKind,
+  type CalendarStickerPlan,
+  calendarPageId,
+  calendarPageKinds,
+  calendarStickerGap,
+  calendarStickerSize,
+  dayAt,
+  keepInDay,
+  type PlacedSticker,
+  pileStep,
+  planCalendarStickers,
+  showsDay,
+  spotInDay,
+  stickerSizeOn,
+} from "./calendar-stickers";
+export { addDays, addMonths, daysBetween, daysIn, monthOf } from "./dates";
+export {
   dayIn,
   type EventTime,
   type EventTimeFields,

@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   a4Portrait,
+  calendarStickerSize,
   itemPageId,
   pageMargin,
   spacePageId,
@@ -45,8 +46,13 @@ const onlyFirstPage = new Map([[firstPage, spacePage(1)]]);
 
 describe("stickerSize", () => {
   it("gives each kind its size, and a kind the app doesn't know a default one", () => {
-    expect(stickerSize(StickerKind.TASK)).toEqual(taskStickerSize);
-    expect(stickerSize(99 as StickerKind)).toEqual(unknownStickerSize);
+    expect(stickerSize(StickerKind.TASK, firstPage)).toEqual(taskStickerSize);
+    expect(stickerSize(99 as StickerKind, firstPage)).toEqual(unknownStickerSize);
+  });
+
+  it("gives every sticker on a calendar page the calendar's size", () => {
+    expect(stickerSize(StickerKind.TASK, "month:2026-11")).toEqual(calendarStickerSize);
+    expect(stickerSize(StickerKind.EVENT, "day:2026-11-17")).toEqual(calendarStickerSize);
   });
 });
 

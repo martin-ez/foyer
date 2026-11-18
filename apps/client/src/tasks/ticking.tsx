@@ -3,7 +3,7 @@ import { Button, StyleSheet, Text, View } from "react-native";
 import { useHousehold } from "../shell/household";
 import { doneTasks, openTasksUnder } from "./task-lists";
 
-type Tick = (itemId: string, done: boolean) => void;
+type Tick = (itemId: string, done: boolean, occurrence?: string) => void;
 
 const TickContext = createContext<Tick | null>(null);
 
@@ -12,9 +12,9 @@ const TickContext = createContext<Tick | null>(null);
 export function TickingProvider({ children }: { children: ReactNode }) {
   const { sync } = useHousehold();
   const [asking, setAsking] = useState<{ itemId: string; under: string[] } | null>(null);
-  const tick: Tick = (itemId, done) => {
+  const tick: Tick = (itemId, done, occurrence) => {
     if (!done) {
-      sync.untickTask(itemId);
+      sync.untickTask(itemId, occurrence);
       return;
     }
     const { items, completions } = sync.getState();
@@ -56,8 +56,8 @@ export function TickingProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Ticks a task when `done`, asking first about open tasks under it, or unticks it. Needs a
- *  `TickingProvider` around the calling component. */
+/** Ticks a task when `done`, asking first about open tasks under it, or unticks it: the
+ *  occurrence given, or its current one. Needs a `TickingProvider` around the calling component. */
 export function useTick(): Tick {
   const tick = use(TickContext);
   if (!tick) throw new Error("useTick needs a TickingProvider around it.");

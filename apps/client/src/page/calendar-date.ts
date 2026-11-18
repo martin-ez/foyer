@@ -1,35 +1,10 @@
+import { addDays } from "@foyer/shared";
+
+export { addDays, addMonths, daysIn, monthOf } from "@foyer/shared";
+
 /** Today's date by the device's clock and time zone, as an ISO 8601 date such as "2026-11-17". */
 export function localToday(now = new Date()): string {
   return isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
-}
-
-/** The ISO 8601 date `days` days after `date`, or before it when `days` is negative. */
-export function addDays(date: string, days: number): string {
-  const [year, month, day] = partsOf(date);
-  const moved = new Date(0);
-  moved.setUTCFullYear(year, month - 1, day + days);
-  return isoDate(moved.getUTCFullYear(), moved.getUTCMonth() + 1, moved.getUTCDate());
-}
-
-/** The month a day falls in, as an ISO 8601 month such as "2026-11". */
-export function monthOf(date: string): string {
-  return date.slice(0, 7);
-}
-
-/** The ISO 8601 date `months` months after `date`, or before it when `months` is negative, on the
- *  same day of the month, or on the month's last day when it's shorter. */
-export function addMonths(date: string, months: number): string {
-  const [year, month, day] = partsOf(date);
-  const first = new Date(0);
-  first.setUTCFullYear(year, month - 1 + months, 1);
-  const [movedYear, movedMonth] = [first.getUTCFullYear(), first.getUTCMonth() + 1];
-  return isoDate(movedYear, movedMonth, Math.min(day, daysInMonth(movedYear, movedMonth)));
-}
-
-/** How many days a month has, from the month as "2026-11". */
-export function daysIn(month: string): number {
-  const [year, number] = partsOf(month);
-  return daysInMonth(year, number);
 }
 
 /** A month as people read it, such as "November 2026". */
@@ -71,12 +46,6 @@ function describeDate(date: string, locale?: string): string {
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" }).format(
     new Date(year, month - 1, day),
   );
-}
-
-function daysInMonth(year: number, month: number): number {
-  const last = new Date(0);
-  last.setUTCFullYear(year, month, 0);
-  return last.getUTCDate();
 }
 
 function partsOf(date: string): [number, number, number] {
