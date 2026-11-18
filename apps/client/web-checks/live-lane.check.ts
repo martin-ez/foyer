@@ -22,10 +22,9 @@ type Member = { page: Page; sent: Sent[]; received: Received[] };
 
 type Point = { x: number; y: number };
 
-type Sheet = {
-  box: { x: number; y: number; width: number; height: number };
-  camera: Camera;
-};
+type Box = { x: number; y: number; width: number; height: number };
+
+type Sheet = { box: Box; camera: Camera };
 
 test("shows who else is on the page and where they point, through the household", async ({
   browser,
@@ -53,30 +52,28 @@ test("shows who else is on the page and where they point, through the household"
   const alexsMarker = markerOf(sam.page, first);
   await expectOnAnotherDevice(samsMarker).toBeVisible();
   await expect(alexsMarker).toBeVisible();
-  const alexsSheet = await sheetOf(alex.page);
-  const samsSheet = await sheetOf(sam.page);
-  const waiting = await topLeftCorner(samsMarker);
-  const waitingOnPage = toPage(alexsSheet, waiting);
-  expect(waitingOnPage.x).toBeGreaterThanOrEqual(0);
-  expect(waitingOnPage.x).toBeLessThan(a4Portrait.width / 2);
-  expect(waitingOnPage.y).toBeGreaterThanOrEqual(0);
-  expect(waitingOnPage.y).toBeLessThan(50);
+  const waiting = await onPage(alex.page, await topLeftCorner(samsMarker));
+  expect(waiting.x).toBeGreaterThanOrEqual(0);
+  expect(waiting.x).toBeLessThan(a4Portrait.width / 2);
+  expect(waiting.y).toBeGreaterThanOrEqual(0);
+  expect(waiting.y).toBeLessThan(50);
 
-  const path = recordPath(alex.page, second);
-  const pointedAt = toPage(samsSheet, await pointAtMiddleOfPage(sam.page));
+  const path = recordPath(alex.page, second, await describeDayInBrowser(alex.page, 0));
+  const pointedAt = await pointAtMiddleOfPage(sam.page);
   await expect.poll(() => kinds(sam.sent)).toContain("point");
   await expectOnAnotherDevice.poll(() => kinds(alex.received)).toContain("pointed");
   await expectOnAnotherDevice
-    .poll(async () => toPage(alexsSheet, await topLeftCorner(samsMarker)))
+    .poll(async () => onPage(alex.page, await topLeftCorner(samsMarker)))
     .toEqual(nearly(pointedAt));
   const glided = await path;
-  expect(between(glided, waiting, toScreen(alexsSheet, pointedAt)).length).toBeGreaterThan(3);
+  expect(between(glided, waiting, pointedAt).length).toBeGreaterThan(3);
   await saveScreenshot(alex.page, testInfo, "presence-pointing");
   await saveScreenshot(sam.page, testInfo, "presence-waiting");
 
-  await zoomIn(alex.page, alexsSheet);
+  const fitted = await sheetOf(alex.page);
+  await zoomIn(alex.page, fitted);
   const zoomedMarker = await settled(samsMarker);
-  expect(zoomedMarker).not.toEqual(nearly(toScreen(alexsSheet, pointedAt)));
+  expect(zoomedMarker).not.toEqual(nearly(toScreen(fitted, pointedAt)));
   await alex.page.mouse.move(zoomedMarker.x, zoomedMarker.y);
   await expect.poll(() => distance(lastPoint(alex), pointedAt)).toBeLessThan(1);
   await saveScreenshot(alex.page, testInfo, "presence-zoomed");
@@ -177,6 +174,10 @@ function toPage({ box, camera }: Sheet, at: Point): Point {
   return pointOnPage(camera, { x: at.x - box.x, y: at.y - box.y });
 }
 
+async function onPage(page: Page, at: Point): Promise<Point> {
+  return toPage(await sheetOf(page), at);
+}
+
 function toScreen({ box, camera }: Sheet, { x, y }: Point): Point {
   return { x: box.x + camera.x + x * camera.scale, y: box.y + camera.y + y * camera.scale };
 }
@@ -208,32 +209,38 @@ function distance(from: Point | null, to: Point): number {
 }
 
 async function pointAtMiddleOfPage(page: Page): Promise<Point> {
-  const box = await page.getByLabel(await describeDayInBrowser(page, 0)).boundingBox();
-  if (!box) throw new Error("The page isn't shown");
+  const sheet = await sheetOf(page);
+  const { box } = sheet;
   const end = { x: box.x + box.width / 2 + 20, y: box.y + box.height / 2 };
   await page.mouse.move(end.x - 40, end.y);
   await page.mouse.move(end.x, end.y, { steps: 5 });
-  return end;
+  return toPage(sheet, end);
 }
 
-function recordPath(page: Page, email: string): Promise<Point[]> {
-  const label = `${email.split("@")[0]} is on this page`;
-  return page.evaluate(
-    (markerLabel) =>
-      new Promise<Point[]>((resolve) => {
-        const seen: Point[] = [];
+async function recordPath(page: Page, email: string, day: string): Promise<Point[]> {
+  const markerLabel = `${email.split("@")[0]} is on this page`;
+  const frames = await page.evaluate(
+    ([marker, sheet]) =>
+      new Promise<{ at: Point; box: Box }[]>((resolve) => {
+        const seen: { at: Point; box: Box }[] = [];
         const start = performance.now();
         const frame = () => {
-          const marker = document.querySelector(`[aria-label="${markerLabel}"]`);
-          const box = marker?.getBoundingClientRect();
-          if (box) seen.push({ x: box.left, y: box.top });
+          const at = document.querySelector(`[aria-label="${marker}"]`)?.getBoundingClientRect();
+          const box = document.querySelector(`[aria-label="${sheet}"]`)?.getBoundingClientRect();
+          if (at && box) {
+            seen.push({
+              at: { x: at.left, y: at.top },
+              box: { x: box.left, y: box.top, width: box.width, height: box.height },
+            });
+          }
           if (performance.now() - start < 2000) requestAnimationFrame(frame);
           else resolve(seen);
         };
         requestAnimationFrame(frame);
       }),
-    label,
+    [markerLabel, day] as const,
   );
+  return frames.map(({ at, box }) => toPage({ box, camera: fittedCamera(box, a4Portrait) }, at));
 }
 
 function between(path: Point[], from: Point, to: Point): Point[] {
