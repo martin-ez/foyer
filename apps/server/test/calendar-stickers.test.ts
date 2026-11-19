@@ -6,9 +6,12 @@ import {
   type CalendarPageKind,
   calendarPageId,
   calendarPageKinds,
+  heightOfTime,
+  inStrip,
   newId,
   spacePageId,
   spotInDay,
+  timelineOf,
 } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
@@ -28,6 +31,7 @@ import {
   itemCreate,
   itemSetDate,
   itemSetRepeat,
+  itemSetTime,
   pageCreate,
   signIn,
   stickerMove,
@@ -124,6 +128,18 @@ function stickersOnDay(itemId: string, date: string, kind = 1): ChangeInit[] {
       ...spotInDay(calendarPageId(pageKind, date), sizeOf(pageKind), date, []),
     }),
   ]);
+}
+
+const dayTimeline = timelineOf("day:2026-11-17", a4Portrait);
+
+/** The height on a day page of a time of day, in minutes after midnight. */
+function heightAt(minutes: number): number {
+  if (!dayTimeline) throw new Error("A day page has a timeline.");
+  return heightOfTime(dayTimeline, minutes);
+}
+
+function onDayPage(stickers: Sticker[]): Sticker | undefined {
+  return stickers.find(({ pageId }) => pageId.startsWith("day:"));
 }
 
 function resultOf(result: ChangeResult | undefined) {
@@ -333,6 +349,48 @@ describe("keeping an item's calendar stickers on its day", () => {
   });
 });
 
+describe("stickers on a day page's timeline", () => {
+  it("moves a task's day page sticker to its time, and to the strip when it's cleared", async () => {
+    const { device } = await connect(alex);
+    const inbox = await spaceOf(device, SpaceKind.INBOX);
+    const task = newTask(inbox, "2026-11-17");
+    await device.push(...task.changes);
+    const before = await calendarStickers(device, task.itemId);
+
+    await device.push(itemSetTime(task.itemId, "19:30"));
+    const timed = await calendarStickers(device, task.itemId);
+    await device.push(itemSetTime(task.itemId, ""));
+    const cleared = await calendarStickers(device, task.itemId);
+
+    expect(dayTimeline && inStrip(dayTimeline, onDayPage(before)?.y ?? 0)).toBe(true);
+    expect(onDayPage(timed)).toMatchObject({ x: dayTimeline?.left, y: heightAt(19 * 60 + 30) });
+    expect(dayTimeline && inStrip(dayTimeline, onDayPage(cleared)?.y ?? 0)).toBe(true);
+    const elsewhere = (stickers: Sticker[]) =>
+      stickers.filter(({ pageId }) => !pageId.startsWith("day:")).map(({ id, x, y }) => [id, x, y]);
+    expect(elsewhere(timed)).toEqual(elsewhere(before));
+  });
+
+  it("leaves a task's sticker where its device dropped it at its time", async () => {
+    const { device } = await connect(alex);
+    const inbox = await spaceOf(device, SpaceKind.INBOX);
+    const task = newTask(inbox, "2026-11-17");
+    const placed = stickersOnDay(task.itemId, "2026-11-17");
+    await device.push(...task.changes, ...placed);
+    const daySticker = idOf(placed[5] as ChangeInit);
+
+    await device.push(
+      stickerMove(daySticker, 320, heightAt(9 * 60 + 15)),
+      itemSetTime(task.itemId, "09:15"),
+    );
+
+    expect(onDayPage(await calendarStickers(device, task.itemId))).toMatchObject({
+      id: daySticker,
+      x: 320,
+      y: heightAt(9 * 60 + 15),
+    });
+  });
+});
+
 describe("calendar stickers of events", () => {
   async function withCalendar(timeZone: string) {
     const { memberId, token } = await signIn(alex);
@@ -353,6 +411,26 @@ describe("calendar stickers of events", () => {
       endsAt: timestampFromMs(Date.parse(endsAt)),
     });
   }
+
+  it("puts an event's day page sticker at the time it starts in its calendar's time zone", async () => {
+    const { device, personal } = await withCalendar("Europe/Madrid");
+    const event = eventAt(personal, "2026-11-20T08:00:00Z", "2026-11-20T09:30:00Z");
+
+    await device.push(event);
+
+    const daySticker = onDayPage(await calendarStickers(device, idOf(event)));
+    expect(daySticker).toMatchObject({ pageId: "day:2026-11-20", y: heightAt(9 * 60) });
+  });
+
+  it("refuses a time of day on an event, which has its own time", async () => {
+    const { device, personal } = await withCalendar("Europe/Madrid");
+    const event = eventAt(personal, "2026-11-20T08:00:00Z", "2026-11-20T09:30:00Z");
+    await device.push(event);
+
+    const committed = await device.push(itemSetTime(idOf(event), "19:00"));
+
+    expect(resultOf(committed.results[0])).toEqual({ refused: "Only tasks have a time of day." });
+  });
 
   it("places an event on the day it starts in its calendar's time zone", async () => {
     const { device, personal } = await withCalendar("Asia/Tokyo");

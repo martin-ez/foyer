@@ -1,9 +1,20 @@
 import { expect, type Page, type TestInfo, test } from "@playwright/test";
-import { describeWeekday, isInColumn, openWeek, show, tapInDay } from "./calendar-pages";
+import {
+  dayPage,
+  describeTimeInBrowser,
+  describeWeekday,
+  isInColumn,
+  openDayInWeek,
+  openWeek,
+  show,
+  tapInDay,
+  tapOnTimeline,
+  toHour,
+} from "./calendar-pages";
 import { describeDayInBrowser, describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { householdMembers, signIn } from "./sign-in";
-import { bundleBuildTimeout } from "./tasks";
+import { bundleBuildTimeout, drag } from "./tasks";
 
 const connectPrompt = "Connect Google Calendar to keep a Google calendar for each of your spaces.";
 
@@ -223,4 +234,48 @@ test("adds, changes and deletes events, which reach Google Calendar and come bac
     await page.getByRole("button", { name: "Delete event" }).click();
     await expect(event).toBeHidden();
   }
+});
+
+test("puts an event on a day page's timeline when it starts, as long as it lasts, and moves it there", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(bundleBuildTimeout + 120_000);
+  const weeks = testInfo.project.name === "ipad" ? 9 : 10;
+  const title = `Piano lesson ${Date.now()}`;
+  await signInDisconnected(page, memberOfItsOwnFor(testInfo));
+  await connectAtFakeGoogle(page, /^Continue as /);
+  await ensurePersonalSpace(page, "Work");
+  await page.getByRole("tab", { name: "Calendar" }).click();
+  const day = await openDayInWeek(page, weeks, 2);
+  const [ten, eleven, three, four] = [
+    await describeTimeInBrowser(page, 10 * 60),
+    await describeTimeInBrowser(page, 11 * 60),
+    await describeTimeInBrowser(page, 15 * 60),
+    await describeTimeInBrowser(page, 16 * 60),
+  ];
+  const event = (from: string, to: string) =>
+    dayPage(page, day).getByRole("button", { name: `Event: ${title}, ${from} to ${to}` });
+
+  await tapOnTimeline(page, day, 10 * 60);
+  await page.getByRole("checkbox", { name: "New event" }).click();
+  await expect(page.getByLabel("Starts at")).toHaveValue("10:00");
+  await expect(page.getByLabel("Ends at")).toHaveValue("11:00");
+  await page.getByLabel("Title").fill(title);
+  await page.getByRole("checkbox", { name: "In Work" }).click();
+  await page.getByRole("button", { name: "Add event" }).click();
+
+  await expect(event(ten, eleven)).toBeVisible();
+  expect(await toHour(page, day, event(ten, eleven), 10 * 60)).toBeCloseTo(0, 0);
+  await saveScreenshot(page, testInfo, "event-on-timeline");
+
+  await drag(page, event(ten, eleven), {
+    x: 0,
+    y: await toHour(page, day, event(ten, eleven), 15 * 60),
+  });
+  await expect(event(three, four)).toBeVisible();
+  expect(await toHour(page, day, event(three, four), 15 * 60)).toBeCloseTo(0, 0);
+
+  await event(three, four).click();
+  await page.getByRole("button", { name: "Delete event" }).click();
+  await expect(event(three, four)).toBeHidden();
 });

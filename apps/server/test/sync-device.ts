@@ -284,6 +284,11 @@ export function itemSetDate(itemId: string, date: string, made: Made = {}): Chan
   return { ...madeNow(made), change: { case: "itemSetDate", value: { itemId, date } } };
 }
 
+/** Sets or clears a task's time of day, made by the device now unless `made` says otherwise. */
+export function itemSetTime(itemId: string, time: string, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "itemSetTime", value: { itemId, time } } };
+}
+
 /** Sets the rule a task repeats by, or stops it repeating when the rule is empty, made by the
  *  device now unless `made` says otherwise. The next date comes from the schedule unless `from`
  *  says otherwise. */
@@ -361,6 +366,7 @@ export function idOf({ change }: ChangeInit): string {
     case "itemSetTitle":
     case "itemSetDescription":
     case "itemSetDate":
+    case "itemSetTime":
     case "itemMove":
     case "itemDelete":
     case "itemSetRepeat":

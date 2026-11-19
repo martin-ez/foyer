@@ -298,6 +298,8 @@ export const householdMigrations: readonly Migration[] = [
   `ALTER TABLE stickers ADD COLUMN occurrence TEXT;
   CREATE TABLE household_jobs (name TEXT PRIMARY KEY);
   INSERT INTO household_jobs (name) VALUES ('place calendar stickers')`,
+  `ALTER TABLE items ADD COLUMN time TEXT;
+  INSERT OR IGNORE INTO household_jobs (name) VALUES ('place calendar stickers')`,
 ];
 
 /** Work on the household's data that needs today's code rather than the code of the migration

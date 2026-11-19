@@ -1,5 +1,13 @@
 import { addDays, daysIn } from "./dates";
 import { firstDayOfWeek, isIsoDate, isIsoMonth, type PageSize } from "./page";
+import { timeOfDay } from "./time";
+
+/** The size of a sticker on a calendar page, of any kind, in points: small enough that a few fit
+ *  in a day of a month's page. */
+export const calendarStickerSize: PageSize = { width: 200, height: 32 };
+
+/** The space automatic placement leaves between a day's stickers, and around them in its box. */
+export const calendarStickerGap = 6;
 
 /** A rectangle on a page, in points from its top-left corner. */
 export type Box = { x: number; y: number; width: number; height: number };
@@ -26,8 +34,54 @@ export type CalendarLayout = {
    *  page, which names each day in its label, and for a day page. */
   weekdays: { date: string; box: Box }[];
   days: DayOnPage[];
+  /** Where height means time on a day page, below the strip for things with no time. Null on a
+   *  month or week page. */
+  timeline: Timeline | null;
   ruling: Ruling;
 };
+
+/** A day page's timeline, where a sticker's top edge is at its item's time, in the page's points.
+ *  Times it doesn't show sit at its top or bottom. */
+export type Timeline = {
+  /** The part of the page it takes, below the strip that holds things without a time. */
+  box: Box;
+  /** Where stickers on it start across the page, right of the hours printed on it. */
+  left: number;
+  /** The earliest and latest times it shows, in minutes after midnight. */
+  from: number;
+  to: number;
+  /** The heights of those times. */
+  top: number;
+  bottom: number;
+  /** Each whole hour it shows, such as "06:00", at its height, with the box its name is printed in. */
+  hours: { time: string; y: number; label: Box }[];
+};
+
+/** How many minutes apart the times are that a sticker snaps to on a day page's timeline. */
+export const timelineStep = 15;
+
+/** The height of a time on a timeline, in minutes after midnight, or of the nearest time it
+ *  shows. */
+export function heightOfTime(timeline: Timeline, minutes: number): number {
+  const { from, to, top, bottom } = timeline;
+  const shown = Math.min(Math.max(minutes, from), to);
+  return top + ((shown - from) * (bottom - top)) / (to - from);
+}
+
+/** The time at a height on a timeline, in minutes after midnight, snapped to the nearest
+ *  `timelineStep` minutes that it shows. */
+export function timeAtHeight(timeline: Timeline, y: number): number {
+  const { from, to, top, bottom } = timeline;
+  const minutes = from + ((y - top) * (to - from)) / (bottom - top);
+  const snapped = Math.round(minutes / timelineStep) * timelineStep;
+  return Math.min(Math.max(snapped, from), to);
+}
+
+/** Whether a calendar sticker whose top-left corner is at `y` sits in a day page's strip, rather
+ *  than on its timeline: whether its middle is above the timeline. */
+export function inStrip(timeline: Timeline, y: number): boolean {
+  return y + calendarStickerSize.height / 2 < timeline.box.y;
+}
 
 /** What kind of calendar page an id names, and its date: a month as "2026-11", a week by its
  *  Monday, or a day. Null for any other page. */
@@ -57,7 +111,8 @@ export function calendarLayout(pageId: string, page: PageSize): CalendarLayout |
 }
 
 /** A day's page: the whole page inside its margins belongs to the day, which the page's title
- *  names, so it prints nothing. */
+ *  names. At the top, a strip holds the stickers of things without a time, and below it a
+ *  timeline runs from 6:00 to 23:00, with each hour printed beside a line across it. */
 export function dayLayout(date: string, page: PageSize): CalendarLayout {
   const box = {
     x: margin,
@@ -65,12 +120,43 @@ export function dayLayout(date: string, page: PageSize): CalendarLayout {
     width: page.width - 2 * margin,
     height: page.height - 2 * margin,
   };
+  const row = calendarStickerSize.height + calendarStickerGap;
+  const strip = { ...box, height: stripRows * row + calendarStickerGap };
+  const below = strip.y + strip.height;
+  const timeline: Timeline = {
+    box: { ...box, y: below, height: box.y + box.height - below },
+    left: box.x + hourColumn,
+    from: timelineFrom,
+    to: timelineTo,
+    top: below + hourLabel.height,
+    bottom: box.y + box.height - calendarStickerSize.height,
+    hours: [],
+  };
+  for (let hour = timelineFrom; hour <= timelineTo; hour += 60) {
+    const y = heightOfTime(timeline, hour);
+    const label = { x: box.x, y: y - hourLabel.height / 2, ...hourLabel };
+    timeline.hours.push({ time: timeOfDay(hour), y, label });
+  }
+  const right = box.x + box.width;
   return {
     weekdays: [],
-    days: [{ date, label: null, box, stickers: box }],
-    ruling: { shaded: [], lines: [] },
+    days: [{ date, label: null, box, stickers: strip }],
+    timeline,
+    ruling: {
+      shaded: [],
+      lines: [
+        { from: { x: box.x, y: below }, to: { x: right, y: below } },
+        ...timeline.hours.map(({ y }) => ({ from: { x: timeline.left, y }, to: { x: right, y } })),
+      ],
+    },
   };
 }
+
+const stripRows = 3;
+const hourColumn = 56;
+const hourLabel = { width: hourColumn - 8, height: 16 };
+const timelineFrom = 6 * 60;
+const timelineTo = 23 * 60;
 
 /** A month's page, from the month as "2026-11": a column for each weekday from Monday, and a row
  *  for each week the month touches, with the days of the months around it left blank and shaded.
@@ -93,6 +179,7 @@ export function monthLayout(month: string, page: PageSize): CalendarLayout {
   const cells = Array.from({ length: rows * 7 }, (_, index) => index);
 
   return {
+    timeline: null,
     weekdays: Array.from({ length: 7 }, (_, column) => ({
       date: addDays(monday, column),
       box: { x: margin + column * width, y: margin, width, height: weekdayRow },
@@ -128,6 +215,7 @@ export function weekLayout(monday: string, page: PageSize): CalendarLayout {
 
   return {
     weekdays: [],
+    timeline: null,
     days: Array.from({ length: 7 }, (_, column) => {
       const x = margin + column * width;
       const box = { x, y: below, width, height };

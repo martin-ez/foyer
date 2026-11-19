@@ -1,4 +1,4 @@
-import { a2Landscape, a4Portrait, monthLayout, weekLayout } from "@foyer/shared";
+import { a2Landscape, a4Portrait, dayLayout, monthLayout, weekLayout } from "@foyer/shared";
 import { describe, it } from "vitest";
 import { DeskDrawing } from "../src/page/desk-drawing";
 import { PageDrawing } from "../src/page/page-drawing";
@@ -9,6 +9,13 @@ describe("PageDrawing", () => {
   it("draws a blank day page at its own size", async () => {
     const size = { width: Math.ceil(a4Portrait.width), height: Math.ceil(a4Portrait.height) };
     await expectToMatchGoldenImage("blank-day-page", <PageDrawing size={a4Portrait} />, size);
+  });
+
+  it("draws a day page's strip and the lines of its timeline's hours", async () => {
+    const size = { width: Math.ceil(a4Portrait.width), height: Math.ceil(a4Portrait.height) };
+    const { ruling } = dayLayout("2026-11-17", a4Portrait);
+    const drawing = <PageDrawing size={a4Portrait} ruling={ruling} />;
+    await expectToMatchGoldenImage("day-page-timeline", drawing, size);
   });
 
   const a2 = { width: Math.ceil(a2Landscape.width), height: Math.ceil(a2Landscape.height) };

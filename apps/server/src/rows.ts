@@ -190,6 +190,7 @@ type ItemRow = {
   title: string;
   description: string;
   date: string | null;
+  time: string | null;
   repeat: string | null;
   repeat_from: "schedule" | "completion" | null;
   parent_id: string | null;
@@ -257,7 +258,7 @@ const itemsWithOwner = "items JOIN spaces ON spaces.id = items.space_id";
 const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
 const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
-  items.date, items.repeat, items.repeat_from, items.parent_id, items.created_by, items.created_at,
+  items.date, items.time, items.repeat, items.repeat_from, items.parent_id, items.created_by, items.created_at,
   items.starts_on, items.ends_on, items.starts_at, items.ends_at, items.seq, spaces.owner_id
   FROM ${itemsWithOwner}`;
 
@@ -481,6 +482,7 @@ function itemRow(item: ItemRow): VisibleRow {
     title: item.title,
     description: item.description,
     date: item.date ?? "",
+    time: item.time ?? "",
     repeat: item.repeat ?? "",
     repeatFrom: item.repeat_from ? repeatFroms[item.repeat_from] : RepeatFrom.UNSPECIFIED,
     parentId: item.parent_id ?? "",

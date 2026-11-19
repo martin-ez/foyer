@@ -4,6 +4,7 @@ import {
   formatRepeat,
   isId,
   isIsoDate,
+  isTimeOfDay,
   itemDescriptionProblem,
   itemTitleProblem,
   parseRepeat,
@@ -29,6 +30,7 @@ import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
 
 const badDate = "A task's date must be a day, as in “2026-11-17”.";
+const badTime = "A task's time must be hours and minutes, as in “19:00”.";
 
 /** What an item is, as the household stores it. */
 export type ItemKindName = "task" | "event" | "note";
@@ -174,6 +176,7 @@ type ItemRow = {
   parent_at: number;
   parent_change_id: string;
   date: string | null;
+  time: string | null;
   repeat: string | null;
   repeat_at: number;
   repeat_change_id: string;
@@ -189,11 +192,13 @@ type ItemRow = {
   time_change_id: string;
 };
 
-type Field = "title" | "description" | "date";
+type Field = "title" | "description" | "date" | "time";
 
-/** Changes an item's title, description or date, unless a later change to the same field won.
- *  A title is trimmed and must not be blank or too long, a description must not be too long, and a
- *  date must be a day or empty, which clears it. Changing a deleted item has no effect. */
+/** Changes an item's title, description or date, or a task's time of day, unless a later change to
+ *  the same field won. A title is trimmed and must not be blank or too long, a description must not
+ *  be too long, a date must be a day, and a time hours and minutes, or empty, which clears them.
+ *  Only a task with a date can have a time, and clearing its date clears its time. Changing a
+ *  deleted item has no effect. */
 export function setItemField(
   sql: SqlStorage,
   memberId: string,
@@ -207,12 +212,18 @@ export function setItemField(
   const found = itemFor(sql, memberId, itemId);
   if (!("item" in found)) return found.applied;
   if (field === "date" && found.item.kind === "event") return { refused: eventDateIsSet };
+  if (field === "time" && found.item.kind !== "task") {
+    return { refused: "Only tasks have a time of day." };
+  }
 
   const key: RowKey = { kind: "item", id: itemId };
   const last = { at: found.item[`${field}_at`], changeId: found.item[`${field}_change_id`] };
   if (!isLater(setter, last)) return { seq: nextSeq(sql), changed: [], unchanged: [key] };
   if (field === "date" && checked.value === null && found.item.repeat !== null) {
     return { refused: "A repeating task always has a date. Stop it repeating first." };
+  }
+  if (field === "time" && checked.value !== null && found.item.date === null) {
+    return { refused: "A task needs a date to have a time." };
   }
   const seq = nextSeq(sql);
   sql.exec(
@@ -223,7 +234,22 @@ export function setItemField(
     seq,
     itemId,
   );
+  if (field === "date" && checked.value === null && found.item.time !== null) {
+    clearTime(sql, itemId, setter, { at: found.item.time_at, changeId: found.item.time_change_id });
+  }
   return { seq, changed: [key], unchanged: [] };
+}
+
+/** Clears a task's time, as its date was cleared by `setter`, which becomes the change that last set
+ *  the time unless a later one did, so that an earlier time sent afterwards has no effect. */
+function clearTime(sql: SqlStorage, itemId: string, setter: Setter, last: Setter): void {
+  const by = isLater(setter, last) ? setter : last;
+  sql.exec(
+    "UPDATE items SET time = NULL, time_at = ?, time_change_id = ? WHERE id = ?",
+    by.at,
+    by.changeId,
+    itemId,
+  );
 }
 
 const repeatFromNames: Partial<Record<RepeatFrom, RepeatFromName>> = {
@@ -487,6 +513,9 @@ function checkField(field: Field, value: string): { value: string | null } | { r
     case "date":
       if (value === "") return { value: null };
       return isIsoDate(value) ? { value } : { refused: badDate };
+    case "time":
+      if (value === "") return { value: null };
+      return isTimeOfDay(value) ? { value } : { refused: badTime };
   }
 }
 
@@ -500,7 +529,8 @@ export function itemFor(
   const [item] = sql
     .exec<ItemRow>(
       `SELECT items.kind, items.space_id, spaces.owner_id, items.parent_id, items.parent_at,
-         items.parent_change_id, items.date, items.repeat, items.repeat_at, items.repeat_change_id,
+         items.parent_change_id, items.date, items.time, items.repeat, items.repeat_at,
+         items.repeat_change_id,
          items.space_at, items.space_change_id,
          items.title_at, items.title_change_id, items.description_at, items.description_change_id,
          items.date_at, items.date_change_id, items.time_at, items.time_change_id

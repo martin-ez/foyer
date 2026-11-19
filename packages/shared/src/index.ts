@@ -4,10 +4,17 @@ export {
   type CalendarLayout,
   calendarLayout,
   calendarPageOf,
+  calendarStickerGap,
+  calendarStickerSize,
   type DayOnPage,
   dayLayout,
+  heightOfTime,
+  inStrip,
   monthLayout,
   type Ruling,
+  type Timeline,
+  timeAtHeight,
+  timelineStep,
   weekLayout,
 } from "./calendar-layout";
 export {
@@ -16,16 +23,17 @@ export {
   type CalendarStickerPlan,
   calendarPageId,
   calendarPageKinds,
-  calendarStickerGap,
-  calendarStickerSize,
   dayAt,
+  dropOnDayPage,
   keepInDay,
   type PlacedSticker,
   pileStep,
   planCalendarStickers,
   showsDay,
+  spotAtTime,
   spotInDay,
   stickerSizeOn,
+  timelineOf,
 } from "./calendar-stickers";
 export { addDays, addMonths, daysBetween, daysIn, monthOf } from "./dates";
 export {
@@ -98,6 +106,7 @@ export {
   unknownStickerSize,
 } from "./sticker-spot";
 export { signedOutCloseCode, syncPath } from "./sync";
+export { isTimeOfDay, minutesIntoDay, minutesOf, timeOfDay } from "./time";
 
 /** The product name, shown by the app and reported by the backend. */
 export const appName = "Foyer";

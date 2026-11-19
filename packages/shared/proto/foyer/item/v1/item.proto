@@ -43,6 +43,9 @@ message Item {
   google.protobuf.Timestamp starts_at = 14;
   // When an event with times ends, which is never before it starts.
   google.protobuf.Timestamp ends_at = 15;
+  // A task's time of day, as an ISO 8601 local time such as "19:00", with no time zone, or empty
+  // when it has none. Only a task with a date has one.
+  string time = 16;
 }
 
 // Where a repeating task's next date comes from when it's ticked.
@@ -104,13 +107,21 @@ message ItemSetDescription {
   string description = 2;
 }
 
-// Changes an item's date, or clears it. The change made last wins, by the device's clock. A
-// repeating task's date can't be cleared, and an event's is set by the household from when it
-// starts, so this is refused on an event.
+// Changes an item's date, or clears it, which also clears a task's time. The change made last wins,
+// by the device's clock. A repeating task's date can't be cleared, and an event's is set by the
+// household from when it starts, so this is refused on an event.
 message ItemSetDate {
   string item_id = 1;
   // A plain ISO 8601 date such as "2026-11-17", or empty to clear it.
   string date = 2;
+}
+
+// Changes a task's time of day, or clears it. The change made last wins, by the device's clock. Only
+// a task with a date can have a time, and clearing its date clears its time.
+message ItemSetTime {
+  string item_id = 1;
+  // An ISO 8601 local time of hours and minutes, such as "19:00", or empty to clear it.
+  string time = 2;
 }
 
 // Sets the rule a task repeats by, and where its next date comes from, or stops it repeating. The

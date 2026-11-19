@@ -49,3 +49,53 @@ export async function isInColumn(page: Page, sticker: Locator, day: string): Pro
   const middle = box.x + box.width / 2;
   return middle > label.x && middle < label.x + label.width;
 }
+
+/** Opens the page of a weekday of the week `weeks` weeks from this one, counted from Monday as 0,
+ *  and returns the day as the app describes it. */
+export async function openDayInWeek(page: Page, weeks: number, weekday: number): Promise<string> {
+  await openWeek(page, weeks);
+  const day = await describeWeekday(page, weeks, weekday);
+  await dayLabel(page, day).click();
+  return day;
+}
+
+/** The open day page, which holds what's on it. */
+export function dayPage(page: Page, day: string): Locator {
+  return page.getByLabel(day, { exact: true });
+}
+
+/** A time of day, in minutes after midnight, as the app prints it, such as "9:00 AM" in American
+ *  English. */
+export function describeTimeInBrowser(page: Page, minutes: number): Promise<string> {
+  return page.evaluate((after) => {
+    const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+    return clock.format(new Date(2000, 0, 1, 0, after));
+  }, minutes);
+}
+
+/** Where a whole hour, in minutes after midnight, is printed beside a day page's timeline. */
+export async function hourOnTimeline(page: Page, day: string, minutes: number) {
+  const name = await describeTimeInBrowser(page, minutes);
+  return boxOf(dayPage(page, day).getByText(name, { exact: true }));
+}
+
+/** Taps an empty spot on a day page's timeline at a whole hour, right of the hours. */
+export async function tapOnTimeline(page: Page, day: string, minutes: number) {
+  const hour = await hourOnTimeline(page, day, minutes);
+  await page.mouse.click(hour.x + hour.width + 40, hour.y + hour.height / 2);
+}
+
+/** How far down the screen a sticker has to move for its top to reach a whole hour's line on a day
+ *  page's timeline. */
+export async function toHour(page: Page, day: string, sticker: Locator, minutes: number) {
+  const hour = await hourOnTimeline(page, day, minutes);
+  return hour.y + hour.height / 2 - (await boxOf(sticker)).y;
+}
+
+/** How far down the screen a sticker has to move for its middle to reach a day page's strip of
+ *  things without a time, where it's named. */
+export async function toStrip(page: Page, day: string, sticker: Locator) {
+  const strip = await boxOf(dayPage(page, day).getByText("No time", { exact: true }));
+  const box = await boxOf(sticker);
+  return strip.y + strip.height / 2 - (box.y + box.height / 2);
+}

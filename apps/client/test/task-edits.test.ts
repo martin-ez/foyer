@@ -3,7 +3,12 @@ import { RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { describe, expect, it } from "vitest";
 import { changedFields, shownFields, shownRepeat } from "../src/tasks/task-edits";
 
-const fields = { title: "Buy milk", description: "From the corner shop", date: "2026-11-17" };
+const fields = {
+  title: "Buy milk",
+  description: "From the corner shop",
+  date: "2026-11-17",
+  time: "",
+};
 const task = { ...fields, repeat: "", repeatFrom: RepeatFrom.UNSPECIFIED };
 const weekly = parseRepeat("FREQ=WEEKLY;BYDAY=TU");
 const repeatingTask = { ...task, repeat: "FREQ=WEEKLY;BYDAY=TU", repeatFrom: RepeatFrom.SCHEDULE };
@@ -20,7 +25,15 @@ describe("shownFields", () => {
       title: "Buy milk and bread",
       description: "From the corner shop",
       date: "2026-11-18",
+      time: "",
     });
+  });
+
+  it("shows no time once the member clears the date", () => {
+    const timed = { ...task, time: "19:00" };
+
+    expect(shownFields(timed, {}).time).toBe("19:00");
+    expect(shownFields(timed, { date: "" }).time).toBe("");
   });
 });
 
@@ -53,6 +66,25 @@ describe("changedFields", () => {
       {},
     );
     expect(changedFields(task, { repeat: { rule: null, from: "completion" } })).toEqual({});
+  });
+
+  it("saves a new time, or taking it off", () => {
+    const timed = { ...task, time: "19:00" };
+
+    expect(changedFields(task, { time: "08:30" })).toEqual({ time: "08:30" });
+    expect(changedFields(timed, { time: "" })).toEqual({ time: "" });
+    expect(changedFields(timed, { time: "19:00" })).toEqual({});
+  });
+
+  it("saves a date and a time given together, and leaves the time out when the date is cleared", () => {
+    const undated = { ...task, date: "" };
+    const timed = { ...task, time: "19:00" };
+
+    expect(changedFields(undated, { date: "2026-11-20", time: "08:30" })).toEqual({
+      date: "2026-11-20",
+      time: "08:30",
+    });
+    expect(changedFields(timed, { date: "", time: "08:30" })).toEqual({ date: "" });
   });
 
   it("saves stopping a task repeating", () => {

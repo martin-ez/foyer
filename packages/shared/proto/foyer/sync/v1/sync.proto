@@ -64,6 +64,7 @@ message Change {
     foyer.item.v1.ItemSetRepeat item_set_repeat = 17;
     foyer.item.v1.ItemSetParent item_set_parent = 18;
     foyer.event.v1.EventSetTime event_set_time = 19;
+    foyer.item.v1.ItemSetTime item_set_time = 20;
   }
 }
 
