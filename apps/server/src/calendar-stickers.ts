@@ -22,9 +22,8 @@ type ItemRow = {
   created_by: string | null;
 };
 
-/** Keeps some items' calendar stickers on their days, and on a day page's timeline at their times,
- *  as `planCalendarStickers` plans them, in one change made by `setter`, and returns the rows it
- *  changed. They're placed by `actor`, or if null,
+/** Keeps some items' calendar stickers on their days, as `planCalendarStickers` plans them, in one
+ *  change made by `setter`, and returns the rows it changed. They're placed by `actor`, or if null,
  *  by the holder of an event's Google calendar or the item's creator. */
 export function settleCalendarStickers(
   sql: SqlStorage,
@@ -147,8 +146,6 @@ export function itemsOfRows(sql: SqlStorage, rows: readonly RowKey[]): string[] 
   return items;
 }
 
-/** An item's time on its date, in minutes after its midnight: a task's time, or when an event with
- *  times starts in its calendar's time zone, which dates it. */
 function timeOnItsDay(item: ItemRow): number | null {
   if (item.date === null) return null;
   if (item.time !== null) return minutesOf(item.time);

@@ -26,9 +26,8 @@ const spans: { span: CalendarSpan; name: string }[] = [
 type Moving = { stickerId: string; at: Point; date: string };
 
 /** The household's calendar, open on today's day page, with dated tasks and events as stickers on
- *  their days, and on a day page's timeline at their times. Tapping an empty spot in a day adds
- *  something there, at the time a day page's timeline shows there, and dropping a sticker on
- *  another day asks first. Above the page, the upcoming events, or the item a tapped sticker shows. */
+ *  their days, at their times on a day page. Tapping an empty day adds something there, dropping a
+ *  sticker on another day asks first, and the upcoming events or a tapped sticker's item show above. */
 export function CalendarScreen() {
   const { state, sync } = useHousehold();
   const [view, setView] = useState<CalendarView>(() => ({ span: "day", date: localToday() }));

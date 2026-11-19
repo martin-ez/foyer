@@ -132,7 +132,6 @@ function stickersOnDay(itemId: string, date: string, kind = 1): ChangeInit[] {
 
 const dayTimeline = timelineOf("day:2026-11-17", a4Portrait);
 
-/** The height on a day page of a time of day, in minutes after midnight. */
 function heightAt(minutes: number): number {
   if (!dayTimeline) throw new Error("A day page has a timeline.");
   return heightOfTime(dayTimeline, minutes);
@@ -545,6 +544,26 @@ describe("items dated before calendar stickers", () => {
     const stickers = await calendarStickers(device, itemId);
     expect(daysOf(stickers)).toEqual(onDay("2026-11-17"));
     expect(stickers.every(({ placedBy }) => placedBy === memberId)).toBe(true);
+  });
+
+  it("move their day page stickers to their times once the household starts on the new storage", async () => {
+    const { device } = await connect(alex);
+    const inbox = await spaceOf(device, SpaceKind.INBOX);
+    const timed = newTask(inbox, "2026-11-17");
+    const untimed = newTask(inbox, "2026-11-17");
+    await device.push(...timed.changes, ...untimed.changes, itemSetTime(timed.itemId, "09:00"));
+    const before = await calendarStickers(device, timed.itemId);
+
+    await runInDurableObject(theHousehold(), async (_, { storage }) => {
+      storage.sql.exec("UPDATE stickers SET y = 600 WHERE page_id = 'day:2026-11-17'");
+      storage.sql.exec("INSERT INTO household_jobs (name) VALUES ('place calendar stickers')");
+      runJobs(storage, { "place calendar stickers": placeAllCalendarStickers });
+    });
+
+    const timedSticker = onDayPage(await calendarStickers(device, timed.itemId));
+    const untimedSticker = onDayPage(await calendarStickers(device, untimed.itemId));
+    expect(timedSticker).toMatchObject({ id: onDayPage(before)?.id, y: heightAt(9 * 60) });
+    expect(dayTimeline && inStrip(dayTimeline, untimedSticker?.y ?? 600)).toBe(true);
   });
 
   it("runs each queued job once, and leaves a job it doesn't know for code that does", async () => {

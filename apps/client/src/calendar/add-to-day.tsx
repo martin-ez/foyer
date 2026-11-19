@@ -21,10 +21,9 @@ import { keepLastSpace, readLastSpace } from "./last-space";
 
 type Adding = "task" | "event";
 
-/** What tapping an empty spot in a day offers: a new task or event on that day, in a space picked
- *  as last time on this device, or one of the member's open tasks without a date. Its sticker goes
- *  where they tapped. On a day page's timeline, a task takes the time tapped, and an event starts
- *  then, for an hour unless changed. Events go only in spaces with a Google calendar. */
+/** What tapping an empty spot in a day offers: a new task or event on that day, at the time a day
+ *  page's timeline shows there, in a space picked as last time on this device, or one of the
+ *  member's open tasks without a date. Its sticker goes where they tapped. */
 export function AddToDay({
   date,
   spot,

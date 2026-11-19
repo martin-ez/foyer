@@ -34,10 +34,8 @@ type PageViewProps = {
 };
 
 /** A page as everyone on it sees it: what's printed on it, its stickers, which can be moved, ticked
- *  and tapped, and where others on it are pointing. A calendar sticker dropped outside any day goes
- *  back. On a day page, dropping a sticker on the timeline changes its item's time, and in the strip
- *  takes it off; an event with times is drawn at its start on this device, as long as it lasts. It's
- *  drawn, and this device is on the page, only while its screen is the one in front. */
+ *  and tapped, and where others on it are pointing, with a day page's events at their times here.
+ *  It's drawn, and this device is on the page, only while its screen is the one in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <ShownPage {...props} /> : null;
 }

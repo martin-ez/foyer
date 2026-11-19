@@ -178,11 +178,9 @@ export type CalendarStickerPlan = {
   remove: string[];
 };
 
-/** Plans one sticker on an item's date on each kind of calendar page: one already on that day stays,
- *  one on another day of the page moves to the day's next free spot, or a new one is placed there.
- *  Any others are removed, except on a `kept` day, such as a repeating task's ticked days. On the
- *  day page, an item with a time goes on the timeline at that time, and one without in the strip:
- *  a sticker already on the day that isn't where its time puts it moves there. */
+/** Plans one sticker on an item's date on each kind of calendar page, at its time on a day page:
+ *  one already there stays, or else one on the page moves there, or a new one is placed. Any others
+ *  are removed, except on a `kept` day, such as a repeating task's ticked days. */
 export function planCalendarStickers(options: {
   itemId: string;
   date: string | null;

@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   describeDay,
   describeMonth,
+  describeTime,
   describeWeek,
   localToday,
+  minutesIntoLocalDay,
+  momentInLocalDay,
   weekdayOf,
 } from "../src/page/calendar-date";
 
@@ -51,5 +54,42 @@ describe("weekdayOf", () => {
   it("names a day's weekday", () => {
     expect(weekdayOf("2026-11-16", "en-US")).toBe("Monday");
     expect(weekdayOf("2026-11-22", "en-US")).toBe("Sunday");
+  });
+});
+
+describe("minutesIntoLocalDay", () => {
+  it("counts from the day's midnight on the device's clock", () => {
+    expect(minutesIntoLocalDay(new Date(2026, 10, 17, 19, 30).getTime(), "2026-11-17")).toBe(
+      19 * 60 + 30,
+    );
+  });
+
+  it("goes past a day for a moment on the next day, and below zero for one on the day before", () => {
+    const early = new Date(2026, 10, 18, 1, 0).getTime();
+
+    expect(minutesIntoLocalDay(early, "2026-11-17")).toBe(24 * 60 + 60);
+    expect(minutesIntoLocalDay(early, "2026-11-19")).toBe(60 - 24 * 60);
+  });
+});
+
+describe("momentInLocalDay", () => {
+  it("gives the moment some minutes into a day on the device's clock", () => {
+    expect(momentInLocalDay("2026-11-17", 19 * 60 + 30)).toBe(
+      new Date(2026, 10, 17, 19, 30).getTime(),
+    );
+  });
+
+  it("turns back what minutesIntoLocalDay counts", () => {
+    const moment = momentInLocalDay("2026-11-17", 9 * 60 + 15);
+
+    expect(minutesIntoLocalDay(moment, "2026-11-17")).toBe(9 * 60 + 15);
+  });
+});
+
+describe("describeTime", () => {
+  it("says a time of day as people read it in a language", () => {
+    expect(describeTime(19 * 60 + 30, "en-US")).toBe("7:30 PM");
+    expect(describeTime(19 * 60 + 30, "en-GB")).toBe("19:30");
+    expect(describeTime(6 * 60, "en-US")).toBe("6:00 AM");
   });
 });

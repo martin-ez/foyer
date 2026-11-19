@@ -11,8 +11,7 @@ import { keepOnPage, stickerSize } from "./sticker-layout";
 
 /** The stickers on a page, stacked bottom first, in its own points, for a `PageSheet` to hold. One
  *  whose item the member sees can be dragged and tapped, and a task's ticked; one whose item they
- *  can't see is drawn hidden, in its spot and shape, and stays put. A sticker can show how far down
- *  the page its item lasts, as an event does on a day page's timeline. */
+ *  can't see is drawn hidden, in its spot and shape, and stays put. */
 export function PageStickers({
   pageId,
   stickers,

@@ -452,9 +452,8 @@ export class HouseholdSync {
     this.#make("moving a sticker", { case: "stickerMove", value: { stickerId, x, y } });
   }
 
-  /** Moves a sticker on a day page within its day, to a spot on its timeline or in its strip,
-   *  changing when its item happens to the spot's time: a task takes it as its time, or has none in
-   *  the strip; an event starts then, keeping its length, or happens all day in the strip, and an
+  /** Moves a sticker within its day page, to a time on its timeline or to the strip (null). A task
+   *  takes that time, or none; an event starts then, keeping its length, or happens all day, and an
    *  all-day event put on the timeline lasts an hour. */
   moveOnDayPage(stickerId: string, at: Point, time: number | null): void {
     const sticker = this.#state.stickers.get(stickerId);
@@ -553,8 +552,6 @@ export class HouseholdSync {
     return this.#calendarPlanner().plan(itemId, kind, date, kept, at, time);
   }
 
-  /** An item's time on a day, in minutes after its midnight on this device: a task's time, or when
-   *  an event with times starts. */
   #timeOn(itemId: string, date: string | null): number | null {
     const item = this.#state.items.get(itemId);
     if (!item || date === null) return null;
@@ -1075,15 +1072,10 @@ function eventTimeOf(item: Item): EventTime | null {
   return { allDay: false, startsAt: timestampMs(item.startsAt), endsAt: timestampMs(item.endsAt) };
 }
 
-/** When an event starts on a day, in minutes after its midnight on this device, or null when it
- *  happens all day. */
 function startOnDay(time: EventTime, date: string | null): number | null {
   return time.allDay || date === null ? null : minutesIntoLocalDay(time.startsAt, date);
 }
 
-/** An event moved to a time on a day, in minutes after its midnight on this device: one with times
- *  starts then and keeps its length, and one all day lasts an hour. At no time, it's all day on the
- *  days it covers. Null when nothing changes. */
 function retimeEvent(time: EventTime, date: string, minutes: number | null): EventTime | null {
   if (minutes === null) {
     if (time.allDay) return null;

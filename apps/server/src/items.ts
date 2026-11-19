@@ -194,11 +194,9 @@ type ItemRow = {
 
 type Field = "title" | "description" | "date" | "time";
 
-/** Changes an item's title, description or date, or a task's time of day, unless a later change to
- *  the same field won. A title is trimmed and must not be blank or too long, a description must not
- *  be too long, a date must be a day, and a time hours and minutes, or empty, which clears them.
- *  Only a task with a date can have a time, and clearing its date clears its time. Changing a
- *  deleted item has no effect. */
+/** Changes an item's title, description, date or time, unless a later change to it won, refusing
+ *  values `checkField` refuses. Only a task with a date can have a time, and clearing its date
+ *  clears its time. Changing a deleted item has no effect. */
 export function setItemField(
   sql: SqlStorage,
   memberId: string,
@@ -240,8 +238,6 @@ export function setItemField(
   return { seq, changed: [key], unchanged: [] };
 }
 
-/** Clears a task's time, as its date was cleared by `setter`, which becomes the change that last set
- *  the time unless a later one did, so that an earlier time sent afterwards has no effect. */
 function clearTime(sql: SqlStorage, itemId: string, setter: Setter, last: Setter): void {
   const by = isLater(setter, last) ? setter : last;
   sql.exec(

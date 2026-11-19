@@ -69,6 +69,9 @@ test("moves a task along a day page's timeline, changing its time on every devic
   await saveScreenshot(other, testInfo, "task-on-timeline");
 
   await timed(page, two).click();
+  await page.getByLabel("Time").fill("4pm");
+  await expect(page.getByText("A time is hours and minutes, as in 19:00.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
   await page.getByLabel("Time").fill("16:00");
   await page.getByRole("button", { name: "Save" }).click();
   await page.getByRole("button", { name: "Close" }).click();
