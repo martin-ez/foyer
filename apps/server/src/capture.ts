@@ -1,18 +1,11 @@
 import { create } from "@bufbuild/protobuf";
-import {
-  type NewestSpacePage,
-  newId,
-  pageSizeFor,
-  type StickerKindName,
-  spacePageId,
-  stickerSpotInSpace,
-} from "@foyer/shared";
+import { newId, pageSizeFor, spacePageId, stickerSpotInSpace } from "@foyer/shared";
 import { ItemCreateSchema, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageCreateSchema, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { StickerKind, StickerPlaceSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import type { Applied } from "./changes";
 import { createItem } from "./items";
-import { createPage } from "./pages";
+import { createPage, newestPageOf } from "./pages";
 import type { RowKey } from "./rows";
 import { hashSecret, newSecret } from "./secrets";
 import { placeSticker } from "./stickers";
@@ -119,22 +112,4 @@ export function captureTask(
       return step.changed;
     });
   });
-}
-
-function newestPageOf(sql: SqlStorage, spaceId: string): NewestSpacePage | null {
-  const [page] = sql
-    .exec<{ id: string; number: number; width: number; height: number }>(
-      `SELECT id, number, width, height FROM pages WHERE kind = 'space' AND space_id = ?
-       ORDER BY number DESC LIMIT 1`,
-      spaceId,
-    )
-    .toArray();
-  if (!page) return null;
-  const stickers = sql
-    .exec<{ y: number; kind: StickerKindName }>(
-      "SELECT y, kind FROM stickers WHERE page_id = ?",
-      page.id,
-    )
-    .toArray();
-  return { number: page.number, size: page, stickers };
 }

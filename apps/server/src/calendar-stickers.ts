@@ -208,7 +208,13 @@ function pagesAmong(sql: SqlStorage, pageIds: readonly string[]): Map<string, Pa
   );
 }
 
-function memberFor(sql: SqlStorage, item: ItemRow): string {
+/** The member the household acts for when it places an item's stickers without a member's change:
+ *  the holder of an event's Google calendar, or else the item's creator, or else the holder of its
+ *  space's calendar, or else the member who joined first. */
+export function memberFor(
+  sql: SqlStorage,
+  item: { kind: string; space_id: string; created_by: string | null },
+): string {
   const [holder] = sql
     .exec<{ member_id: string }>(
       "SELECT member_id FROM space_calendars WHERE space_id = ?",

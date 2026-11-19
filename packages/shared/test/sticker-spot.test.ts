@@ -5,6 +5,7 @@ import {
   stickerGap,
   stickerSizeOf,
   stickerSpotInSpace,
+  stickerSpotOnPage,
   taskStickerSize,
   unknownStickerSize,
 } from "@foyer/shared";
@@ -47,6 +48,28 @@ describe("nextStickerSpot", () => {
       y: lastThatFits,
     });
     expect(nextStickerSpot(a4Portrait, [{ y: lastThatFits, kind: "task" }], "task")).toBeNull();
+  });
+});
+
+describe("stickerSpotOnPage", () => {
+  it("goes in the next free spot below the last sticker", () => {
+    expect(stickerSpotOnPage(a4Portrait, [{ y: 100, kind: "task" }], "task")).toEqual({
+      x: pageMargin,
+      y: 100 + taskStickerSize.height + stickerGap,
+    });
+  });
+
+  it("takes the lowest spot on a full page", () => {
+    expect(stickerSpotOnPage(a4Portrait, [{ y: lastThatFits, kind: "task" }], "task")).toEqual({
+      x: pageMargin,
+      y: lastThatFits,
+    });
+  });
+
+  it("puts it at the top of a page too short to fit it between the margins", () => {
+    const tiny = { width: a4Portrait.width, height: 50 };
+
+    expect(stickerSpotOnPage(tiny, [], "task")).toEqual({ x: pageMargin, y: 0 });
   });
 });
 

@@ -4,7 +4,10 @@ import {
   isIsoMonth,
   isWeekStart,
   itemPageId,
+  type NewestSpacePage,
   type PageKindName,
+  type StickerKindName,
+  type StickerOnPage,
   spacePageId,
 } from "@foyer/shared";
 import { type PageCreate, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
@@ -66,6 +69,29 @@ export function createPage(
     seq,
   );
   return { seq, changed: [key], unchanged: [] };
+}
+
+/** A space's newest page, with the stickers on it, or null when the space has no page yet. */
+export function newestPageOf(sql: SqlStorage, spaceId: string): NewestSpacePage | null {
+  const [page] = sql
+    .exec<{ id: string; number: number; width: number; height: number }>(
+      `SELECT id, number, width, height FROM pages WHERE kind = 'space' AND space_id = ?
+       ORDER BY number DESC LIMIT 1`,
+      spaceId,
+    )
+    .toArray();
+  if (!page) return null;
+  return { number: page.number, size: page, stickers: stickersOnPage(sql, page.id) };
+}
+
+/** The stickers on a page, as placing the next one needs them. */
+export function stickersOnPage(sql: SqlStorage, pageId: string): StickerOnPage[] {
+  return sql
+    .exec<{ y: number; kind: StickerKindName }>(
+      "SELECT y, kind FROM stickers WHERE page_id = ?",
+      pageId,
+    )
+    .toArray();
 }
 
 /** Whether a member can see a page, from its id, whether or not anything has been put on it yet:
