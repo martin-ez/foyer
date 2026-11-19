@@ -8,7 +8,7 @@
     "preview": "pnpm --filter @foyer/shared generate && pnpm --filter @foyer/client export-web && { wrangler preview delete --name preview --skip-confirmation || true; } && wrangler preview --name preview",
     "types": "wrangler types --strict-vars=false",
     "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit",
-    "test": "vitest run"
+    "test": "pnpm --filter @foyer/shared generate && vitest run"
   },
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",
