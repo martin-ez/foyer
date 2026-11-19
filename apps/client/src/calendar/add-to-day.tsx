@@ -1,4 +1,4 @@
-import { limitItemTitle } from "@foyer/shared";
+import { limitItemTitle, timeOfDay } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { CalendarState, type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useEffect, useState } from "react";
@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { describeDay } from "../page/calendar-date";
+import { describeDay, describeTime } from "../page/calendar-date";
 import type { HouseholdSync, SpotOnDay, SyncState } from "../sync/household-sync";
 import { Checkbox } from "../tasks/checkbox";
 import { doneTasks } from "../tasks/task-lists";
@@ -21,9 +21,9 @@ import { keepLastSpace, readLastSpace } from "./last-space";
 
 type Adding = "task" | "event";
 
-/** What tapping an empty spot in a day offers: a new task or event on that day, in a space picked
- *  as last time on this device, or one of the member's open tasks without a date. Its sticker goes
- *  where they tapped. Events go only in spaces with a Google calendar. */
+/** What tapping an empty spot in a day offers: a new task or event on that day, at the time a day
+ *  page's timeline shows there, in a space picked as last time on this device, or one of the
+ *  member's open tasks without a date. Its sticker goes where they tapped. */
 export function AddToDay({
   date,
   spot,
@@ -42,7 +42,13 @@ export function AddToDay({
   const [title, setTitle] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [allDay, setAllDay] = useState(false);
-  const [times, setTimes] = useState({ startTime: "09:00", endTime: "10:00" });
+  const tapped = spot.time ?? null;
+  const [times, setTimes] = useState(() =>
+    tapped === null
+      ? { startTime: "09:00", endTime: "10:00" }
+      : { startTime: timeOfDay(tapped), endTime: timeOfDay(Math.min(tapped + 60, 23 * 60 + 59)) },
+  );
+  const where = `${describeDay(date)}${tapped === null ? "" : ` at ${describeTime(tapped)}`}`;
   const [last, setLast] = useState<string | null>(null);
   useEffect(() => {
     let current = true;
@@ -80,10 +86,10 @@ export function AddToDay({
   return (
     <View
       style={[styles.panel, { maxHeight: height * 0.45 }]}
-      accessibilityLabel={`Add to ${describeDay(date)}`}
+      accessibilityLabel={`Add to ${where}`}
     >
       <ScrollView contentContainerStyle={styles.form}>
-        <Text style={styles.heading}>Add to {describeDay(date)}</Text>
+        <Text style={styles.heading}>Add to {where}</Text>
         <View style={styles.row} accessibilityRole="radiogroup" accessibilityLabel="Add a">
           {(["task", "event"] as const).map((kind) => (
             <Checkbox

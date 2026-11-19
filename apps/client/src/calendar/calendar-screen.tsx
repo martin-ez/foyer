@@ -1,4 +1,4 @@
-import { calendarLayout, dayAt, keepInDay } from "@foyer/shared";
+import { calendarLayout, dayAt, dropOnDayPage, keepInDay } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { useState } from "react";
 import { Button, Pressable, StyleSheet, Text, View } from "react-native";
@@ -26,8 +26,8 @@ const spans: { span: CalendarSpan; name: string }[] = [
 type Moving = { stickerId: string; at: Point; date: string };
 
 /** The household's calendar, open on today's day page, with dated tasks and events as stickers on
- *  their days. Tapping an empty spot in a day adds something there, and dropping a sticker on
- *  another day asks first. Above the page, the upcoming events, or the item a tapped sticker shows. */
+ *  their days, at their times on a day page. Tapping an empty day adds something there, dropping a
+ *  sticker on another day asks first, and the upcoming events or a tapped sticker's item show above. */
 export function CalendarScreen() {
   const { state, sync } = useHousehold();
   const [view, setView] = useState<CalendarView>(() => ({ span: "day", date: localToday() }));
@@ -46,8 +46,10 @@ export function CalendarScreen() {
   const tapDay = (at: Point) => {
     const date = dayAt(pageId, size, at);
     if (date === null) return;
+    const inDay = keepInDay(pageId, size, date, at);
+    const onDayPage = dropOnDayPage(pageId, size, inDay);
     setOpened(null);
-    setAdding({ date, spot: { pageId, at: keepInDay(pageId, size, date, at) } });
+    setAdding({ date, spot: { pageId, ...(onDayPage ?? { at: inDay }) } });
   };
 
   return (

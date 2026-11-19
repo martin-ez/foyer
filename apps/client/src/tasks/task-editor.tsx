@@ -1,4 +1,4 @@
-import { isIsoDate, limitItemDescription, limitItemTitle } from "@foyer/shared";
+import { isIsoDate, isTimeOfDay, limitItemDescription, limitItemTitle } from "@foyer/shared";
 import type { Item } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
@@ -20,7 +20,7 @@ import { changedFields, shownFields, shownRepeat, type TaskEdits } from "./task-
 import { DeleteTask, TaskNesting } from "./task-nesting";
 import { useTick } from "./ticking";
 
-type TaskFieldsAsText = Pick<TaskEdits, "title" | "description" | "date">;
+type TaskFieldsAsText = Pick<TaskEdits, "title" | "description" | "date" | "time">;
 
 /** A task's fields and how it repeats, to edit and save without undoing changes made elsewhere,
  *  with ways to tick it, untick occurrences already done, nest it, move it, delete it after asking
@@ -46,7 +46,7 @@ export function TaskEditor({
   const tick = useTick();
   const { height } = useWindowDimensions();
   const [edits, setEdits] = useState<TaskEdits>({});
-  const { title, description, date } = shownFields(task, edits);
+  const { title, description, date, time } = shownFields(task, edits);
   const repeat = shownRepeat(task, edits);
   const changes = changedFields(task, edits);
   const today = localToday();
@@ -54,6 +54,7 @@ export function TaskEditor({
   const problem =
     sync.titleProblem(title) ??
     (date !== "" && !isIsoDate(date) ? "A date is a day, as in 2026-11-17." : null) ??
+    (time !== "" && !isTimeOfDay(time) ? "A time is hours and minutes, as in 19:00." : null) ??
     repeatProblem(repeat, date, today);
   const edit = (field: keyof TaskFieldsAsText, value: string) =>
     setEdits((before) => ({ ...before, [field]: value }));
@@ -70,6 +71,7 @@ export function TaskEditor({
     if (changes.description !== undefined) sync.setDescription(task.id, changes.description);
     if (changes.repeat && !rule) sync.setRepeat(task.id, null, "schedule");
     if (changes.date !== undefined) sync.setDate(task.id, changes.date);
+    if (changes.time !== undefined) sync.setTime(task.id, changes.time);
     if (rule && from) sync.setRepeat(task.id, rule, from);
     setEdits({});
   };
@@ -111,6 +113,15 @@ export function TaskEditor({
           placeholder="Date, as in 2026-11-17"
           accessibilityLabel="Date"
         />
+        {date === "" ? null : (
+          <TextInput
+            style={styles.input}
+            value={time}
+            onChangeText={(text) => edit("time", text)}
+            placeholder="Time, as in 19:00, or none"
+            accessibilityLabel="Time"
+          />
+        )}
         <RepeatPicker choice={repeat} date={datedOrToday} onChange={chooseRepeat} />
         {problem ? <Text style={styles.problem}>{problem}</Text> : null}
         <View style={styles.row}>

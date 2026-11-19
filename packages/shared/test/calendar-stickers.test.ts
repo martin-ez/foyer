@@ -8,14 +8,19 @@ import {
   calendarStickerGap,
   calendarStickerSize,
   dayAt,
+  dropOnDayPage,
+  heightOfTime,
+  inStrip,
   keepInDay,
   type PlacedSticker,
   pileStep,
   planCalendarStickers,
   showsDay,
+  spotAtTime,
   spotInDay,
   stickerSizeOn,
   taskStickerSize,
+  timelineOf,
 } from "@foyer/shared";
 import { describe, expect, it } from "vitest";
 
@@ -179,6 +184,84 @@ describe("spotInDay", () => {
   });
 });
 
+describe("a day page's strip and timeline", () => {
+  const timeline = timelineOf(day, a4Portrait);
+  if (!timeline) throw new Error("A day page has a timeline.");
+  const at = (minutes: number) => heightOfTime(timeline, minutes);
+
+  it("is only on day pages", () => {
+    expect(timelineOf(week, a2Landscape)).toBeNull();
+    expect(dropOnDayPage(month, a2Landscape, { x: 100, y: 100 })).toBeNull();
+  });
+
+  it("places things without a time in the strip, ignoring stickers on the timeline", () => {
+    const strip = areaOf(day, "2026-11-17");
+    const timed = sticker(day, "2026-11-17", { x: timeline.left, y: at(9 * 60) });
+
+    expect(spotInDay(day, a4Portrait, "2026-11-17", [timed])).toEqual(topOf(day, "2026-11-17"));
+    const stickers: PlacedSticker[] = [timed];
+    for (let count = 0; count < 5; count += 1) {
+      const spot = spotInDay(day, a4Portrait, "2026-11-17", stickers);
+      expect(spot.y + calendarStickerSize.height).toBeLessThanOrEqual(strip.y + strip.height);
+      expect(inStrip(timeline, spot.y)).toBe(true);
+      stickers.push(sticker(day, "2026-11-17", spot));
+    }
+  });
+
+  it("places a sticker at its time, beside those it would cover", () => {
+    const first = spotAtTime(day, a4Portrait, 9 * 60, []);
+    const nine = sticker(day, "2026-11-17", first);
+    const second = spotAtTime(day, a4Portrait, 9 * 60 + 15, [nine]);
+    const later = spotAtTime(day, a4Portrait, 11 * 60, [nine]);
+
+    expect(first).toEqual({ x: timeline.left, y: at(9 * 60) });
+    expect(second).toEqual({
+      x: timeline.left + calendarStickerSize.width + calendarStickerGap,
+      y: at(9 * 60 + 15),
+    });
+    expect(later).toEqual({ x: timeline.left, y: at(11 * 60) });
+  });
+
+  it("piles a sticker a little to the right when every column at its time is taken", () => {
+    const stickers: PlacedSticker[] = [];
+    for (let count = 0; count < 4; count += 1) {
+      stickers.push(sticker(day, "2026-11-17", spotAtTime(day, a4Portrait, 9 * 60, stickers)));
+    }
+    const right = timeline.box.x + timeline.box.width;
+
+    expect(new Set(stickers.map(({ y }) => y)).size).toBe(1);
+    expect(new Set(stickers.map(({ x }) => x)).size).toBe(4);
+    for (const { x } of stickers) {
+      expect(x).toBeGreaterThanOrEqual(timeline.left);
+      expect(x + calendarStickerSize.width).toBeLessThanOrEqual(right + 0.001);
+    }
+  });
+
+  it("snaps a sticker dropped on the timeline to its nearest quarter of an hour", () => {
+    const quarter = at(9 * 60 + 15) - at(9 * 60);
+    const dropped = dropOnDayPage(day, a4Portrait, { x: 300, y: at(9 * 60) + quarter * 0.7 });
+
+    expect(dropped).toEqual({ at: { x: 300, y: at(9 * 60 + 15) }, time: 9 * 60 + 15 });
+  });
+
+  it("keeps a dropped sticker right of the hours and inside the day", () => {
+    const left = dropOnDayPage(day, a4Portrait, { x: 0, y: at(12 * 60) });
+    const right = dropOnDayPage(day, a4Portrait, { x: a4Portrait.width, y: at(12 * 60) });
+
+    expect(left?.at.x).toBe(timeline.left);
+    expect(right?.at.x).toBe(timeline.box.x + timeline.box.width - calendarStickerSize.width);
+  });
+
+  it("takes the time off a sticker dropped in the strip, keeping it there", () => {
+    const strip = areaOf(day, "2026-11-17");
+    const dropped = dropOnDayPage(day, a4Portrait, { x: 200, y: strip.y + 40 });
+    const top = dropOnDayPage(day, a4Portrait, { x: 200, y: 0 });
+
+    expect(dropped).toEqual({ at: { x: 200, y: strip.y + 40 }, time: null });
+    expect(top).toEqual({ at: { x: 200, y: strip.y }, time: null });
+  });
+});
+
 describe("planCalendarStickers", () => {
   const plan = (date: string | null, stickers: PlacedSticker[], more = {}) =>
     planCalendarStickers({ itemId: "task", date, stickers, pages: allPages, ...more });
@@ -325,6 +408,66 @@ describe("planCalendarStickers", () => {
     expect(result.place).toEqual([]);
     expect(result.move).toEqual([]);
     expect(result.remove).toEqual(next.map(({ id }) => id));
+  });
+
+  it("puts the item's day page sticker at its time, and other pages' as before", () => {
+    const timeline = timelineOf(day, a4Portrait);
+    const result = plan("2026-11-17", [], { time: 19 * 60 });
+
+    expect(placedOn(result)).toEqual([month, week, day]);
+    expect(result.place[0]).toMatchObject(topOf(month, "2026-11-17"));
+    expect(result.place[2]).toMatchObject({
+      x: timeline?.left,
+      y: timeline && heightOfTime(timeline, 19 * 60),
+    });
+  });
+
+  it("moves a sticker on the day page to the item's new time, and leaves other pages", () => {
+    const timeline = timelineOf(day, a4Portrait);
+    if (!timeline) throw new Error("A day page has a timeline.");
+    const onDay = sticker(day, "2026-11-17", spotAtTime(day, a4Portrait, 9 * 60, []));
+    const stickers = [sticker(month, "2026-11-17"), sticker(week, "2026-11-17"), onDay];
+    const result = plan("2026-11-17", stickers, { time: 14 * 60 + 30 });
+
+    expect(plan("2026-11-17", stickers, { time: 9 * 60 }).move).toEqual([]);
+    expect(result.move).toEqual([
+      {
+        stickerId: onDay.id,
+        x: timeline.left,
+        y: heightOfTime(timeline, 14 * 60 + 30),
+        occurrence: "2026-11-17",
+      },
+    ]);
+    expect(result.place).toEqual([]);
+    expect(result.remove).toEqual([]);
+  });
+
+  it("moves a sticker to the strip when its item has no time, and back to the timeline", () => {
+    const timeline = timelineOf(day, a4Portrait);
+    if (!timeline) throw new Error("A day page has a timeline.");
+    const timed = sticker(day, "2026-11-17", spotAtTime(day, a4Portrait, 9 * 60, []));
+    const untimed = sticker(day, "2026-11-17");
+
+    expect(plan("2026-11-17", [timed]).move).toEqual([
+      { stickerId: timed.id, ...topOf(day, "2026-11-17"), occurrence: "2026-11-17" },
+    ]);
+    expect(plan("2026-11-17", [untimed]).move).toEqual([]);
+    expect(plan("2026-11-17", [untimed], { time: 9 * 60 }).move).toEqual([
+      {
+        stickerId: untimed.id,
+        x: timeline.left,
+        y: heightOfTime(timeline, 9 * 60),
+        occurrence: "2026-11-17",
+      },
+    ]);
+  });
+
+  it("keeps a sticker where it was dropped at its time, across the timeline", () => {
+    const timeline = timelineOf(day, a4Portrait);
+    if (!timeline) throw new Error("A day page has a timeline.");
+    const dropped = sticker(day, "2026-11-17", { x: 320, y: heightOfTime(timeline, 9 * 60) });
+
+    expect(plan("2026-11-17", [dropped], { time: 9 * 60 }).move).toEqual([]);
   });
 });
 

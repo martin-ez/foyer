@@ -14,6 +14,8 @@ import {
   itemMove,
   itemSetDate,
   itemSetDescription,
+  itemSetRepeat,
+  itemSetTime,
   itemSetTitle,
   madeAt,
   pageCreate,
@@ -320,6 +322,18 @@ describe("editing tasks", () => {
       "tomorrow",
       "A task's date must be a day, as in “2026-11-17”.",
     ],
+    [
+      "a time that isn't hours and minutes",
+      itemSetTime,
+      "7pm",
+      "A task's time must be hours and minutes, as in “19:00”.",
+    ],
+    [
+      "a time with seconds",
+      itemSetTime,
+      "19:00:00",
+      "A task's time must be hours and minutes, as in “19:00”.",
+    ],
   ])("refuses %s", async (_, change, value, reason) => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
@@ -368,6 +382,103 @@ describe("editing tasks", () => {
 
     expect(resultOf(committed.results[0])).toEqual({ committed: true });
     expect(deletedIn(await device.updates(), RowKind.ITEM)).toEqual([itemId]);
+  });
+});
+
+describe("times of day on tasks", () => {
+  async function datedTask(device: Device, spaceId: string) {
+    const create = itemCreate({ spaceId, date: "2026-11-20" }, { at: madeAt(Date.now() - 60_000) });
+    await device.push(create);
+    await device.updates();
+    return idOf(create);
+  }
+
+  it("sets a task's time for every device that sees its space, and clears it", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const spaceId = await newSharedSpace(alexDevice);
+    const itemId = await datedTask(alexDevice, spaceId);
+    await samDevice.updates();
+
+    const committed = await samDevice.push(itemSetTime(itemId, "19:00"));
+
+    expect(resultOf(committed.results[0])).toEqual({ committed: true });
+    for (const device of [alexDevice, samDevice]) {
+      expect(itemsIn(await device.updates()).at(-1)).toEqual(
+        expect.objectContaining({ date: "2026-11-20", time: "19:00" }),
+      );
+    }
+
+    await alexDevice.push(itemSetTime(itemId, ""));
+
+    expect(itemsIn(await samDevice.updates()).at(-1)).toEqual(
+      expect.objectContaining({ date: "2026-11-20", time: "" }),
+    );
+  });
+
+  it("leaves a new task without a time", async () => {
+    const device = await connect(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    await datedTask(device, inbox);
+
+    const [item] = itemsIn(await rowsCaughtUpBy(device));
+    expect(item?.time).toBe("");
+  });
+
+  it("refuses a time on a task without a date, but lets it clear one", async () => {
+    const device = await connect(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const itemId = await newTask(device, inbox);
+
+    const refused = await device.push(itemSetTime(itemId, "19:00"));
+    const cleared = await device.push(itemSetTime(itemId, ""));
+
+    expect(resultOf(refused.results[0])).toEqual({
+      refused: "A task needs a date to have a time.",
+    });
+    expect(resultOf(cleared.results[0])).toEqual({ committed: true });
+  });
+
+  it("clears a task's time with its date, and ignores an earlier time sent afterwards", async () => {
+    const device = await connect(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const itemId = await datedTask(device, inbox);
+    await device.push(itemSetTime(itemId, "19:00", { at: madeAt(Date.now() - 30_000) }));
+
+    await device.push(itemSetDate(itemId, "", { at: madeAt(Date.now() - 10_000) }));
+    const late = await device.push(
+      itemSetTime(itemId, "08:30", { at: madeAt(Date.now() - 20_000) }),
+    );
+
+    expect(resultOf(late.results[0])).toEqual({ committed: true });
+    const [item] = itemsIn(await rowsCaughtUpBy(device));
+    expect(item).toEqual(expect.objectContaining({ date: "", time: "" }));
+  });
+
+  it("keeps the time set last when two devices set it offline", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const spaceId = await newSharedSpace(alexDevice);
+    const itemId = await datedTask(alexDevice, spaceId);
+
+    await alexDevice.push(itemSetTime(itemId, "19:00", { at: madeAt(Date.now() - 10_000) }));
+    await samDevice.push(itemSetTime(itemId, "08:30", { at: madeAt(Date.now() - 20_000) }));
+
+    const [item] = itemsIn(await rowsCaughtUpBy(samDevice));
+    expect(item?.time).toBe("19:00");
+  });
+
+  it("keeps a task's time when its date changes, or it's ticked to its next date", async () => {
+    const device = await connect(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const itemId = await datedTask(device, inbox);
+    await device.push(itemSetTime(itemId, "07:15"), itemSetRepeat(itemId, "FREQ=DAILY"));
+
+    await device.push(itemSetDate(itemId, "2026-11-21"));
+    await device.push(taskTick({ itemId, occurrence: "2026-11-21", nextDate: "2026-11-22" }));
+
+    const [item] = itemsIn(await rowsCaughtUpBy(device));
+    expect(item).toEqual(expect.objectContaining({ date: "2026-11-22", time: "07:15" }));
   });
 });
 

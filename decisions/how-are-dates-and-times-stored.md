@@ -11,7 +11,7 @@ Decided in #24 and #26
 - **The one exception is the day an event belongs to:** the day it starts in its Google calendar's time zone, which the household works out and stores as the event's `date`, so every device puts its sticker on the same day. For an all-day event, it's its first day. Each calendar takes the zone of the device its holder connected from, and the household keeps it, as Google has it, to work out its events' days.
 - **Features the server runs at a local time,** such as reminders sent as push notifications, take the zone from the device that set them up.
 
-Times of day are built by #28, and reminders by #35.
+Reminders are built by #35.
 
 **Why:** A member who's travelling sees their own "today", and events at their local times. Most of what a household plans, such as bins on Tuesday or dinner at 7 pm, means the same wherever the device is, so it's stored with no zone. Only moments fixed in the world, such as a meeting from Google Calendar, need one. An event's sticker has to be on the same day page for everyone, so its day can't depend on each device's zone, and its calendar's zone is where the household lives its days.
 

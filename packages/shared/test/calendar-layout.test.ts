@@ -5,7 +5,14 @@ import {
   type CalendarLayout,
   calendarLayout,
   calendarPageOf,
+  calendarStickerSize,
+  dayLayout,
+  heightOfTime,
+  inStrip,
   monthLayout,
+  timeAtHeight,
+  timelineStep,
+  timeOfDay,
   weekLayout,
 } from "@foyer/shared";
 import { describe, expect, it } from "vitest";
@@ -117,15 +124,88 @@ describe("stickers' space on calendar pages", () => {
     }
   });
 
-  it("gives a day's page to the day, inside its margins, printing nothing", () => {
+  it("gives a day's page to the day, with a strip for things without a time above its timeline", () => {
     const day = calendarLayout("day:2026-11-17", a4Portrait);
+    const [only] = day?.days ?? [];
+    const timeline = day?.timeline;
+    if (!only || !timeline) throw new Error("A day page has its day and a timeline.");
 
     expect(day?.days).toHaveLength(1);
-    expect(day?.days[0]?.date).toBe("2026-11-17");
-    expect(day?.days[0]?.label).toBeNull();
-    const stickers = day?.days[0]?.stickers;
-    expect(stickers && inside(stickers, { x: 0, y: 0, ...a4Portrait })).toBe(true);
-    expect(day?.ruling).toEqual({ shaded: [], lines: [] });
+    expect(only.date).toBe("2026-11-17");
+    expect(only.label).toBeNull();
+    expect(inside(only.box, { x: 0, y: 0, ...a4Portrait })).toBe(true);
+    expect(inside(only.stickers, only.box)).toBe(true);
+    expect(inside(timeline.box, only.box)).toBe(true);
+    expect(only.stickers.y + only.stickers.height).toBe(timeline.box.y);
+    expect(only.stickers.height).toBeGreaterThanOrEqual(3 * calendarStickerSize.height);
+  });
+});
+
+describe("a day page's timeline", () => {
+  const timeline = dayLayout("2026-11-17", a4Portrait).timeline;
+  if (!timeline) throw new Error("A day page has a timeline.");
+
+  it("runs from 6:00 to 23:00, leaving room for a sticker at 23:00 inside the day", () => {
+    expect(timeline.from).toBe(6 * 60);
+    expect(timeline.to).toBe(23 * 60);
+    expect(timeline.top).toBeGreaterThan(timeline.box.y);
+    expect(timeline.bottom + calendarStickerSize.height).toBeLessThanOrEqual(
+      timeline.box.y + timeline.box.height + 0.001,
+    );
+  });
+
+  it("prints each hour beside a line across the page, top to bottom", () => {
+    const hours = timeline.hours.map(({ time }) => time);
+
+    expect(hours).toEqual(Array.from({ length: 18 }, (_, index) => timeOfDay((6 + index) * 60)));
+    expect(timeline.hours[0]?.y).toBe(timeline.top);
+    expect(timeline.hours.at(-1)?.y).toBe(timeline.bottom);
+    for (const { label } of timeline.hours) {
+      expect(inside(label, timeline.box)).toBe(true);
+      expect(label.x + label.width).toBeLessThanOrEqual(timeline.left);
+    }
+    const lines = dayLayout("2026-11-17", a4Portrait).ruling.lines;
+    for (const { y } of timeline.hours) {
+      expect(lines).toContainEqual({
+        from: { x: timeline.left, y },
+        to: expect.objectContaining({ y }),
+      });
+    }
+  });
+
+  it("turns a time into a height and back", () => {
+    for (let minutes = timeline.from; minutes <= timeline.to; minutes += timelineStep) {
+      expect(timeAtHeight(timeline, heightOfTime(timeline, minutes))).toBe(minutes);
+    }
+    expect(heightOfTime(timeline, 12 * 60)).toBeGreaterThan(heightOfTime(timeline, 11 * 60));
+  });
+
+  it("snaps a height to the nearest quarter of an hour", () => {
+    const quarter = heightOfTime(timeline, 9 * 60 + 15) - heightOfTime(timeline, 9 * 60);
+    const nine = heightOfTime(timeline, 9 * 60);
+
+    expect(timeAtHeight(timeline, nine + quarter * 0.4)).toBe(9 * 60);
+    expect(timeAtHeight(timeline, nine + quarter * 0.6)).toBe(9 * 60 + 15);
+    expect(timeAtHeight(timeline, nine - quarter * 0.6)).toBe(8 * 60 + 45);
+  });
+
+  it("keeps times it doesn't show at its ends", () => {
+    expect(heightOfTime(timeline, 4 * 60)).toBe(timeline.top);
+    expect(heightOfTime(timeline, 23 * 60 + 30)).toBe(timeline.bottom);
+    expect(timeAtHeight(timeline, timeline.box.y)).toBe(timeline.from);
+    expect(timeAtHeight(timeline, a4Portrait.height)).toBe(timeline.to);
+  });
+
+  it("tells the strip from the timeline by where a sticker's middle is", () => {
+    const half = calendarStickerSize.height / 2;
+
+    expect(inStrip(timeline, timeline.box.y - half - 1)).toBe(true);
+    expect(inStrip(timeline, timeline.box.y - half + 1)).toBe(false);
+  });
+
+  it("is only on day pages", () => {
+    expect(monthLayout("2026-11", a2Landscape).timeline).toBeNull();
+    expect(weekLayout("2026-11-16", a2Landscape).timeline).toBeNull();
   });
 });
 

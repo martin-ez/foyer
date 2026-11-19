@@ -1,4 +1,14 @@
-import { type Box, calendarLayout, calendarPageOf } from "./calendar-layout";
+import {
+  type Box,
+  calendarLayout,
+  calendarPageOf,
+  calendarStickerGap,
+  calendarStickerSize,
+  heightOfTime,
+  inStrip,
+  type Timeline,
+  timeAtHeight,
+} from "./calendar-layout";
 import { monthOf } from "./dates";
 import { newId } from "./id";
 import {
@@ -17,13 +27,6 @@ export type CalendarPageKind = "month" | "week" | "day";
 
 /** Every kind of calendar page, from the one that shows the most days. */
 export const calendarPageKinds: readonly CalendarPageKind[] = ["month", "week", "day"];
-
-/** The size of a sticker on a calendar page, of any kind, in points: small enough that a few fit
- *  in a day of a month's page. */
-export const calendarStickerSize: PageSize = { width: 200, height: 32 };
-
-/** The space automatic placement leaves between a day's stickers, and around them in its box. */
-export const calendarStickerGap = 6;
 
 /** How much lower than the last sticker in a full day the next one goes, as in a pile. */
 export const pileStep = 6;
@@ -84,15 +87,18 @@ export type PlacedSticker = {
   occurrence: string;
 };
 
-/** The next free spot in a day's box on a calendar page: at its left edge, below the lowest of the
- *  day's stickers. When the box is full, it goes on the lowest one, a little lower, like a pile. */
+/** The next free spot in a day's box on a calendar page, or in a day page's strip: at its left
+ *  edge, below the lowest of the day's stickers there. When the box is full, it goes on the lowest
+ *  one, a little lower, like a pile. */
 export function spotInDay(
   pageId: string,
   page: PageSize,
   date: string,
   stickers: Iterable<PlacedSticker>,
 ): PagePoint {
-  const area = calendarLayout(pageId, page)?.days.find((day) => day.date === date)?.stickers;
+  const layout = calendarLayout(pageId, page);
+  const area = layout?.days.find((day) => day.date === date)?.stickers;
+  const timeline = layout?.timeline ?? null;
   const box = area ?? { x: 0, y: 0, ...page };
   const { width, height } = calendarStickerSize;
   const left = box.x + calendarStickerGap;
@@ -101,6 +107,7 @@ export function spotInDay(
   let lowest: PlacedSticker | null = null;
   for (const sticker of stickers) {
     if (sticker.pageId !== pageId || sticker.occurrence !== date) continue;
+    if (timeline && !inStrip(timeline, sticker.y)) continue;
     if (!lowest || sticker.y > lowest.y) lowest = sticker;
   }
   if (!lowest) return { x: left, y: top };
@@ -108,6 +115,58 @@ export function spotInDay(
   if (below <= bottom) return { x: left, y: below };
   const x = Math.min(Math.max(lowest.x, box.x), Math.max(box.x + box.width - width, box.x));
   return { x, y: Math.min(lowest.y + pileStep, bottom) };
+}
+
+/** A day page's timeline, or null for any other page. */
+export function timelineOf(pageId: string, page: PageSize): Timeline | null {
+  return calendarLayout(pageId, page)?.timeline ?? null;
+}
+
+/** Where a sticker for a time goes on a day page's timeline, in minutes after midnight: its top
+ *  edge at that time, in the first column right of the hours where it covers no other sticker, or
+ *  in the first column, a little to the right of those it covers, when every column is taken. */
+export function spotAtTime(
+  pageId: string,
+  page: PageSize,
+  minutes: number,
+  stickers: Iterable<PlacedSticker>,
+): PagePoint {
+  const timeline = timelineOf(pageId, page);
+  if (!timeline) return { x: 0, y: 0 };
+  const { width, height } = calendarStickerSize;
+  const y = heightOfTime(timeline, minutes);
+  const right = timeline.box.x + timeline.box.width - width;
+  const near = [...stickers].filter(
+    (sticker) => sticker.pageId === pageId && Math.abs(sticker.y - y) < height,
+  );
+  const covers = (x: number) => near.filter((sticker) => Math.abs(sticker.x - x) < width).length;
+  for (let x = timeline.left; x <= right; x += width + calendarStickerGap) {
+    if (covers(x) === 0) return { x, y };
+  }
+  return { x: Math.min(timeline.left + covers(timeline.left) * pileStep, right), y };
+}
+
+/** Where a sticker dropped on a day page with its top-left corner at `at` goes, and the time it
+ *  then means, in minutes after midnight: on the timeline, at the nearest time it snaps to, right
+ *  of the hours; or in the strip, with no time. Null for a page that isn't a day page. */
+export function dropOnDayPage(
+  pageId: string,
+  page: PageSize,
+  at: PagePoint,
+): { at: PagePoint; time: number | null } | null {
+  const layout = calendarLayout(pageId, page);
+  const timeline = layout?.timeline;
+  const strip = layout?.days[0]?.stickers;
+  if (!timeline || !strip) return null;
+  const { width, height } = calendarStickerSize;
+  const { box } = timeline;
+  const x = (from: number) => Math.min(Math.max(at.x, from), box.x + box.width - width);
+  if (inStrip(timeline, at.y)) {
+    const y = Math.min(Math.max(at.y, strip.y), strip.y + strip.height - height);
+    return { at: { x: x(strip.x), y }, time: null };
+  }
+  const time = timeAtHeight(timeline, at.y);
+  return { at: { x: x(timeline.left), y: heightOfTime(timeline, time) }, time };
 }
 
 /** What to change so that an item has one sticker on its day on each kind of calendar page: the
@@ -119,19 +178,22 @@ export type CalendarStickerPlan = {
   remove: string[];
 };
 
-/** Plans one sticker on an item's date on each kind of calendar page: one already on that day stays,
- *  one on another day of the page moves to the day's next free spot, or a new one is placed there.
- *  Any others are removed, except on a `kept` day, such as a repeating task's ticked days. */
+/** Plans one sticker on an item's date on each kind of calendar page, at its time on a day page:
+ *  one already there stays, or else one on the page moves there, or a new one is placed. Any others
+ *  are removed, except on a `kept` day, such as a repeating task's ticked days. */
 export function planCalendarStickers(options: {
   itemId: string;
   date: string | null;
+  /** The item's time on its date, in minutes after its midnight, such as a task's time or when an
+   *  event starts, or null for none. */
+  time?: number | null;
   kept?: ReadonlySet<string>;
   /** Every sticker on the calendar pages the device or household knows, of every item. */
   stickers: readonly PlacedSticker[];
   /** The calendar pages that have been created, with their sizes. */
   pages: ReadonlyMap<string, PageSize>;
 }): CalendarStickerPlan {
-  const { itemId, date, kept = new Set(), stickers, pages } = options;
+  const { itemId, date, time = null, kept = new Set(), stickers, pages } = options;
   const plan: CalendarStickerPlan = { pages: [], place: [], move: [], remove: [] };
   for (const kind of calendarPageKinds) {
     const mine = stickers.filter(
@@ -144,10 +206,18 @@ export function planCalendarStickers(options: {
     const loose = mine.filter((sticker) => sticker !== settled && !kept.has(sticker.occurrence));
     if (date === null || pageId === null || settled) {
       plan.remove.push(...loose.map(({ id }) => id));
+    }
+    if (date === null || pageId === null) continue;
+    const size = pages.get(pageId) ?? pageSizeFor(kind);
+    if (settled) {
+      if (!sitsAtItsTime(settled, size, time)) {
+        const others = stickers.filter((sticker) => sticker !== settled);
+        const spot = spotFor(pageId, size, date, time, others);
+        plan.move.push({ stickerId: settled.id, ...spot, occurrence: date });
+      }
       continue;
     }
-    const size = pages.get(pageId) ?? pageSizeFor(kind);
-    const spot = spotInDay(pageId, size, date, stickers);
+    const spot = spotFor(pageId, size, date, time, stickers);
     const onPage = loose.find((sticker) => sticker.pageId === pageId);
     if (onPage) {
       plan.move.push({ stickerId: onPage.id, ...spot, occurrence: date });
@@ -177,6 +247,26 @@ export function afterPlan(
       }),
     ...plan.place.map(({ stickerId, ...placed }) => ({ id: stickerId, itemId, ...placed })),
   ];
+}
+
+function spotFor(
+  pageId: string,
+  page: PageSize,
+  date: string,
+  time: number | null,
+  stickers: readonly PlacedSticker[],
+): PagePoint {
+  return time !== null && timelineOf(pageId, page)
+    ? spotAtTime(pageId, page, time, stickers)
+    : spotInDay(pageId, page, date, stickers);
+}
+
+function sitsAtItsTime(sticker: PlacedSticker, page: PageSize, time: number | null): boolean {
+  const timeline = timelineOf(sticker.pageId, page);
+  if (!timeline) return true;
+  if (time === null) return inStrip(timeline, sticker.y);
+  const y = heightOfTime(timeline, time);
+  return Math.abs(sticker.y - y) < 0.5 && sticker.x >= timeline.left - 0.5;
 }
 
 function contains(box: Box, at: PagePoint): boolean {

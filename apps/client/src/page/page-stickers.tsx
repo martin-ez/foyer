@@ -18,6 +18,8 @@ export function PageStickers({
   items,
   isDone,
   page,
+  placeOf = (sticker) => sticker,
+  reachOf = () => null,
   onSelect,
   onMove,
   onTick,
@@ -28,6 +30,10 @@ export function PageStickers({
   /** Whether the task a sticker shows is done, on its day on a calendar page. */
   isDone: (sticker: Sticker) => boolean;
   page: PageSize;
+  /** Where a sticker is drawn, by default its own spot. */
+  placeOf?: (sticker: Sticker) => Point;
+  /** How far down the page from its top its item lasts, in points, or null to show nothing. */
+  reachOf?: (sticker: Sticker) => number | null;
   /** Called when a sticker is tapped. */
   onSelect: (stickerId: string) => void;
   /** Called when a sticker is let go somewhere else, with its new top-left corner. */
@@ -45,6 +51,8 @@ export function PageStickers({
         done={done}
         size={stickerSize(sticker.kind, pageId)}
         page={page}
+        place={placeOf(sticker)}
+        reach={reachOf(sticker)}
         onSelect={() => onSelect(sticker.id)}
         onMove={(to) => onMove(sticker.id, to)}
         onTick={() => onTick(sticker, !done)}
@@ -59,6 +67,8 @@ function StickerView({
   done,
   size,
   page,
+  place,
+  reach,
   onSelect,
   onMove,
   onTick,
@@ -68,12 +78,14 @@ function StickerView({
   done: boolean;
   size: PageSize;
   page: PageSize;
+  place: Point;
+  reach: number | null;
   onSelect: () => void;
   onMove: (to: Point) => void;
   onTick: () => void;
 }) {
   const [dragged, setDragged] = useState<Point | null>(null);
-  const to = (by: Point) => keepOnPage({ x: sticker.x + by.x, y: sticker.y + by.y }, size, page);
+  const to = (by: Point) => keepOnPage({ x: place.x + by.x, y: place.y + by.y }, size, page);
   const drag = useStickerDrag(
     {
       dragged: setDragged,
@@ -89,7 +101,7 @@ function StickerView({
     },
     item !== undefined,
   );
-  const at = dragged ? to(dragged) : { x: sticker.x, y: sticker.y };
+  const at = dragged ? to(dragged) : { x: place.x, y: place.y };
   const task = sticker.kind === StickerKind.TASK;
   const event = sticker.kind === StickerKind.EVENT;
   const lines = size.height < 40 ? 1 : 2;
@@ -140,6 +152,15 @@ function StickerView({
           </View>
         ) : null}
       </View>
+      {item && reach !== null ? (
+        <View
+          style={[
+            styles.reach,
+            { left: at.x, top: at.y, height: Math.max(reach, 2) },
+            dragged ? styles.aboveLifted : null,
+          ]}
+        />
+      ) : null}
       {task && item ? (
         <StickerCheckbox
           title={item.title}
@@ -213,6 +234,13 @@ const styles = StyleSheet.create({
   outline: { borderColor: "#8f887a", borderWidth: 1, borderStyle: "dashed" },
   lifted: { zIndex: 1, boxShadow: "0 4px 10px rgba(0, 0, 0, 0.25)" },
   aboveLifted: { zIndex: 2 },
+  reach: {
+    position: "absolute",
+    width: 4,
+    borderRadius: 2,
+    backgroundColor: "#4f86b8",
+    pointerEvents: "none",
+  },
   checkbox: {
     position: "absolute",
     width: checkboxSize,

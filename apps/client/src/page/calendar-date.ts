@@ -1,10 +1,33 @@
-import { addDays } from "@foyer/shared";
+import { addDays, daysBetween } from "@foyer/shared";
 
 export { addDays, addMonths, daysIn, monthOf } from "@foyer/shared";
 
 /** Today's date by the device's clock and time zone, as an ISO 8601 date such as "2026-11-17". */
 export function localToday(now = new Date()): string {
   return isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
+/** How many minutes after the start of `date` a moment, in milliseconds since 1970, is by the
+ *  device's clock and time zone: negative on a day before, and a day or more on a day after. */
+export function minutesIntoLocalDay(at: number, date: string): number {
+  const moment = new Date(at);
+  return (
+    daysBetween(date, localToday(moment)) * 1440 + moment.getHours() * 60 + moment.getMinutes()
+  );
+}
+
+/** The moment some minutes after the start of `date` by the device's clock and time zone, in
+ *  milliseconds since 1970. */
+export function momentInLocalDay(date: string, minutes: number): number {
+  const [year, month, day] = partsOf(date);
+  return new Date(year, month - 1, day, 0, minutes).getTime();
+}
+
+/** A time of day as people read it, such as "7:00 PM" or "19:00", in the device's language unless
+ *  `locale` says otherwise, from minutes after midnight. */
+export function describeTime(minutes: number, locale?: string): string {
+  const clock = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" });
+  return clock.format(new Date(2000, 0, 1, 0, minutes));
 }
 
 /** A month as people read it, such as "November 2026". */

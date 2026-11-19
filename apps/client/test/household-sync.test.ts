@@ -6,6 +6,8 @@ import {
   calendarPageId,
   calendarPageKinds,
   calendarStickerGap,
+  heightOfTime,
+  inStrip,
   itemPageId,
   newId,
   pageMargin,
@@ -13,6 +15,7 @@ import {
   spacePageId,
   stickerGap,
   taskStickerSize,
+  timelineOf,
 } from "@foyer/shared";
 import { GoogleConnectionState } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
 import { ItemKind, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
@@ -163,6 +166,7 @@ function itemRow(
     spaceId: string;
     title: string;
     date?: string;
+    time?: string;
     repeat?: string;
     repeatFrom?: RepeatFrom;
     parentId?: string;
@@ -1901,6 +1905,184 @@ describe("calendar stickers", () => {
       x: 300,
       y: 300,
       occurrence: "2026-11-20",
+    });
+  });
+});
+
+describe("times on a day page's timeline", () => {
+  const task = {
+    id: "019a8f4e-5c00-7000-8000-0000000000c1",
+    spaceId: inbox.id,
+    title: "Buy milk",
+    date: "2026-11-20",
+  };
+  const personal = {
+    id: "019a8f4e-5c00-7000-8000-0000000000a3",
+    kind: SpaceKind.PERSONAL,
+    ownerId: me,
+    name: "Personal",
+    calendarMemberId: me,
+    calendarState: CalendarState.SYNCING,
+  };
+  const dayPage = "day:2026-11-20";
+  const timeline = timelineOf(dayPage, a4Portrait);
+  if (!timeline) throw new Error("A day page has a timeline.");
+  const heightAt = (minutes: number) => heightOfTime(timeline, minutes);
+
+  beforeEach(() => {
+    sync = new HouseholdSync({ memberId: me, connect, today: () => "2026-11-17" });
+  });
+
+  function onDayPage(itemId: string) {
+    return [...sync.getState().stickers.values()].find(
+      (sticker) => sticker.itemId === itemId && sticker.pageId === dayPage,
+    );
+  }
+
+  function pushed() {
+    return household()
+      .lastPush()
+      .changes.map(({ change }) => change.case);
+  }
+
+  it("sets a task's time at once, moving its day page sticker to that time", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    sync.setDate(task.id, task.date);
+
+    sync.setTime(task.id, "19:30");
+
+    expect(sync.getState().items.get(task.id)?.time).toBe("19:30");
+    expect(onDayPage(task.id)).toMatchObject({ x: timeline.left, y: heightAt(19 * 60 + 30) });
+    expect(pushed()).toEqual(["itemSetTime", "stickerMove"]);
+
+    sync.setTime(task.id, "");
+
+    expect(sync.getState().items.get(task.id)?.time).toBe("");
+    expect(inStrip(timeline, onDayPage(task.id)?.y ?? 0)).toBe(true);
+  });
+
+  it("takes a task's time off with its date", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, { ...task, time: "19:30" })], 2);
+
+    sync.setDate(task.id, "");
+
+    expect(sync.getState().items.get(task.id)).toMatchObject({ date: "", time: "" });
+  });
+
+  it("keeps a task's time when its date changes, on the new day's timeline", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, { ...task, time: "07:15" })], 2);
+
+    sync.setDate(task.id, "2026-11-21");
+
+    const onNewDay = [...sync.getState().stickers.values()].find(
+      ({ pageId }) => pageId === "day:2026-11-21",
+    );
+    expect(sync.getState().items.get(task.id)?.time).toBe("07:15");
+    expect(onNewDay?.y).toBe(heightAt(7 * 60 + 15));
+  });
+
+  it("changes a task's time when its sticker is dropped on the timeline, and clears it in the strip", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+    sync.setDate(task.id, task.date);
+    const sticker = onDayPage(task.id);
+
+    sync.moveOnDayPage(sticker?.id ?? "", { x: 320, y: heightAt(9 * 60) }, 9 * 60);
+
+    expect(sync.getState().items.get(task.id)?.time).toBe("09:00");
+    expect(onDayPage(task.id)).toMatchObject({ id: sticker?.id, x: 320, y: heightAt(9 * 60) });
+    expect(pushed()).toEqual(["itemSetTime", "stickerMove"]);
+
+    sync.moveOnDayPage(sticker?.id ?? "", { x: 320, y: heightAt(9 * 60) }, 9 * 60);
+
+    expect(pushed()).toEqual(["stickerMove"]);
+
+    sync.moveOnDayPage(sticker?.id ?? "", { x: 60, y: 60 }, null);
+
+    expect(sync.getState().items.get(task.id)?.time).toBe("");
+    expect(onDayPage(task.id)).toMatchObject({ x: 60, y: 60 });
+  });
+
+  it("adds a task at the time tapped on the timeline, in the same push", () => {
+    startUpToDate([spaceRow(1, inbox)], 1);
+
+    const { itemId } = sync.addTask(inbox.id, "Call the plumber", {
+      date: "2026-11-20",
+      spot: { pageId: dayPage, at: { x: 200, y: heightAt(14 * 60) }, time: 14 * 60 },
+    });
+
+    expect(sync.getState().items.get(itemId)).toMatchObject({ date: "2026-11-20", time: "14:00" });
+    expect(onDayPage(itemId)).toMatchObject({ x: 200, y: heightAt(14 * 60) });
+    expect(pushed().slice(0, 2)).toEqual(["itemCreate", "itemSetTime"]);
+  });
+
+  it("gives an undated task the day and time tapped", () => {
+    startUpToDate([spaceRow(1, inbox), itemRow(2, { ...task, date: "" })], 2);
+
+    sync.setDate(task.id, "2026-11-20", {
+      pageId: dayPage,
+      at: { x: 200, y: heightAt(8 * 60) },
+      time: 8 * 60,
+    });
+
+    expect(sync.getState().items.get(task.id)).toMatchObject({ date: "2026-11-20", time: "08:00" });
+    expect(pushed().slice(0, 2)).toEqual(["itemSetDate", "itemSetTime"]);
+  });
+
+  it("puts an event's day page sticker at the time it starts here", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
+    const startsAt = new Date(2026, 10, 20, 19, 0).getTime();
+
+    const itemId = sync.addEvent(personal.id, {
+      title: "Dinner",
+      description: "",
+      time: { allDay: false, startsAt, endsAt: startsAt + 2 * 3_600_000 },
+    });
+
+    expect(onDayPage(itemId)?.y).toBe(heightAt(19 * 60));
+  });
+
+  it("moves an event dropped on the timeline to start then, keeping its length", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
+    const startsAt = new Date(2026, 10, 20, 19, 0).getTime();
+    const itemId = sync.addEvent(personal.id, {
+      title: "Dinner",
+      description: "",
+      time: { allDay: false, startsAt, endsAt: startsAt + 2 * 3_600_000 },
+    });
+
+    sync.moveOnDayPage(onDayPage(itemId)?.id ?? "", { x: 300, y: heightAt(18 * 60) }, 18 * 60);
+
+    const [change] = household().lastPush().changes;
+    expect(change?.change.case).toBe("eventSetTime");
+    expect(change?.change.value).toMatchObject({
+      startsAt: timestampFromMs(new Date(2026, 10, 20, 18, 0).getTime()),
+      endsAt: timestampFromMs(new Date(2026, 10, 20, 20, 0).getTime()),
+    });
+    expect(onDayPage(itemId)).toMatchObject({ x: 300, y: heightAt(18 * 60) });
+  });
+
+  it("makes an event dropped in the strip all day, and one put on the timeline last an hour", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, personal)], 2);
+    const startsAt = new Date(2026, 10, 20, 19, 0).getTime();
+    const itemId = sync.addEvent(personal.id, {
+      title: "Dinner",
+      description: "",
+      time: { allDay: false, startsAt, endsAt: startsAt + 2 * 3_600_000 },
+    });
+    const stickerId = onDayPage(itemId)?.id ?? "";
+
+    sync.moveOnDayPage(stickerId, { x: 60, y: 60 }, null);
+
+    expect(sync.getState().items.get(itemId)).toMatchObject({
+      startsOn: "2026-11-20",
+      endsOn: "2026-11-20",
+    });
+
+    sync.moveOnDayPage(stickerId, { x: 300, y: heightAt(10 * 60) }, 10 * 60);
+
+    expect(household().lastPush().changes[0]?.change.value).toMatchObject({
+      startsAt: timestampFromMs(new Date(2026, 10, 20, 10, 0).getTime()),
+      endsAt: timestampFromMs(new Date(2026, 10, 20, 11, 0).getTime()),
     });
   });
 });

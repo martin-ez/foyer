@@ -1,12 +1,14 @@
-import { dayAt, keepInDay } from "@foyer/shared";
+import { dayAt, dropOnDayPage, heightOfTime, keepInDay, timelineOf } from "@foyer/shared";
 import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { useIsFocused } from "expo-router";
 import { type ReactNode, useSyncExternalStore } from "react";
+import { timeOf } from "../calendar/events";
 import { useHousehold } from "../shell/household";
 import { useLivePage } from "../sync/use-live-page";
 import { isStickerDone } from "../tasks/task-lists";
 import { useTick } from "../tasks/ticking";
+import { minutesIntoLocalDay } from "./calendar-date";
 import { describePage, type OpenPage, pageIdOf, sizeOf } from "./open-page";
 import type { Ruling } from "./page-drawing";
 import { PageSheet } from "./page-sheet";
@@ -32,8 +34,8 @@ type PageViewProps = {
 };
 
 /** A page as everyone on it sees it: what's printed on it, its stickers, which can be moved, ticked
- *  and tapped, and where others on it are pointing. A calendar sticker dropped outside any day goes
- *  back. It's drawn, and this device is on the page, only while its screen is the one in front. */
+ *  and tapped, and where others on it are pointing, with a day page's events at their times here.
+ *  It's drawn, and this device is on the page, only while its screen is the one in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <ShownPage {...props} /> : null;
 }
@@ -46,7 +48,24 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
   const live = useSyncExternalStore(sync.live.subscribe, sync.live.getState);
   const markers = live.pageId === pageId ? markersOn(live.here, state.members) : [];
   const size = sizeOf(page, state.pages);
+  const timeline = timelineOf(pageId, size);
   const completions = [...state.completions.values()];
+  const startAndEnd = (sticker: Sticker) => {
+    const item = state.items.get(sticker.itemId);
+    const time = timeline && item ? timeOf(item) : null;
+    if (!timeline || !time || time.allDay) return null;
+    const height = (at: number) =>
+      heightOfTime(timeline, minutesIntoLocalDay(at, sticker.occurrence));
+    return { start: height(time.startsAt), end: height(time.endsAt), left: timeline.left };
+  };
+  const placeOf = (sticker: Sticker): Point => {
+    const drawn = startAndEnd(sticker);
+    return drawn ? { x: Math.max(sticker.x, drawn.left), y: drawn.start } : sticker;
+  };
+  const reachOf = (sticker: Sticker) => {
+    const drawn = startAndEnd(sticker);
+    return drawn ? drawn.end - drawn.start : null;
+  };
   const select = (stickerId: string) => {
     const itemId = state.stickers.get(stickerId)?.itemId;
     if (itemId !== undefined) onOpenItem?.(itemId);
@@ -62,7 +81,9 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
     const date = dayAt(pageId, size, { x: to.x + width / 2, y: to.y + height / 2 });
     if (date === null) return;
     const at = keepInDay(pageId, size, date, to);
-    if (date === sticker.occurrence) sync.moveSticker(stickerId, at.x, at.y);
+    const onTimeline = date === sticker.occurrence ? dropOnDayPage(pageId, size, at) : null;
+    if (onTimeline) sync.moveOnDayPage(stickerId, onTimeline.at, onTimeline.time);
+    else if (date === sticker.occurrence) sync.moveSticker(stickerId, at.x, at.y);
     else if (onItsDay(sticker)) onDropOnDay?.(sticker, at, date);
   };
   const onItsDay = (sticker: Sticker) => {
@@ -91,6 +112,8 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
         items={state.items}
         isDone={(sticker) => isStickerDone(sticker, state.items.get(sticker.itemId), completions)}
         page={size}
+        placeOf={placeOf}
+        reachOf={reachOf}
         onSelect={select}
         onMove={move}
         onTick={tickSticker}

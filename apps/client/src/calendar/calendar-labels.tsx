@@ -1,11 +1,12 @@
 import type { Box, CalendarLayout } from "@foyer/shared";
+import { minutesOf } from "@foyer/shared";
 import { StyleSheet, Text, View } from "react-native";
-import { describeDay, weekdayOf } from "../page/calendar-date";
+import { describeDay, describeTime, weekdayOf } from "../page/calendar-date";
 import { useStickerDrag } from "../page/sticker-drag";
 
 /** What a calendar page prints in words, as views laid out in its points: the weekdays' names,
  *  and each day's number, which opens the day's page when tapped. Today's is marked. A day's page
- *  prints none. */
+ *  prints the hours beside its timeline instead, and names the strip above it. */
 export function CalendarLabels({
   layout,
   today,
@@ -16,6 +17,7 @@ export function CalendarLabels({
   onOpenDay: (date: string) => void;
 }) {
   const named = layout.weekdays.length === 0;
+  const strip = layout.timeline ? layout.days[0]?.stickers : undefined;
   return (
     <>
       {layout.weekdays.map(({ date, box }) => (
@@ -35,6 +37,23 @@ export function CalendarLabels({
           />
         ) : null,
       )}
+      {strip ? (
+        <View
+          style={[
+            styles.label,
+            styles.strip,
+            at({ ...strip, x: strip.x + strip.width - stripLabelWidth, width: stripLabelWidth }),
+            { height: 20 },
+          ]}
+        >
+          <Text style={styles.hourName}>No time</Text>
+        </View>
+      ) : null}
+      {layout.timeline?.hours.map(({ time, label }) => (
+        <View key={time} style={[styles.label, styles.hour, at(label)]}>
+          <Text style={styles.hourName}>{describeTime(minutesOf(time))}</Text>
+        </View>
+      ))}
     </>
   );
 }
@@ -70,6 +89,8 @@ function DayLabel({
   );
 }
 
+const stripLabelWidth = 120;
+
 function at(box: Box) {
   return { left: box.x, top: box.y, width: box.width, height: box.height };
 }
@@ -81,6 +102,9 @@ const styles = StyleSheet.create({
   weekday: { justifyContent: "center", paddingHorizontal: 10, pointerEvents: "none" },
   day: { paddingHorizontal: 10, paddingTop: 6, alignItems: "flex-start", pointerEvents: "auto" },
   weekdayName: { fontSize: 18, color: "#6b6459" },
+  hour: { justifyContent: "center", alignItems: "flex-end", pointerEvents: "none" },
+  strip: { alignItems: "flex-end", paddingTop: 4, paddingRight: 6, pointerEvents: "none" },
+  hourName: { fontSize: 10, color: "#6b6459" },
   number: { fontSize: 22, color: ink, minWidth: 30, textAlign: "center", borderRadius: 15 },
   today: { backgroundColor: ink, color: "#fffdf8", fontWeight: "700", overflow: "hidden" },
 });

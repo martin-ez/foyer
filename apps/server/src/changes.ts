@@ -142,6 +142,10 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return setItemParent(sql, memberId, setter, change.change.value);
     case "eventSetTime":
       return setEventTime(sql, memberId, setter, change.change.value);
+    case "itemSetTime": {
+      const { itemId, time } = change.change.value;
+      return setItemField(sql, memberId, setter, itemId, "time", time);
+    }
     default:
       return { refused: "The household doesn't know this kind of change." };
   }
