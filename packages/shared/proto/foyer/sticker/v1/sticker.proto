@@ -8,7 +8,8 @@ import "google/protobuf/timestamp.proto";
 // who sees the page sees it, with its contents hidden from those who can't see its item. Things on
 // a page stack by when they were placed or last moved, with equal times settled by id.
 message Sticker {
-  // A UUID version 7, made by the device that placed the sticker.
+  // A UUID version 7, made by the device that placed the sticker, or by the household when it
+  // placed the sticker itself.
   string id = 1;
   // The page it's on, which it never leaves.
   string page_id = 2;
@@ -18,10 +19,13 @@ message Sticker {
   StickerKind kind = 5;
   // The task, event or note it links to.
   string item_id = 6;
-  // When it was placed, or last moved, by the clock of the device that did it.
+  // When it was placed, or last moved, by the clock of the device that did it, or the household's
+  // when it did it itself.
   google.protobuf.Timestamp placed_at = 7;
   // The member who placed it, or last moved it. When the household places or moves an item's
   // calendar stickers itself, the member whose change, or whose Google calendar, dated the item.
+  // When it places a sticker for an item it moved up from under a deleted item, the member who
+  // deleted that item.
   string placed_by = 8;
   // The day it shows its item on, as a plain ISO 8601 date such as "2026-11-17", on a calendar
   // page: a day the page shows. A repeating task's stickers stay on the days it was ticked, shown

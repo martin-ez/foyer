@@ -1,5 +1,5 @@
 # What is a sticker?
-Decided in #10, #17, #130, #80 and #27
+Decided in #10, #17, #130, #80, #27 and #152
 
 **Applies when:** showing an item on a page, placing, moving or removing stickers, storing or syncing them, deciding what tapping or ticking something on a page does, or showing a page to someone who can't see everything on it.
 
@@ -13,13 +13,14 @@ Someone who can't see an item still sees its sticker, in the same spot and with 
   - Sizes can differ by kind of page and can change in the design milestone. Existing stickers then take the new size and keep their top-left corner.
   - An app that doesn't know a kind yet draws a plain outline of a default size.
 - **Stacking:** things on a page stack by when they were placed or last moved, by the device's clock, with equal times settled by id (`what-is-a-page.md`).
-- **Fields,** in the household's `stickers` table: `id`, a UUID version 7 made by the device that places it; `page_id`; `x` and `y`, its top-left corner in points from the page's top-left; `kind`, `task`, `event` or `note`; `item_id`; `occurrence`, the day it shows its item on, as a plain ISO 8601 date, on a calendar page, and empty on every other page; `placed_at` and `placed_by`, the time and member of the change that placed or last moved it. When the household places or moves an item's calendar stickers itself, `placed_by` is the member whose change, or whose Google calendar, dated the item. Removed stickers stay as tombstones (`how-do-devices-stay-in-sync.md`).
+- **Fields,** in the household's `stickers` table: `id`, a UUID version 7 made by the device that places it, or by the household when it places one itself; `page_id`; `x` and `y`, its top-left corner in points from the page's top-left; `kind`, `task`, `event` or `note`; `item_id`; `occurrence`, the day it shows its item on, as a plain ISO 8601 date, on a calendar page, and empty on every other page; `placed_at` and `placed_by`, the time and member of the change that placed or last moved it. When the household places or moves stickers itself, `placed_at` is the household's time. For an item's calendar stickers, `placed_by` is the member whose change, or whose Google calendar, dated the item. For an item it moved up because its parent was deleted, it's the member who deleted the parent. Removed stickers stay as tombstones (`how-do-devices-stay-in-sync.md`).
 - **Changes:**
   - `StickerPlace {sticker_id, page_id, x, y, kind, item_id, occurrence}`, on a page that has been created, with its top-left corner on the page and its kind its item's. `occurrence` is required on a calendar page, and must be a day the page shows; it's refused on any other page.
   - `StickerMove {sticker_id, x, y, occurrence}`, within its page. On a calendar page, `occurrence` is the day it's moved to, or empty to keep its day; it's refused on any other page. The move made last wins, by the device's clock, and brings the sticker to the top.
   - `StickerRemove {sticker_id}` peels it off. Removing an item's sticker never deletes the item. A task's sticker stays on its own space's page, or on its parent's body page when it's under another item, until the task is deleted, moved to another space or put somewhere else, because those pages are its list (`can-items-hold-other-items.md`).
 - **Who can do what:** everyone who can see a page sees all its stickers. Only someone who can see a sticker's item can place, move or remove it, so on a calendar page nobody can reschedule what they can't see.
-- **Placing automatically:** when an item joins a space, its device places the sticker in the next free spot on a page: at the left margin, below the lowest sticker on the page. Each kind of page sets its own rules on top.
+- **Placing automatically:** when an item joins a space, its device places the sticker in the next free spot on a page: at the left margin, below the lowest sticker on the page. Each kind of page sets its own rules on top. The devices and the household share these rules.
+  - When an item is deleted with items still under it that its device didn't move, such as one added offline on another device, the household moves them up and places their stickers itself, by the same rules and in the same change, so devices never have to notice a missing sticker.
 
 Stickers on notes' pages are built by #31.
 

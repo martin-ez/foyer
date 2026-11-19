@@ -131,7 +131,7 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
     case "itemMove":
       return moveItem(sql, memberId, setter, change.change.value);
     case "itemDelete":
-      return deleteItem(sql, memberId, setter, change.change.value);
+      return deleteItem(sql, memberId, setter, change.change.value, now);
     case "taskTick":
       return tickTask(sql, memberId, setter, change.change.value);
     case "taskUntick":

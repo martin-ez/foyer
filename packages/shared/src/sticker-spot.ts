@@ -42,6 +42,17 @@ export function nextStickerSpot(
   return at.y + stickerSizeOf(kind).height <= page.height - pageMargin ? at : null;
 }
 
+/** Where a new sticker of `kind` goes on a page that doesn't continue on another, such as a task's
+ *  body page: the next free spot below the last one, or the lowest spot on it when it's full. */
+export function stickerSpotOnPage(
+  page: PageSize,
+  stickers: readonly StickerOnPage[],
+  kind: StickerKindName | null,
+): PagePoint {
+  const lowest = Math.max(page.height - pageMargin - stickerSizeOf(kind).height, 0);
+  return nextStickerSpot(page, stickers, kind) ?? { x: pageMargin, y: lowest };
+}
+
 /** A space's newest page, as placing a sticker needs it: its number, its size and what's on it. */
 export type NewestSpacePage = {
   number: number;

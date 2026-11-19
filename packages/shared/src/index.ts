@@ -102,6 +102,7 @@ export {
   stickerGap,
   stickerSizeOf,
   stickerSpotInSpace,
+  stickerSpotOnPage,
   taskStickerSize,
   unknownStickerSize,
 } from "./sticker-spot";

@@ -6,6 +6,7 @@ import {
   isIsoDate,
   isTimeOfDay,
   itemDescriptionProblem,
+  itemPageId,
   itemTitleProblem,
   parseRepeat,
   type RepeatFrom as RepeatFromName,
@@ -26,6 +27,7 @@ import {
   eventTimeIn,
   redateEvents,
 } from "./events";
+import { type MovedUp, type Placer, stickMovedUp } from "./moved-up";
 import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
 
@@ -388,59 +390,66 @@ export function moveIntoSpace(
   return moved;
 }
 
-/** Deletes an item, its stickers on every page, its completions, and its body page with what's
- *  on it, leaving tombstones that the members who saw them receive. Items still under it move up
- *  to its parent, or to the top of its space. Deleting it again has no effect. */
+/** Deletes an item, its stickers, its completions, and its body page with what's on it, leaving
+ *  tombstones for the members who saw them. Items still under it move up, with stickers placed on
+ *  their new page at the household's time `now`. Deleting it again has no effect. */
 export function deleteItem(
   sql: SqlStorage,
   memberId: string,
   setter: Setter,
   remove: ItemDelete,
+  now: number,
 ): Applied {
   const found = itemFor(sql, memberId, remove.itemId);
   if (!("item" in found)) return found.applied;
-  return deleteFound(sql, remove.itemId, found.item, setter);
+  return deleteFound(sql, remove.itemId, found.item, setter, { by: memberId, at: now });
 }
 
 /** Deletes an item as `deleteItem` does, for the household itself rather than a member, as when
  *  it was deleted in Google Calendar. Does nothing to an item that doesn't exist. */
 export function deleteItemForHousehold(sql: SqlStorage, itemId: string, setter: Setter): RowKey[] {
   const [item] = sql
-    .exec<Pick<ItemRow, "owner_id" | "parent_id">>(
-      `SELECT spaces.owner_id, items.parent_id
+    .exec<Pick<ItemRow, "space_id" | "owner_id" | "parent_id">>(
+      `SELECT items.space_id, spaces.owner_id, items.parent_id
        FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,
       itemId,
     )
     .toArray();
   if (!item) return [];
-  const applied = deleteFound(sql, itemId, item, setter);
+  const applied = deleteFound(sql, itemId, item, setter, { by: null, at: setter.at });
   return "changed" in applied ? applied.changed : [];
 }
 
 function deleteFound(
   sql: SqlStorage,
   itemId: string,
-  item: Pick<ItemRow, "owner_id" | "parent_id">,
+  item: Pick<ItemRow, "space_id" | "owner_id" | "parent_id">,
   setter: Setter,
+  placer: Placer,
 ): Applied {
-  const remove = { itemId };
-  const found = { item };
   const seq = nextSeq(sql);
   const children = sql
-    .exec<{ id: string }>("SELECT id FROM items WHERE parent_id = ?", remove.itemId)
-    .toArray()
-    .map(({ id }): RowKey => ({ kind: "item", id }));
+    .exec<MovedUp>(
+      `SELECT items.id, items.kind, items.created_by FROM items
+       LEFT JOIN (SELECT item_id, min(y) AS y FROM stickers WHERE page_id = ? GROUP BY item_id)
+         AS on_body ON on_body.item_id = items.id
+       WHERE items.parent_id = ?
+       ORDER BY on_body.y IS NULL, on_body.y, items.id`,
+      itemPageId(itemId),
+      itemId,
+    )
+    .toArray();
   for (const { id } of children) {
     sql.exec(
       "UPDATE items SET parent_id = ?, parent_at = ?, parent_change_id = ?, seq = ? WHERE id = ?",
-      found.item.parent_id,
+      item.parent_id,
       setter.at,
       setter.changeId,
       seq,
       id,
     );
   }
-  const owner = found.item.owner_id;
+  const owner = item.owner_id;
   const bury = (kind: RowKey["kind"], id: string, visibleTo: string | null) =>
     sql.exec(
       "INSERT INTO tombstones (kind, id, visible_to, seq) VALUES (?, ?, ?, ?)",
@@ -454,26 +463,28 @@ function deleteFound(
       `SELECT stickers.id, spaces.owner_id FROM stickers
        JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
        WHERE stickers.item_id = ? OR pages.item_id = ?`,
-      remove.itemId,
-      remove.itemId,
+      itemId,
+      itemId,
     )
     .toArray();
   for (const sticker of stickers) {
     sql.exec("DELETE FROM stickers WHERE id = ?", sticker.id);
     bury("sticker", sticker.id, sticker.owner_id);
   }
-  const carried = carriedBy(sql, remove.itemId).filter(({ kind }) => kind !== "sticker");
+  const carried = carriedBy(sql, itemId).filter(({ kind }) => kind !== "sticker");
   for (const row of carried) bury(row.kind, row.id, owner);
-  sql.exec("DELETE FROM completions WHERE item_id = ?", remove.itemId);
-  sql.exec("DELETE FROM last_ticks WHERE item_id = ?", remove.itemId);
-  sql.exec("DELETE FROM pages WHERE item_id = ?", remove.itemId);
-  sql.exec("DELETE FROM items WHERE id = ?", remove.itemId);
-  bury("item", remove.itemId, owner);
+  sql.exec("DELETE FROM completions WHERE item_id = ?", itemId);
+  sql.exec("DELETE FROM last_ticks WHERE item_id = ?", itemId);
+  sql.exec("DELETE FROM pages WHERE item_id = ?", itemId);
+  sql.exec("DELETE FROM items WHERE id = ?", itemId);
+  bury("item", itemId, owner);
+  const to = { spaceId: item.space_id, parentId: item.parent_id };
   const changed: RowKey[] = [
-    { kind: "item", id: remove.itemId },
+    { kind: "item", id: itemId },
     ...carried,
     ...stickers.map(({ id }): RowKey => ({ kind: "sticker", id })),
-    ...children,
+    ...children.map(({ id }): RowKey => ({ kind: "item", id })),
+    ...stickMovedUp(sql, children, to, placer, seq),
   ];
   return { seq, changed, unchanged: [] };
 }

@@ -1,13 +1,12 @@
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 import {
-  nextStickerSpot,
   type PageSize,
-  pageMargin,
   type StickerKindName,
   type StickerOnPage,
   spacePageId,
   stickerSizeOn,
   stickerSpotInSpace,
+  stickerSpotOnPage,
 } from "@foyer/shared";
 import { type Page, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { type Sticker, StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
@@ -71,9 +70,7 @@ export function spotOnPage(
   newPageSize: PageSize,
 ): { at: Point; isNewPage: boolean } {
   const page = pages.get(pageId) ?? newPageSize;
-  const size = stickerSize(kind, pageId);
-  const lowest = { x: pageMargin, y: Math.max(page.height - pageMargin - size.height, 0) };
-  const at = nextStickerSpot(page, onPage(pageId, stickers), kindNames[kind] ?? null) ?? lowest;
+  const at = stickerSpotOnPage(page, onPage(pageId, stickers), kindNames[kind] ?? null);
   return { at, isNewPage: !pages.has(pageId) };
 }
 

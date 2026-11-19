@@ -1,7 +1,16 @@
 import { reset } from "cloudflare:test";
-import { a4Portrait, itemPageId, newId, spacePageId } from "@foyer/shared";
+import {
+  a4Portrait,
+  itemPageId,
+  newId,
+  pageMargin,
+  spacePageId,
+  stickerGap,
+  taskStickerSize,
+} from "@foyer/shared";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { type ChangeResult, type Row, RowKind } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -44,6 +53,26 @@ function itemsIn(rows: Row[]) {
   );
 }
 
+function pagesIn(rows: Row[]) {
+  return rows.flatMap(({ row }) =>
+    row.case === "page"
+      ? [{ id: row.value.id, kind: row.value.kind, itemId: row.value.itemId }]
+      : [],
+  );
+}
+
+function stickersIn(rows: Row[]) {
+  return rows.flatMap(({ row }) => {
+    if (row.case !== "sticker") return [];
+    const { pageId, itemId, x, y, kind, placedBy } = row.value;
+    return [{ pageId, itemId, x, y, kind, placedBy }];
+  });
+}
+
+function spot(index: number) {
+  return pageMargin + index * (taskStickerSize.height + stickerGap);
+}
+
 function deletedIn(rows: Row[], kind: RowKind) {
   return rows.flatMap(({ row }) =>
     row.case === "deleted" && row.value.kind === kind ? [row.value.id] : [],
@@ -78,6 +107,12 @@ async function newSharedSpace(device: Device): Promise<string> {
   await device.push(create);
   await device.updates();
   return idOf(create);
+}
+
+async function bodyPageOf(device: Device, itemId: string) {
+  const pageId = itemPageId(itemId);
+  await device.push(pageCreate({ pageId, kind: PageKind.ITEM, itemId, ...a4Portrait }));
+  return pageId;
 }
 
 async function newTask(device: Device, spaceId: string, under?: string) {
@@ -305,15 +340,101 @@ describe("deleting an item with items under it", () => {
       parentId: "",
     });
   });
+
+  it("gives every device a sticker for each, below the last on its parent's body page", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const { memberId } = await signIn(alex);
+    const home = await newSharedSpace(alexDevice);
+    const party = await newTask(alexDevice, home);
+    const drinks = await newTask(alexDevice, home, party);
+    const food = await newTask(alexDevice, home, party);
+    const cake = await newTask(alexDevice, home, food);
+    const pie = await newTask(alexDevice, home, food);
+    const partyPage = await bodyPageOf(alexDevice, party);
+    const foodPage = await bodyPageOf(alexDevice, food);
+    await alexDevice.push(
+      stickerPlace({ pageId: partyPage, itemId: drinks, y: spot(0) }),
+      stickerPlace({ pageId: partyPage, itemId: food, y: spot(1) }),
+      stickerPlace({ pageId: foodPage, itemId: pie, y: spot(0) }),
+      stickerPlace({ pageId: foodPage, itemId: cake, y: spot(1) }),
+    );
+    await alexDevice.updates();
+    await samDevice.updates();
+
+    await alexDevice.push(itemDelete(food));
+
+    const placed = { pageId: partyPage, x: pageMargin, kind: StickerKind.TASK, placedBy: memberId };
+    for (const device of [alexDevice, samDevice]) {
+      expect(stickersIn(await device.updates())).toEqual([
+        { ...placed, itemId: pie, y: spot(1) },
+        { ...placed, itemId: cake, y: spot(2) },
+      ]);
+    }
+  });
+
+  it("makes the parent's body page for them when nobody has put anything on it yet", async () => {
+    const device = await connect(alex);
+    const { memberId } = await signIn(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const party = await newTask(device, inbox);
+    const food = await newTask(device, inbox, party);
+    const cake = await newTask(device, inbox, food);
+
+    await device.push(itemDelete(food));
+
+    const rows = await device.updates();
+    const partyPage = itemPageId(party);
+    expect(pagesIn(rows)).toEqual([{ id: partyPage, kind: PageKind.ITEM, itemId: party }]);
+    expect(stickersIn(rows)).toEqual([
+      {
+        pageId: partyPage,
+        itemId: cake,
+        x: pageMargin,
+        y: spot(0),
+        kind: StickerKind.TASK,
+        placedBy: memberId,
+      },
+    ]);
+  });
+
+  it("gives them stickers in the next free spot of their space's newest page", async () => {
+    const device = await connect(alex);
+    const { memberId } = await signIn(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const shopping = await newTask(device, inbox);
+    const party = await newTask(device, inbox);
+    const cake = await newTask(device, inbox, party);
+    const firstPage = spacePageId(inbox, 1);
+    await device.push(
+      pageCreate({
+        pageId: firstPage,
+        kind: PageKind.SPACE,
+        spaceId: inbox,
+        number: 1,
+        ...a4Portrait,
+      }),
+      stickerPlace({ pageId: firstPage, itemId: shopping, y: spot(0) }),
+      stickerPlace({ pageId: firstPage, itemId: party, y: spot(1) }),
+    );
+    await device.updates();
+
+    await device.push(itemDelete(party));
+
+    expect(stickersIn(await device.updates())).toEqual([
+      {
+        pageId: firstPage,
+        itemId: cake,
+        x: pageMargin,
+        y: spot(1),
+        kind: StickerKind.TASK,
+        placedBy: memberId,
+      },
+    ]);
+  });
 });
 
 describe("stickers of items under another", () => {
-  async function bodyPageOf(device: Device, itemId: string) {
-    const pageId = itemPageId(itemId);
-    await device.push(pageCreate({ pageId, kind: PageKind.ITEM, itemId, ...a4Portrait }));
-    return pageId;
-  }
-
   it("go on their parent's body page, and not on another's or a space's page", async () => {
     const device = await connect(alex);
     const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
