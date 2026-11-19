@@ -1,10 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
 import { saveScreenshot } from "./screenshot";
-import { addTask, bundleBuildTimeout, openInbox, pageTitle, stickerOf } from "./tasks";
+import { addTask, bundleBuildTimeout, openSpaceOfItsOwn, pageTitle, stickerOf } from "./tasks";
+
+let space = "";
 
 test.beforeEach(async ({ page }) => {
   test.setTimeout(bundleBuildTimeout + 60_000);
-  await openInbox(page);
+  space = await openSpaceOfItsOwn(page);
 });
 
 async function addTaskUnder(page: Page, parent: string, title: string) {
@@ -15,8 +17,8 @@ async function addTaskUnder(page: Page, parent: string, title: string) {
   await page.getByRole("button", { name: "Close" }).click();
 }
 
-function inboxListNames(page: Page) {
-  return page.getByRole("list", { name: "Inbox" }).getByRole("button").allTextContents();
+function spaceListNames(page: Page) {
+  return page.getByRole("list", { name: space }).getByRole("button").allTextContents();
 }
 
 test("puts a task under another and takes it out again, moving its sticker", async ({
@@ -56,11 +58,11 @@ test("lists the tasks under a task right after it", async ({ page }, testInfo) =
 
   await page.getByRole("button", { name: "List", exact: true }).click();
 
-  const names = await inboxListNames(page);
+  const names = await spaceListNames(page);
   const at = names.findIndex((name) => name.startsWith(party));
   expect(names[at + 1]?.startsWith(cake)).toBe(true);
   await page
-    .getByRole("list", { name: "Inbox" })
+    .getByRole("list", { name: space })
     .getByRole("button", { name: cake })
     .scrollIntoViewIfNeeded();
   await saveScreenshot(page, testInfo, "nested-list");
@@ -120,10 +122,10 @@ test("moves the tasks under a deleted task to the top of its space", async ({ pa
   await addTaskUnder(page, party, cake);
   await stickerOf(page, party).click();
 
-  await deleteTaskWithItemsUnder(page, party, "Move them to the top of the Inbox");
+  await deleteTaskWithItemsUnder(page, party, `Move them to the top of ${space}`);
 
   await page.getByRole("button", { name: "List", exact: true }).click();
-  const names = await inboxListNames(page);
+  const names = await spaceListNames(page);
   expect(names.some((name) => name.startsWith(cake))).toBe(true);
   expect(names.some((name) => name.startsWith(party))).toBe(false);
   await expect(page.getByText(/not saved yet|Couldn't save/)).toBeHidden();
@@ -156,7 +158,7 @@ test("deletes the tasks under a deleted task too", async ({ page }) => {
   await deleteTaskWithItemsUnder(page, party, "Delete them too");
 
   await page.getByRole("button", { name: "List", exact: true }).click();
-  const names = await inboxListNames(page);
+  const names = await spaceListNames(page);
   expect(names.some((name) => name.startsWith(cake) || name.startsWith(party))).toBe(false);
   await expect(page.getByText(/not saved yet|Couldn't save/)).toBeHidden();
 });

@@ -1,20 +1,23 @@
 import { expect, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import { saveScreenshot } from "./screenshot";
 import {
   addTask,
   boxOf,
   bundleBuildTimeout,
   drag,
-  openInbox,
+  openSpaceOfItsOwn,
   pageNumberIn,
   pageTitle,
   sameMemberOnAnotherDevice,
   stickerOf,
 } from "./tasks";
 
+let space = "";
+
 test.beforeEach(async ({ page }) => {
   test.setTimeout(bundleBuildTimeout + 60_000);
-  await openInbox(page);
+  space = await openSpaceOfItsOwn(page);
 });
 
 test("adds a task to a space's page, as a sticker", async ({ page }, testInfo) => {
@@ -24,19 +27,21 @@ test("adds a task to a space's page, as a sticker", async ({ page }, testInfo) =
 
   const title = await addTask(page);
 
-  await expect(pageTitle(page)).toHaveText(/^Inbox, page \d+$/);
+  await expect(pageTitle(page)).toHaveText(`${space}, page 1`);
   await expect(stickerOf(page, title)).toBeVisible();
   await saveScreenshot(page, testInfo, "task-sticker");
 });
 
 test("moves a sticker by dragging it, on this device and another", async ({ page }, testInfo) => {
   const title = await addTask(page);
-  const other = await sameMemberOnAnotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page, space);
   const before = await boxOf(stickerOf(other, title));
 
   await drag(page, stickerOf(page, title), { x: 60, y: 0 });
 
-  await expect.poll(async () => (await boxOf(stickerOf(other, title))).x).toBeGreaterThan(before.x);
+  await expectOnAnotherDevice
+    .poll(async () => (await boxOf(stickerOf(other, title))).x)
+    .toBeGreaterThan(before.x);
   await expect(page.getByText(/not saved yet/)).toBeHidden();
   await saveScreenshot(page, testInfo, "moved-sticker");
 });
@@ -102,13 +107,13 @@ test("puts a task on the space's next page once its newest page is full", async 
     title = await addTask(page);
   }
 
-  await expect(heading).toHaveText(`Inbox, page ${first + 1}`);
+  await expect(heading).toHaveText(`${space}, page ${first + 1}`);
   await expect(stickerOf(page, title)).toBeVisible();
   await expect(page.getByRole("button", { name: "Next page" })).toBeDisabled();
   await page.getByRole("button", { name: "Previous page" }).click();
-  await expect(heading).toHaveText(`Inbox, page ${first}`);
+  await expect(heading).toHaveText(`${space}, page ${first}`);
   await expect(stickerOf(page, title)).toBeHidden();
   await saveScreenshot(page, testInfo, "full-page");
   await page.getByRole("button", { name: "Next page" }).click();
-  await expect(heading).toHaveText(`Inbox, page ${first + 1}`);
+  await expect(heading).toHaveText(`${space}, page ${first + 1}`);
 });

@@ -1,17 +1,20 @@
 import { expect, type Page, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import { saveScreenshot } from "./screenshot";
 import {
   addTask,
   bundleBuildTimeout,
-  openInbox,
+  openSpaceOfItsOwn,
   sameMemberOnAnotherDevice,
   stickerOf,
   todayInBrowser,
 } from "./tasks";
 
+let space = "";
+
 test.beforeEach(async ({ page }) => {
   test.setTimeout(bundleBuildTimeout + 60_000);
-  await openInbox(page);
+  space = await openSpaceOfItsOwn(page);
 });
 
 function addDays(date: string, days: number): string {
@@ -55,9 +58,9 @@ test("repeats a task weekly, moves it to its next date when ticked, and unticks 
   await expect(page.getByText(/not saved yet|Couldn't save/)).toBeHidden();
   await saveScreenshot(page, testInfo, "repeating-task-ticked");
 
-  const other = await sameMemberOnAnotherDevice(page);
+  const other = await sameMemberOnAnotherDevice(page, space);
   await other.getByRole("button", { name: "List", exact: true }).click();
-  const otherList = other.getByRole("list", { name: "Inbox" });
+  const otherList = other.getByRole("list", { name: space });
   await expect(
     otherList.getByRole("button", { name: `${title} · ${nextWeek}, repeats` }),
   ).toBeVisible();
@@ -70,7 +73,7 @@ test("repeats a task weekly, moves it to its next date when ticked, and unticks 
 
   await expect(page.getByLabel("Date")).toHaveValue(today);
   await expect(doneBefore).toBeHidden();
-  await expect(
+  await expectOnAnotherDevice(
     otherList.getByRole("button", { name: `${title} · ${today}, repeats` }),
   ).toBeVisible();
 });
@@ -134,7 +137,7 @@ test("chooses the days a task repeats on, moving its date to the first of them",
   await save.click();
   await page.getByRole("button", { name: "Close" }).click();
   await page.getByRole("button", { name: "List", exact: true }).click();
-  const list = page.getByRole("list", { name: "Inbox" });
+  const list = page.getByRole("list", { name: space });
   await expect(list.getByRole("button", { name: `${title} · ${tomorrow}, repeats` })).toBeVisible();
 });
 

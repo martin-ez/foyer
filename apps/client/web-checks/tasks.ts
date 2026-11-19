@@ -1,15 +1,44 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { signIn } from "./sign-in";
 
 /** How long the first visit may wait while Expo builds the app's bundle. */
 export const bundleBuildTimeout = 120_000;
 
-/** Signs in and opens the Tasks, which open on the Inbox's newest page. */
-export async function openInbox(page: Page) {
+/** Signs in, and waits until the household is up to date. */
+export async function openApp(page: Page) {
   await signIn(page);
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
+}
+
+/** Creates a personal space of the check's own, through the spaces panel, so that no other check
+ *  adds to its pages, and returns its name once it's saved. Leaves the Tasks open. */
+export async function createSpaceOfItsOwn(page: Page): Promise<string> {
+  const name = `Space ${randomUUID().slice(0, 8)}`;
   await page.getByRole("tab", { name: "Tasks" }).click();
-  await expect(pageTitle(page)).toHaveText(/^Inbox, page \d+$/);
+  await page.getByRole("button", { name: "Spaces", exact: true }).click();
+  await page.getByLabel("New space's name").fill(name);
+  await page.getByRole("button", { name: "Create personal" }).click();
+  await expect(page.getByRole("button", { name: `Open ${name}` })).toBeVisible();
+  await expect(page.getByText(/not saved yet/)).toBeHidden();
+  await page.getByRole("button", { name: "Hide spaces" }).click();
+  return name;
+}
+
+/** Opens the newest page of the space `name` in the Tasks. */
+export async function openSpace(page: Page, name: string) {
+  await page.getByRole("tab", { name: "Tasks" }).click();
+  await page.getByRole("button", { name: "Spaces", exact: true }).click();
+  await page.getByRole("button", { name: `Open ${name}` }).click();
+  await expect(pageTitle(page)).toHaveText(new RegExp(`^${name}, page \\d+$`));
+}
+
+/** Signs in, creates a space of the check's own and opens its page, and returns its name. */
+export async function openSpaceOfItsOwn(page: Page): Promise<string> {
+  await openApp(page);
+  const name = await createSpaceOfItsOwn(page);
+  await openSpace(page, name);
+  return name;
 }
 
 /** The open page's title, such as "Inbox, page 2". */
@@ -34,10 +63,12 @@ export async function addTask(
   return title;
 }
 
-/** Another tab signed in as the same member, so another of their devices, on the Inbox. */
-export async function sameMemberOnAnotherDevice(page: Page): Promise<Page> {
+/** Another tab signed in as the same member, so another of their devices, on the newest page of
+ *  the space `name`. */
+export async function sameMemberOnAnotherDevice(page: Page, name: string): Promise<Page> {
   const other = await page.context().newPage();
-  await openInbox(other);
+  await openApp(other);
+  await openSpace(other, name);
   return other;
 }
 
