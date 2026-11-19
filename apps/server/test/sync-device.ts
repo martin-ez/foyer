@@ -135,11 +135,10 @@ export class Device {
     }
   }
 
-  /** The rows in every Updates message that arrived and hasn't been read, after giving the
-   *  household time to send any more. Reads them. */
+  /** The rows in every Updates message that arrived and hasn't been read, once the household has
+   *  handled everything the device sent before. Reads them. */
   async updates(): Promise<Row[]> {
-    await this.ping();
-    return this.#read("updates").flatMap(({ rows }) => rows);
+    return (await this.all("updates")).flatMap(({ rows }) => rows);
   }
 
   /** Every message of a kind that arrived and hasn't been read, once the household has handled
@@ -181,7 +180,8 @@ export class Device {
     this.send({ case: "point", value: { x, y } });
   }
 
-  /** Sends "ping" and waits for "pong", so that whatever the household sent before has arrived. */
+  /** Sends "ping" and waits for "pong", which the runtime answers without waiting for the
+   *  household. */
   async ping(): Promise<void> {
     this.send("ping");
     await this.#nextText();
