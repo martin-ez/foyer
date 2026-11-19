@@ -11,8 +11,8 @@
     "check-ios-bundle": "pnpm --filter @foyer/shared generate && dir=\"$(mktemp -d)\" && trap 'rm -rf \"$dir\"' EXIT && expo export --platform ios --output-dir \"$dir\"",
     "typecheck": "tsc --noEmit",
     "postinstall": "setup-skia-web public",
-    "test": "vitest run",
-    "update-golden-images": "UPDATE_GOLDEN_IMAGES=1 vitest run"
+    "test": "pnpm --filter @foyer/shared generate && vitest run",
+    "update-golden-images": "pnpm --filter @foyer/shared generate && UPDATE_GOLDEN_IMAGES=1 vitest run"
   },
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",

@@ -17,8 +17,8 @@
     "typecheck": "pnpm generate && pnpm -r typecheck",
     "format": "biome check --write . && pnpm --filter @foyer/shared format-contracts",
     "generate": "pnpm --filter @foyer/shared generate",
-    "test": "pnpm generate && pnpm -r --if-present test",
-    "update-golden-images": "pnpm generate && pnpm -r --if-present update-golden-images"
+    "test": "pnpm -r --workspace-concurrency=1 --if-present test",
+    "update-golden-images": "pnpm -r --if-present update-golden-images"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7"

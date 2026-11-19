@@ -13,7 +13,7 @@
     "lint-contracts": "buf lint && buf format --diff --exit-code",
     "format-contracts": "buf format --write",
     "check-breaking": "buf breaking --against '../../.git#branch=main,subdir=packages/shared'",
-    "test": "vitest run --passWithNoTests"
+    "test": "pnpm run generate && vitest run --passWithNoTests"
   },
   "dependencies": {
     "@bufbuild/protobuf": "catalog:"
