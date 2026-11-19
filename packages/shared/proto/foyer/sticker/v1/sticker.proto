@@ -22,10 +22,9 @@ message Sticker {
   // When it was placed, or last moved, by the clock of the device that did it, or the household's
   // when it did it itself.
   google.protobuf.Timestamp placed_at = 7;
-  // The member who placed it, or last moved it. When the household places or moves an item's
-  // calendar stickers itself, the member whose change, or whose Google calendar, dated the item.
-  // When it places a sticker for an item it moved up from under a deleted item, the member who
-  // deleted that item.
+  // The member who placed or last moved it. When the household does it itself: for calendar
+  // stickers, the member whose change, or whose Google calendar, dated the item; for an item moved
+  // up when its parent was deleted, the member who deleted the parent.
   string placed_by = 8;
   // The day it shows its item on, as a plain ISO 8601 date such as "2026-11-17", on a calendar
   // page: a day the page shows. A repeating task's stickers stay on the days it was ticked, shown

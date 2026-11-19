@@ -1,4 +1,5 @@
 import { reset } from "cloudflare:test";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   a4Portrait,
   itemPageId,
@@ -8,11 +9,14 @@ import {
   stickerGap,
   taskStickerSize,
 } from "@foyer/shared";
+import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { type ChangeResult, type Row, RowKind } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it } from "vitest";
+import { fakeGoogle } from "../src/fake-google";
+import { connectGoogle, work } from "./calendar-helpers";
 import {
   Device,
   idOf,
@@ -42,6 +46,7 @@ async function connect(email: string): Promise<Device> {
 
 afterEach(async () => {
   for (const device of devices.splice(0)) device.close();
+  fakeGoogle.reset();
   await reset();
 });
 
@@ -393,6 +398,64 @@ describe("deleting an item with items under it", () => {
         x: pageMargin,
         y: spot(0),
         kind: StickerKind.TASK,
+        placedBy: memberId,
+      },
+    ]);
+  });
+
+  it("makes their space's first page for them when the space has none yet", async () => {
+    const device = await connect(alex);
+    const { memberId } = await signIn(alex);
+    const inbox = await spaceOwnedBy(device, SpaceKind.INBOX);
+    const party = await newTask(device, inbox);
+    const cake = await newTask(device, inbox, party);
+
+    await device.push(itemDelete(party));
+
+    const rows = await device.updates();
+    const firstPage = spacePageId(inbox, 1);
+    expect(pagesIn(rows)).toEqual([{ id: firstPage, kind: PageKind.SPACE, itemId: "" }]);
+    expect(stickersIn(rows)).toEqual([
+      {
+        pageId: firstPage,
+        itemId: cake,
+        x: pageMargin,
+        y: spot(0),
+        kind: StickerKind.TASK,
+        placedBy: memberId,
+      },
+    ]);
+  });
+
+  it("gives an event it moves up an event's sticker", async () => {
+    const { memberId, token } = await signIn(alex);
+    const device = await connect(alex);
+    await connectGoogle(token);
+    await work();
+    const personal = await spaceOwnedBy(device, SpaceKind.PERSONAL);
+    const party = await newTask(device, personal);
+    const dinner = itemCreate({
+      spaceId: personal,
+      kind: ItemKind.EVENT,
+      startsAt: timestampFromMs(Date.parse("2026-11-20T19:00:00Z")),
+      endsAt: timestampFromMs(Date.parse("2026-11-20T21:00:00Z")),
+    });
+    await device.push(dinner, itemSetParent(idOf(dinner), party));
+    await device.updates();
+
+    await device.push(itemDelete(party));
+
+    const firstPage = spacePageId(personal, 1);
+    const onSpacePage = stickersIn(await device.updates()).filter(
+      ({ pageId }) => pageId === firstPage,
+    );
+    expect(onSpacePage).toEqual([
+      {
+        pageId: firstPage,
+        itemId: idOf(dinner),
+        x: pageMargin,
+        y: spot(0),
+        kind: StickerKind.EVENT,
         placedBy: memberId,
       },
     ]);
