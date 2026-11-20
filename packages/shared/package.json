@@ -7,8 +7,8 @@
     "./gen/*": "./src/gen/*.ts"
   },
   "scripts": {
-    "generate": "buf generate",
-    "postinstall": "buf generate",
+    "generate": "node scripts/generate.mjs",
+    "postinstall": "node scripts/generate.mjs",
     "typecheck": "tsc --noEmit",
     "lint-contracts": "buf lint && buf format --diff --exit-code",
     "format-contracts": "buf format --write",
