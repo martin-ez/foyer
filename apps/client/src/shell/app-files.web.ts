@@ -33,7 +33,10 @@ export function reloadForFile(file: string): boolean {
   return true;
 }
 
-/** Reloads the app at once, without waiting for unsaved changes, for when the person asks to. */
+/** True in the web app, which can reload itself. */
+export const canReloadApp = true;
+
+/** Reloads the app at once, without waiting for unsaved changes. */
 export function reloadApp(): void {
   window.location.reload();
 }

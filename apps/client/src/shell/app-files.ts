@@ -18,5 +18,8 @@ export function reloadForFile(_file: string): boolean {
   return false;
 }
 
-/** Never needed on the iPad, where no file fails to load. */
+/** False on the iPad, whose app can't reload itself. The web app can. */
+export const canReloadApp = false;
+
+/** Does nothing on the iPad, whose app can't reload itself. */
 export function reloadApp(): void {}
