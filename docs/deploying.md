@@ -17,7 +17,7 @@ To change what a build does, change the `deploy` script rather than the dashboar
 The `deploy` and `preview` scripts first export the web app with Expo, into `apps/client/dist`, and the Worker deploys it as its static assets:
 
 - **The app's files,** such as its JavaScript and `canvaskit.wasm`, are served without running the Worker, so they don't count against its daily requests.
-- **Every other request runs the Worker.** It answers its own routes first: the calls in the contracts, and sign-in under `/auth/`. Any other address gets the app's `index.html`, and the app shows the page for that address. A missing file, such as a script from an older deploy, is not found rather than answered with the page.
+- **Every other request runs the Worker.** It answers its own routes first: the calls in the contracts, and sign-in under `/auth/`. Any other address gets the app's `index.html`, and the app shows the page for that address. A missing file, such as a script from an older deploy, is not found rather than answered with the page. A tab opened before a deploy asks for such files when it first opens a view: the app then reloads itself to get the new version, as [`apps/client/AGENTS.md`](../apps/client/AGENTS.md) says. Cloudflare can keep an older deploy's files reachable, but only through rules on a domain of your own, which don't run on `workers.dev`.
 
 The local backend never serves the export: it forwards pages to Expo's development server, as [Development](development.md) explains.
 

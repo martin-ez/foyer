@@ -8,6 +8,7 @@ import { CapturePanel } from "../capture/capture-panel";
 import { ShortcutsPanel } from "../capture/shortcuts-panel";
 import { SignedInAs } from "../session/session-screens";
 import type { SyncStatus } from "../sync/household-sync";
+import { FailedFileBoundary } from "./failed-file-boundary";
 import { useHousehold } from "./household";
 
 const sideBarFrom = 600;
@@ -68,7 +69,9 @@ export function AppShell() {
       <View style={styles.fill}>
         {captureShown ? <CapturePanel onClose={() => setCaptureShown(false)} /> : null}
         <Problems />
-        <TabSlot />
+        <FailedFileBoundary>
+          <TabSlot />
+        </FailedFileBoundary>
         {accountShown ? <AccountPanel alongSide={side} /> : null}
       </View>
       {side ? null : bar}
