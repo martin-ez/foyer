@@ -2,6 +2,7 @@ import { usePathname } from "expo-router";
 import { Component, type ReactNode, useEffect, useState } from "react";
 import { Button, StyleSheet, Text, View } from "react-native";
 import {
+  canReloadApp,
   checkFailedFile,
   type FailedFileCheck,
   fileThatFailedToLoad,
@@ -10,10 +11,10 @@ import {
 } from "./app-files";
 import { useHousehold } from "./household";
 
-/** Shows its children, or, when the open view's file didn't load, as after a deploy replaced it,
- *  reloads the app once nothing is left unsaved, or says why the view can't open. Opening another
- *  view tries again. Any other error passes through. */
-export function FailedFileBoundary({ children }: { children: ReactNode }) {
+/** Shows the open view, or, when drawing it fails, a message in its place that keeps the frame and
+ *  the household's connection, so unsaved changes are still sent. Reloading waits until nothing is
+ *  unsaved, as it does for a view whose file a deploy replaced. Opening another view tries again. */
+export function ViewBoundary({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   return <Boundary openedAt={pathname}>{children}</Boundary>;
 }
@@ -35,13 +36,35 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     return props.openedAt === state.openedAt ? null : { openedAt: props.openedAt, failed: null };
   }
 
+  private readonly tryAgain = () => this.setState({ failed: null });
+
   override render() {
     const { failed } = this.state;
     if (!failed) return this.props.children;
     const file = fileThatFailedToLoad(failed.error);
-    if (!file) throw failed.error;
-    return <FailedFile file={file} />;
+    return file ? <FailedFile file={file} /> : <FailedView onTryAgain={this.tryAgain} />;
   }
+}
+
+function FailedView({ onTryAgain }: { onTryAgain: () => void }) {
+  const { state } = useHousehold();
+  const [reloading, setReloading] = useState(false);
+
+  useEffect(() => {
+    if (reloading && state.unsaved === 0) reloadApp();
+  }, [reloading, state.unsaved]);
+
+  if (reloading) {
+    return (
+      <Message
+        line={state.unsaved > 0 ? "Foyer reloads once your changes are saved." : "Reloading Foyer…"}
+      />
+    );
+  }
+  const action = canReloadApp
+    ? { title: "Reload", onPress: () => setReloading(true) }
+    : { title: "Try again", onPress: onTryAgain };
+  return <Message line="This view couldn't be shown." action={action} />;
 }
 
 function FailedFile({ file }: { file: string }) {
@@ -79,19 +102,25 @@ function FailedFile({ file }: { file: string }) {
       return (
         <Message
           line="This view can't open while offline. Reload once you're back online."
-          reload
+          action={reloadAtOnce}
         />
       );
     case "missing":
-      return <Message line="This view can't open: one of its files is missing." reload />;
+      return (
+        <Message line="This view can't open: one of its files is missing." action={reloadAtOnce} />
+      );
   }
 }
 
-function Message({ line, reload = false }: { line: string; reload?: boolean }) {
+type Action = { title: string; onPress: () => void };
+
+const reloadAtOnce: Action = { title: "Reload", onPress: reloadApp };
+
+function Message({ line, action }: { line: string; action?: Action }) {
   return (
     <View style={styles.message}>
       <Text style={styles.line}>{line}</Text>
-      {reload ? <Button title="Reload" onPress={reloadApp} /> : null}
+      {action ? <Button title={action.title} onPress={action.onPress} /> : null}
     </View>
   );
 }
