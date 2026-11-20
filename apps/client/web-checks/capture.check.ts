@@ -1,6 +1,6 @@
 import { expect, type Page, type TestInfo, test, type WebSocketRoute } from "@playwright/test";
 import { saveScreenshot } from "./screenshot";
-import { householdMembers, signIn } from "./sign-in";
+import { housemate, member, signIn } from "./sign-in";
 import { bundleBuildTimeout } from "./tasks";
 
 test.beforeEach(() => {
@@ -32,13 +32,8 @@ async function openInboxList(page: Page) {
   return page.getByRole("list", { name: "Inbox" });
 }
 
-function keyHolderFor(testInfo: TestInfo): string {
-  const email = householdMembers()[testInfo.project.name === "phone" ? 1 : 0];
-  test.skip(
-    email === undefined,
-    "The phone needs a second member in HOUSEHOLD_MEMBERS, so the viewports, which run at once, don't replace each other's key",
-  );
-  return email ?? "";
+function keyHolderOfItsOwnFor(testInfo: TestInfo): string {
+  return testInfo.project.name === "phone" ? housemate : member;
 }
 
 async function openShortcuts(page: Page) {
@@ -121,7 +116,7 @@ test("won't capture a blank title", async ({ page }) => {
 test("makes a capture key that a Shortcut captures with, then replaces and removes it", async ({
   page,
 }, testInfo) => {
-  await open(page, keyHolderFor(testInfo));
+  await open(page, keyHolderOfItsOwnFor(testInfo));
   await openShortcuts(page);
 
   const key = await makeKey(page);
@@ -224,7 +219,7 @@ test("can't capture until the household's spaces arrive", async ({ browser }) =>
 
 test("copies the capture address and a new key", async ({ page, context }, testInfo) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await open(page, keyHolderFor(testInfo));
+  await open(page, keyHolderOfItsOwnFor(testInfo));
   await openShortcuts(page);
   const key = await makeKey(page);
   const address = (await page.getByLabel("Capture address").textContent()) ?? "";

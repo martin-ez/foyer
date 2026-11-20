@@ -11,7 +11,7 @@ import { type Camera, fittedCamera, pointOnPage } from "../src/page/sheet-camera
 import { expectOnAnotherDevice } from "./another-device";
 import { describeDayInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
-import { householdMembers, signIn } from "./sign-in";
+import { housemate, member, signIn } from "./sign-in";
 
 const bundleBuildTimeout = 120_000;
 
@@ -34,22 +34,19 @@ test("shows who else is on the page and where they point, through the household"
     testInfo.project.name !== "ipad",
     "Checked in one viewport, so that two runs don't share the household's page at once.",
   );
-  const [first, second] = householdMembers();
-  test.skip(second === undefined, "Needs two emails in HOUSEHOLD_MEMBERS in .dev.vars.");
-  if (first === undefined || second === undefined) return;
   const baseURL = testInfo.project.use.baseURL;
 
-  const alex = await openAs(browser, baseURL, first);
+  const alex = await openAs(browser, baseURL, member);
   const today = await todaysPageId(alex.page);
   await expect.poll(() => entered(alex)).toEqual([today]);
   await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
 
-  const sam = await openAs(browser, baseURL, second);
+  const sam = await openAs(browser, baseURL, housemate);
   await expect.poll(() => entered(sam)).toEqual([today]);
   await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
   await expect.poll(() => lastHere(sam)).toEqual({ pageId: today, members: 1 });
-  const samsMarker = markerOf(alex.page, second);
-  const alexsMarker = markerOf(sam.page, first);
+  const samsMarker = markerOf(alex.page, housemate);
+  const alexsMarker = markerOf(sam.page, member);
   await expectOnAnotherDevice(samsMarker).toBeVisible();
   await expect(alexsMarker).toBeVisible();
   const waiting = await onPage(alex.page, await topLeftCorner(samsMarker));
@@ -58,7 +55,7 @@ test("shows who else is on the page and where they point, through the household"
   expect(waiting.y).toBeGreaterThanOrEqual(0);
   expect(waiting.y).toBeLessThan(50);
 
-  const path = recordPath(alex.page, second, await describeDayInBrowser(alex.page, 0));
+  const path = recordPath(alex.page, housemate, await describeDayInBrowser(alex.page, 0));
   const pointedAt = await pointAtMiddleOfPage(sam.page);
   await expect.poll(() => kinds(sam.sent)).toContain("point");
   await expectOnAnotherDevice.poll(() => kinds(alex.received)).toContain("pointed");
@@ -93,7 +90,7 @@ test("shows who else is on the page and where they point, through the household"
   await expect.poll(() => entered(sam).length).toBe(3);
   await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
   await expectOnAnotherDevice(samsMarker).toHaveCount(0);
-  await expect(markerOf(sam.page, first)).toHaveCount(0);
+  await expect(markerOf(sam.page, member)).toHaveCount(0);
 
   await sam.page.getByRole("button", { name: "Today" }).click();
   await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
@@ -114,21 +111,21 @@ test("shows who else is on the page and where they point, through the household"
 
 async function openAs(browser: Browser, baseURL: string | undefined, email: string) {
   const page = await (await browser.newContext({ baseURL })).newPage();
-  const member: Member = { page, sent: [], received: [] };
+  const device: Member = { page, sent: [], received: [] };
   page.on("websocket", (socket) => {
     socket.on("framesent", ({ payload }) => {
       if (typeof payload !== "string")
-        member.sent.push(fromBinary(DeviceMessageSchema, payload).message);
+        device.sent.push(fromBinary(DeviceMessageSchema, payload).message);
     });
     socket.on("framereceived", ({ payload }) => {
       if (typeof payload !== "string") {
-        member.received.push(fromBinary(HouseholdMessageSchema, payload).message);
+        device.received.push(fromBinary(HouseholdMessageSchema, payload).message);
       }
     });
   });
   await signIn(page, email);
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
-  return member;
+  return device;
 }
 
 function kinds(messages: (Sent | Received)[]) {

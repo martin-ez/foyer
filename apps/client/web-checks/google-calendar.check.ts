@@ -13,16 +13,16 @@ import {
 } from "./calendar-pages";
 import { describeDayInBrowser, describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
-import { householdMembers, signIn } from "./sign-in";
+import { googleCalendarMembers, signIn } from "./sign-in";
 import { bundleBuildTimeout, drag } from "./tasks";
 
 const connectPrompt = "Connect Google Calendar to keep a Google calendar for each of your spaces.";
 
 function memberOfItsOwnFor(testInfo: TestInfo): string {
-  const members = householdMembers();
-  const email = members[testInfo.project.name === "ipad" ? 0 : 1];
-  test.skip(email === undefined, "Needs a second email in HOUSEHOLD_MEMBERS");
-  return email ?? "";
+  const email = googleCalendarMembers[testInfo.project.name];
+  if (email === undefined)
+    throw new Error(`No Google Calendar member for ${testInfo.project.name}.`);
+  return email;
 }
 
 async function openAccount(page: Page) {
