@@ -49,3 +49,6 @@ test/golden-images/failures/
 # What the web checks write: their screenshots, and Playwright's results
 web-checks/screenshots/
 web-checks/results/
+
+# A trace that `playwright trace open` extracted, to read from the command line
+.playwright-cli/

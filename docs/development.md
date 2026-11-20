@@ -29,9 +29,28 @@ The tests check pieces of code on their own. Two more checks look at the app as 
 
 - **In a browser:** `pnpm --filter @foyer/client check-web` runs the checks in `apps/client/web-checks/` with Playwright, in Chromium, in an iPad's viewport and a phone's.
   - It generates the contracts' TypeScript first, so the two servers it starts find it up to date and neither replaces it while the other reads it. Then it starts Expo's development server, or reuses one already running, and a backend of its own at `http://localhost:8788`, whose household starts empty on every run. It never reuses the backend at `http://localhost:8787`, so the household you try the app in stays as it was. The checks' backend keeps its storage in `apps/server/.wrangler/web-checks`, which it empties when it starts, and forwards the app's pages to Expo's server as the usual backend does, so the two can share it.
-  - Playwright waits until `http://localhost:8788` answers 200, which it does only once Expo's server is up, and stops the servers it started when it's done. A run fails at the start if something else already listens on 8788, such as another run.
+  - Playwright waits until `http://localhost:8788` answers 200, which it does only once Expo's server is up, and stops the servers it started when it's done. A run fails at the start, saying `http://localhost:8788 is already used`, if something else already listens on 8788, such as another run.
+  - A run that's stopped before it's done, such as a command that ran out of time, can leave the servers it started running. The next run reuses Expo's server, but fails at the start on the checks' backend. Stop the checks' backend, then check that nothing listens on 8788 any more. The brackets keep `pkill` from matching the shell it runs in, whose own command line holds the pattern:
+
+    ```bash
+    pkill -f -- '--port [8]788'
+    lsof -nP -iTCP:8788 -sTCP:LISTEN
+    ```
+
   - The checks' backend lets in the members listed in `apps/client/web-checks/sign-in.ts`, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`, so the checks run the same whatever a `.dev.vars` lists. The checks sign in as them without Google: most as `you@example.com`, and those that need two people, such as the live lane's, also as `housemate@example.com`. The Google Calendar checks sign in as members no other check uses, one for each viewport, so connecting Google Calendar and adding events never changes what another check sees.
   - The checks save screenshots in `apps/client/web-checks/screenshots/`, such as `first-page-ipad.png`.
+  - Arguments after `check-web` go to `playwright test`: `--grep "dragged sticker"` runs only the checks whose names match, `--project ipad` only the iPad's viewport, and `--last-failed` only the checks that failed in the last run.
+  - A failed check keeps a screenshot in `apps/client/web-checks/results/`. With `--trace retain-on-failure`, it also keeps a trace there: each step the check took, what was on the page at each one, and the page's network requests and console. A check that fails only in a full run can't be traced by running it alone, so add the option to full runs. Each run empties the folder first, so read a failure's trace before running the checks again. Read a trace in a terminal with Playwright's `trace` commands, from `apps/client`:
+
+    ```bash
+    pnpm exec playwright trace open web-checks/results/<check>/trace.zip
+    pnpm exec playwright trace actions
+    pnpm exec playwright trace errors
+    pnpm exec playwright trace snapshot <step> --phase before
+    pnpm exec playwright trace close
+    ```
+
+    `actions` numbers the steps, `snapshot` shows the page's roles and text at one of them, and `requests` and `console` show the rest. On a computer with a screen, `pnpm exec playwright show-trace <trace.zip>` opens the trace in Playwright's trace viewer instead.
   - Checks that add tasks first create a personal space of their own and work on its page, so that no other check, such as the same check in the other viewport, adds to the pages they look at.
   - The first visit waits while Expo builds the app's bundle, which takes up to a minute after the dependencies change.
   - Playwright needs its Chromium. Cloud sessions come with it. On your computer, download it once with `pnpm --filter @foyer/client exec playwright install chromium`.
@@ -54,6 +73,13 @@ A cloud session runs the backend, Expo's development server, `pnpm check`, `pnpm
   ```
 
   The backend answers 500 until Expo's development server is ready. Then sign in at `http://localhost:8787/auth/dev?email=you@example.com`. The web checks reuse Expo's server, and start a backend of their own beside this one.
+- **The web checks:** a full run takes about 10 minutes, as long as a cloud session lets a command run in the foreground, which stops it without printing a result. Run it as a background command, which tells you when it ends, with its output in a file:
+
+  ```bash
+  pnpm --filter @foyer/client check-web --trace retain-on-failure > /tmp/foyer-check-web.log 2>&1
+  ```
+
+  While working, run only the checks the change touches, with `--grep`. If a run is stopped anyway, stop the backend it left running before the next one, as [Checking the app](#checking-the-app) says.
 - **The running app:** while the session is open, the agent can tell the Claude app that the web app is on port 8787, and you can open it from there.
 
 ### Sharing screenshots
