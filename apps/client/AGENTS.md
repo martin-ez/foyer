@@ -19,6 +19,7 @@ pnpm --filter @foyer/client exec expo install <package>  # ALWAYS use instead of
 pnpm --filter @foyer/client web                          # start the web app
 pnpm --filter @foyer/client ios                          # build and run on an iPad simulator
 pnpm --filter @foyer/client check-web                    # check the web app in a browser, with screenshots
+pnpm --filter @foyer/client check-web --grep "<name>"    # run only the web checks whose names match
 pnpm --filter @foyer/client check-ios-bundle             # build the iPad app's bundle
 pnpm check                                            # type checks, lint and formatting
 pnpm format                                           # fix formatting and import order
@@ -75,9 +76,10 @@ The root `AGENTS.md` says which checks to run for which change. In this package:
 
 - **Web checks** are Playwright checks in `web-checks/`, one `*.check.ts` file each, run in an iPad's and a phone's viewport at once. They run against a backend of their own, at `http://localhost:8788`, whose household starts empty on every run, so they never touch the local household on 8787. Sign in with `signIn` from `web-checks/sign-in.ts`, as one of the members listed there, which are the only ones the checks' backend lets in. A check that changes what a member sees beyond a space of its own, as connecting Google Calendar does, signs in as a member of its own, added there. Save what a check shows with `saveScreenshot` from `web-checks/screenshot.ts`, which writes to `web-checks/screenshots/`.
 - **A check that adds tasks** first creates a personal space of its own with `openSpaceOfItsOwn` from `web-checks/tasks.ts`, and works on that space's page, so that no other check adds to the pages it looks at. `sameMemberOnAnotherDevice` opens the same space in another tab.
-- **What another tab shows** after a change made on the first goes through `expectOnAnotherDevice` from `web-checks/another-device.ts`, which waits longer than Playwright's default while the change goes through the household. If it still times out, look at the trace: a delay that long is a bug to file, not a timing to wait out.
+- **What another tab shows** after a change made on the first goes through `expectOnAnotherDevice` from `web-checks/another-device.ts`, which waits longer than Playwright's default while the change goes through the household. If it still times out, look at its trace, kept with `--trace retain-on-failure`: a delay that long is a bug to file, not a timing to wait out.
 - Find what's on the page by role and text, as a person would, such as `getByRole("button", { name: "Sign out" })`, never by the page's structure or styles: views are wireframes and will change.
 - Code that runs only on the iPad, such as `session-token.ts` beside its `.web.ts`, never runs in the web checks. `check-ios-bundle` checks it builds, and the simulator checks it works, which needs a Mac.
+- **Running the web checks:** a full run takes about 10 minutes, as long as a cloud session lets a command run in the foreground, which stops it without a result. So while working, run only the checks the change touches, with `--grep`. Run the full checks in the background, with their output in a file, and with `--trace retain-on-failure`, so a check that fails only in a full run keeps a trace. A run that's stopped can leave its backend running on port 8788, and the next run then fails at the start: stop it with `pkill -f -- '--port [8]788'`. `docs/development.md` has the commands, and how to read a trace in a terminal.
 
 ## Rules
 
