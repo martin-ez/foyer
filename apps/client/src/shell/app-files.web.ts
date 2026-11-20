@@ -33,7 +33,7 @@ export function reloadForFile(file: string): boolean {
   return true;
 }
 
-/** Reloads the app, as the person asks. */
+/** Reloads the app at once, without waiting for unsaved changes, for when the person asks to. */
 export function reloadApp(): void {
   window.location.reload();
 }

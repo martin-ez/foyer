@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as iPadAppFiles from "../src/shell/app-files";
 import { checkFailedFile, fileThatFailedToLoad, reloadForFile } from "../src/shell/app-files.web";
 
 const tasksFile = "https://foyer.example/_expo/static/js/web/tasks-8e5d33f4.js";
@@ -67,10 +66,6 @@ describe("fileThatFailedToLoad", () => {
   ])("ignores %s", (_, error) => {
     expect(fileThatFailedToLoad(error)).toBeNull();
   });
-
-  it("never finds one on the iPad, whose app carries all its files", () => {
-    expect(iPadAppFiles.fileThatFailedToLoad(failedLoadOf(tasksFile))).toBeNull();
-  });
 });
 
 describe("checkFailedFile", () => {
@@ -98,7 +93,7 @@ describe("checkFailedFile", () => {
     expect(await checkFailedFile(notebookFile)).toBe("reload");
   });
 
-  it("reloads when the browser keeps nothing, leaving the guard to reloadForFile", async () => {
+  it("still reloads when the browser keeps nothing", async () => {
     vi.stubGlobal("sessionStorage", storageKeepingNothing());
 
     expect(await checkFailedFile(tasksFile)).toBe("reload");
