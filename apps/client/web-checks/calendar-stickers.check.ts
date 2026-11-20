@@ -2,7 +2,7 @@ import { expect, type Page, type TestInfo, test } from "@playwright/test";
 import { expectOnAnotherDevice } from "./another-device";
 import { dayLabel, describeWeekday, isInColumn, openWeek, show, tapInDay } from "./calendar-pages";
 import { saveScreenshot } from "./screenshot";
-import { householdMembers, signIn } from "./sign-in";
+import { housemate, signIn } from "./sign-in";
 import {
   addTask,
   boxOf,
@@ -208,8 +208,6 @@ test("shows another member a task they can't see as a hidden sticker on its day"
   page,
   browser,
 }, testInfo) => {
-  const [, housemate] = householdMembers();
-  test.skip(housemate === undefined, "Needs a second email in HOUSEHOLD_MEMBERS");
   const weeks = weeksAhead(testInfo);
   const theirs = await (await browser.newContext({ ...testInfo.project.use })).newPage();
   await openCalendar(theirs, housemate);

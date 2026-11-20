@@ -1,7 +1,7 @@
 # Copy this file to .dev.vars, which git ignores, to set the local backend's secrets and settings.
 
-# The emails that may sign in to the local household, as a JSON list. The web checks sign in as the
-# first, and as the second where a check needs two members on the same page.
+# The emails that may sign in to the local household, as a JSON list. The web checks' backend lets
+# in members of the checks' own instead, listed in apps/client/web-checks/sign-in.ts.
 HOUSEHOLD_MEMBERS='["you@example.com", "housemate@example.com"]'
 
 # The Google OAuth client that people sign in with. Its authorized redirect URIs must include
