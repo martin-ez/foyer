@@ -15,6 +15,7 @@ Check a change yourself before asking for review, with the checks that fit it, a
 
 - **Every change:** `pnpm check` and `pnpm test`.
 - **A change to the app, or to what the backend answers it:** `pnpm --filter @foyer/client check-web`, which opens the web app, signs in and takes screenshots, in an iPad's and a phone's viewport. When the change adds or changes something people do in the app, also check that, in `apps/client/web-checks/`. Views are wireframes, so check what a view does, not how it looks.
+- **A change to how the web app is built, loaded or served,** such as its export, how it loads a view's files, or how the Worker serves them: `pnpm --filter @foyer/client check-web-export`, which checks the web app as deploys export and serve it, including a deploy under an open tab.
 - **A change to the app's code, its dependencies or `app.json`:** `pnpm --filter @foyer/client check-ios-bundle`, the closest a cloud session gets to the iPad.
 
 Share what you checked:

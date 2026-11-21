@@ -50,5 +50,11 @@ test/golden-images/failures/
 web-checks/screenshots/
 web-checks/results/
 
+# What the export checks write: the versions of the web app they serve, their screenshots, and
+# Playwright's results
+web-export-checks/versions/
+web-export-checks/screenshots/
+web-export-checks/results/
+
 # A trace that `playwright trace open` extracted, to read from the command line
 .playwright-cli/
