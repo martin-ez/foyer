@@ -320,6 +320,80 @@ export function moveItem(
   return { seq, changed: moved, unchanged: [] };
 }
 
+/** Moves an item into another space for the household itself, as when it was moved in Google
+ *  Calendar, unless a later move or change to its parent won, taking it out of its parent first.
+ *  Returns the rows it changed, or null when a later change won. */
+export function moveItemForHousehold(
+  sql: SqlStorage,
+  itemId: string,
+  spaceId: string,
+  setter: Setter,
+): RowKey[] | null {
+  const [item] = sql
+    .exec<
+      Pick<
+        ItemRow,
+        | "space_id"
+        | "owner_id"
+        | "parent_id"
+        | "parent_at"
+        | "parent_change_id"
+        | "space_at"
+        | "space_change_id"
+      >
+    >(
+      `SELECT items.space_id, spaces.owner_id, items.parent_id, items.parent_at,
+         items.parent_change_id, items.space_at, items.space_change_id
+       FROM items JOIN spaces ON spaces.id = items.space_id WHERE items.id = ?`,
+      itemId,
+    )
+    .toArray();
+  if (!item || item.space_id === spaceId) return [];
+  const lastSpace = { at: item.space_at, changeId: item.space_change_id };
+  const lastParent = { at: item.parent_at, changeId: item.parent_change_id };
+  if (!isLater(setter, lastSpace) || (item.parent_id !== null && !isLater(setter, lastParent))) {
+    return null;
+  }
+  const seq = nextSeq(sql);
+  const peeled = item.parent_id === null ? [] : takeOut(sql, itemId, item.parent_id, setter, seq);
+  return [...peeled, ...moveIntoSpace(sql, itemId, item.owner_id, spaceId, setter, seq)];
+}
+
+function takeOut(
+  sql: SqlStorage,
+  itemId: string,
+  parentId: string,
+  setter: Setter,
+  seq: number,
+): RowKey[] {
+  sql.exec(
+    "UPDATE items SET parent_id = NULL, parent_at = ?, parent_change_id = ?, seq = ? WHERE id = ?",
+    setter.at,
+    setter.changeId,
+    seq,
+    itemId,
+  );
+  const stickers = sql
+    .exec<{ id: string; owner_id: string | null }>(
+      `SELECT stickers.id, spaces.owner_id FROM stickers
+       JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
+       WHERE stickers.item_id = ? AND stickers.page_id = ?`,
+      itemId,
+      itemPageId(parentId),
+    )
+    .toArray();
+  for (const sticker of stickers) {
+    sql.exec("DELETE FROM stickers WHERE id = ?", sticker.id);
+    sql.exec(
+      "INSERT INTO tombstones (kind, id, visible_to, seq) VALUES ('sticker', ?, ?, ?)",
+      sticker.id,
+      sticker.owner_id,
+      seq,
+    );
+  }
+  return stickers.map(({ id }): RowKey => ({ kind: "sticker", id }));
+}
+
 /** Moves an item and everything under it into a space, with their completions, body pages and
  *  what's on them, as change `seq` made by `setter`, dating events by the space's calendar. Members
  *  who can't see the space are told to drop them, and those who see them again receive them. */

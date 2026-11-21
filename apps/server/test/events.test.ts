@@ -1,9 +1,11 @@
 import { reset, runInDurableObject } from "cloudflare:test";
 import { toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { newId } from "@foyer/shared";
+import { a4Portrait, itemPageId, newId } from "@foyer/shared";
 import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
+import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { CalendarState, type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { type Sticker, StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import {
   type ChangeResult,
   type Row,
@@ -11,7 +13,7 @@ import {
   RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type FakeEventFields, fakeGoogle } from "../src/fake-google";
+import { type FakeEvent, type FakeEventFields, fakeGoogle } from "../src/fake-google";
 import { theHousehold } from "../src/household";
 import { householdMigrations, migrate } from "../src/migrations";
 import { backendUrl, localBackendUrl, requestBackend } from "./backend";
@@ -28,8 +30,10 @@ import {
   itemSetParent,
   itemSetTitle,
   madeAt,
+  pageCreate,
   signIn,
   spaceCreate,
+  stickerPlace,
 } from "./sync-device";
 
 const alex = "member@example.com";
@@ -670,6 +674,235 @@ describe("reading changes made in Google", () => {
     await readAgain();
 
     expect(await eventsOf(device)).toEqual(new Map());
+  });
+});
+
+describe("events moved in Google from one of Foyer's calendars to another", () => {
+  type Calendar = [account: string, spaceName: string];
+
+  async function personalSpace(device: Device, name: string): Promise<string> {
+    const create = spaceCreate({ name, kind: SpaceKind.PERSONAL });
+    await device.push(create);
+    await work();
+    return idOf(create);
+  }
+
+  async function addIn(device: Device, spaceId: string, title: string): Promise<string> {
+    const create = eventCreate(spaceId, title);
+    await device.push(create);
+    await work();
+    return idOf(create);
+  }
+
+  function moveInGoogle(title: string, from: Calendar, to: Calendar): string {
+    const fromId = calendarOf(...from);
+    const eventId = fakeGoogle.eventsOf(fromId).find(({ summary }) => summary === title)?.id ?? "";
+    fakeGoogle.moveEvent(fromId, eventId, calendarOf(...to));
+    return eventId;
+  }
+
+  function bodyPage(itemId: string): ChangeInit {
+    return pageCreate({ pageId: itemPageId(itemId), kind: PageKind.ITEM, itemId, ...a4Portrait });
+  }
+
+  async function seenBy(device: Device) {
+    const items = new Map<string, Item>();
+    const stickers = new Map<string, Sticker>();
+    for (const { row } of await received(device)) {
+      if (row.case === "item") items.set(row.value.id, row.value);
+      if (row.case === "sticker") stickers.set(row.value.id, row.value);
+      if (row.case !== "deleted") continue;
+      if (row.value.kind === RowKind.ITEM) items.delete(row.value.id);
+      if (row.value.kind === RowKind.STICKER) stickers.delete(row.value.id);
+    }
+    const stickersOf = (itemId: string) =>
+      [...stickers.values()].filter((sticker) => sticker.itemId === itemId).map(({ id }) => id);
+    return { items, stickers, stickersOf };
+  }
+
+  it.each([
+    { reading: "its deletion first", from: "Personal", to: "Work" },
+    { reading: "it in its new calendar first", from: "Work", to: "Personal" },
+  ] as const)(
+    "moves the event to the new calendar's space, keeping its id and stickers, reading $reading",
+    async ({ from, to }) => {
+      const { device } = await member(alex);
+      const spaces = {
+        Personal: (await spaceNamed(device, "Personal")).id,
+        Work: await personalSpace(device, "Work"),
+      };
+      const dinner = await addIn(device, spaces[from], "Dinner");
+      const before = await seenBy(device);
+
+      const googleId = moveInGoogle("Dinner", [alexsAccount, from], [alexsAccount, to]);
+      await readAgain();
+
+      const after = await seenBy(device);
+      expect([...(await eventsOf(device)).values()]).toEqual([
+        expect.objectContaining({ id: dinner, spaceId: spaces[to] }),
+      ]);
+      expect(before.stickersOf(dinner)).not.toEqual([]);
+      expect(after.stickersOf(dinner)).toEqual(before.stickersOf(dinner));
+      expect(googleEvents(alexsAccount, from)).toEqual([]);
+      expect(googleEvents(alexsAccount, to)).toEqual([
+        expect.objectContaining({ id: googleId, summary: "Dinner" }),
+      ]);
+    },
+  );
+
+  it("takes the event out of the sight of members who can't see its new space", async () => {
+    const alexs = await member(alex);
+    const sams = await member(sam);
+    const garden = spaceCreate({ name: "Garden", kind: SpaceKind.SHARED });
+    await sams.device.push(garden);
+    await work();
+    const dinner = await addIn(alexs.device, idOf(garden), "Dinner");
+    const seenBySam = (await eventsOf(sams.device)).has(dinner);
+
+    moveInGoogle("Dinner", [samsAccount, "Garden"], [alexsAccount, "Personal"]);
+    await readAgain();
+
+    expect(seenBySam).toBe(true);
+    expect((await eventsOf(sams.device)).has(dinner)).toBe(false);
+    expect((await eventsOf(alexs.device)).get(dinner)?.spaceId).toBe(
+      (await spaceNamed(alexs.device, "Personal")).id,
+    );
+  });
+
+  it("takes the event out of the task it was under, peeling its sticker off the task's body page", async () => {
+    const { device } = await member(alex);
+    const personal = (await spaceNamed(device, "Personal")).id;
+    const workSpace = await personalSpace(device, "Work");
+    const dinner = await addIn(device, personal, "Dinner");
+    const party = itemCreate({ spaceId: personal, title: "Plan the party" });
+    const sticker = stickerPlace({
+      pageId: itemPageId(idOf(party)),
+      itemId: dinner,
+      kind: StickerKind.EVENT,
+    });
+    await device.push(party, bodyPage(idOf(party)), itemSetParent(dinner, idOf(party)), sticker);
+    const before = await seenBy(device);
+
+    moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
+    await readAgain();
+
+    const after = await seenBy(device);
+    expect(before.stickers.has(idOf(sticker))).toBe(true);
+    expect(after.stickers.has(idOf(sticker))).toBe(false);
+    expect(after.items.get(dinner)).toMatchObject({ spaceId: workSpace, parentId: "" });
+    expect(after.items.get(idOf(party))?.spaceId).toBe(personal);
+  });
+
+  it("keeps a move made in Foyer after the one made in Google, moving the event on in Google", async () => {
+    const { device } = await member(alex);
+    await personalSpace(device, "Work");
+    const home = await personalSpace(device, "Home");
+    const dinner = await addInPersonal(device, "Dinner");
+
+    const googleId = moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
+    await device.push(itemMove(dinner, home, { at: madeAt(Date.now() + 1000) }));
+    await work();
+
+    expect((await eventsOf(device)).get(dinner)?.spaceId).toBe(home);
+    expect(googleEvents(alexsAccount, "Work")).toEqual([]);
+    expect(googleEvents(alexsAccount, "Home")).toEqual([
+      expect.objectContaining({ id: googleId, summary: "Dinner" }),
+    ]);
+  });
+
+  it("writes a change made in Foyer while the event moved in Google to its new calendar", async () => {
+    const { device } = await member(alex);
+    const workSpace = await personalSpace(device, "Work");
+    const dinner = await addInPersonal(device, "Dinner");
+
+    const googleId = moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
+    await device.push(itemSetTitle(dinner, "Dinner with Sam"));
+    await work();
+
+    expect((await eventsOf(device)).get(dinner)).toMatchObject({
+      title: "Dinner with Sam",
+      spaceId: workSpace,
+    });
+    expect(googleEvents(alexsAccount, "Work")).toEqual([
+      expect.objectContaining({ id: googleId, summary: "Dinner with Sam" }),
+    ]);
+  });
+
+  it("follows the event when it reads every event again after Google drops the sync token", async () => {
+    const { device } = await member(alex);
+    const workSpace = await personalSpace(device, "Work");
+    const dinner = await addInPersonal(device, "Dinner");
+
+    moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
+    fakeGoogle.dropSyncTokens(calendarOf(alexsAccount, "Personal"));
+    await readAgain();
+
+    expect([...(await eventsOf(device)).values()]).toEqual([
+      expect.objectContaining({ id: dinner, spaceId: workSpace }),
+    ]);
+  });
+
+  it("makes another event of one that Google still has in the calendar Foyer knows it in", async () => {
+    const { device } = await member(alex);
+    const personal = (await spaceNamed(device, "Personal")).id;
+    const workSpace = await personalSpace(device, "Work");
+    const dinner = await addIn(device, workSpace, "Dinner");
+
+    const googleId = moveInGoogle("Dinner", [alexsAccount, "Work"], [alexsAccount, "Personal"]);
+    const original = fakeGoogle.calendars.get(calendarOf(alexsAccount, "Work"))?.events;
+    original?.set(googleId, { ...(original.get(googleId) as FakeEvent), status: "confirmed" });
+    await readAgain();
+
+    const events = [...(await eventsOf(device)).values()];
+    expect(events.map(({ id, spaceId, title }) => ({ id, spaceId, title }))).toEqual(
+      expect.arrayContaining([
+        { id: dinner, spaceId: workSpace, title: "Dinner" },
+        { id: expect.not.stringMatching(dinner), spaceId: personal, title: "Dinner" },
+      ]),
+    );
+    expect(events).toHaveLength(2);
+  });
+
+  it("waits until Google says where the event went before moving or deleting it", async () => {
+    const { device } = await member(alex);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const personal = (await spaceNamed(device, "Personal")).id;
+    const workSpace = await personalSpace(device, "Work");
+    const dinner = await addInPersonal(device, "Dinner");
+    const googleId = moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
+    const answer = fakeGoogle.answer.bind(fakeGoogle);
+    const askingForTheEvent = vi
+      .spyOn(fakeGoogle, "answer")
+      .mockImplementation(async (request) =>
+        request.method === "GET" && new URL(request.url).pathname.endsWith(`/events/${googleId}`)
+          ? new Response("Google is down", { status: 503 })
+          : answer(request),
+      );
+
+    await readAgain();
+    const whileDown = (await eventsOf(device)).get(dinner)?.spaceId;
+    askingForTheEvent.mockRestore();
+    await readAgain();
+
+    expect(whileDown).toBe(personal);
+    expect((await eventsOf(device)).get(dinner)?.spaceId).toBe(workSpace);
+  });
+
+  it("takes the event as moved when the holder of the calendar Foyer knows it in has disconnected", async () => {
+    const alexs = await member(alex);
+    const sams = await member(sam);
+    const garden = spaceCreate({ name: "Garden", kind: SpaceKind.SHARED });
+    await sams.device.push(garden);
+    await work();
+    const dinner = await addIn(alexs.device, idOf(garden), "Dinner");
+
+    await calendars(sams.token).disconnect();
+    moveInGoogle("Dinner", [samsAccount, "Garden"], [alexsAccount, "Personal"]);
+    await readAgain();
+
+    expect((await eventsOf(alexs.device)).get(dinner)?.spaceId).toBe(
+      (await spaceNamed(alexs.device, "Personal")).id,
+    );
   });
 });
 
