@@ -15,7 +15,7 @@ Decided in #80
   - The household refuses a change that would put an item under itself or under one of its own children. Two devices offline could otherwise make a loop, each moving one item under the other.
   - Moving a parent to another space moves everything under it, and sync sends or hides all of it.
 
-Notes and events join in when they're built by #29 and #27, with the same rules.
+Notes join in when they're built by #29, with the same rules.
 
 **Why:** Breaking a task into smaller steps, next to a brainstorming note about it, is how people plan in Notion and Todoist. Children in their parent's space keep one rule for who sees what, so nobody sees a parent with children they can't open. Stickers on the parent's body page leave room to write around them, as on a space's page. Asking before ticking or deleting a parent keeps one tap from changing things the person can't see from where they are.
 

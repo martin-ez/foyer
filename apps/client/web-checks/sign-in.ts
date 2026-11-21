@@ -13,8 +13,20 @@ export const googleCalendarMembers: Readonly<Record<string, string>> = {
   phone: "calendar.phone@example.com",
 };
 
+/** Members only the check of events under tasks signs in as, one for each viewport, since it
+ *  connects Google Calendar to add an event. */
+export const eventNestingMembers: Readonly<Record<string, string>> = {
+  ipad: "nesting.ipad@example.com",
+  phone: "nesting.phone@example.com",
+};
+
 /** Everyone the checks' backend lets in, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`. */
-export const checksHouseholdMembers = [member, housemate, ...Object.values(googleCalendarMembers)];
+export const checksHouseholdMembers = [
+  member,
+  housemate,
+  ...Object.values(googleCalendarMembers),
+  ...Object.values(eventNestingMembers),
+];
 
 /** Signs in to the checks' backend without Google, as `email`, which returns to the web app. */
 export async function signIn(page: Page, email = member) {

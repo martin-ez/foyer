@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useHousehold } from "../shell/household";
 import { Checkbox } from "../tasks/checkbox";
+import { EventNesting } from "../tasks/task-nesting";
 import {
   describeEventTime,
   draftOf,
@@ -36,9 +37,7 @@ export function EventsPanel({
 }) {
   const { state } = useHousehold();
   const { height } = useWindowDimensions();
-  const withCalendar = state.spaces.filter(
-    ({ calendarState }) => calendarState !== CalendarState.NONE,
-  );
+  const withCalendar = spacesWithCalendar(state.spaces);
   const openEvent = open === null || open === "new" ? undefined : state.items.get(open);
 
   if (open === "new" || openEvent) {
@@ -47,6 +46,7 @@ export function EventsPanel({
         key={openEvent?.id ?? "new"}
         event={openEvent}
         spaces={withCalendar}
+        onOpenTask={setOpen}
         onClose={() => setOpen(null)}
       />
     );
@@ -93,15 +93,25 @@ export function EventsPanel({
   );
 }
 
+/** The spaces events can go in: those with a Google calendar. */
+export function spacesWithCalendar(spaces: readonly Space[]): Space[] {
+  return spaces.filter(({ calendarState }) => calendarState !== CalendarState.NONE);
+}
+
 type EventEdits = { title?: string; description?: string; time?: EventTimeDraft };
 
-function EventEditor({
+/** A new event's fields, or an event's, to save, with ways to put the event under a task, move it
+ *  to another of `spaces` and delete it. */
+export function EventEditor({
   event,
   spaces,
+  onOpenTask,
   onClose,
 }: {
   event: Item | undefined;
+  /** The spaces it can go in, which have a Google calendar. */
   spaces: Space[];
+  onOpenTask: (itemId: string) => void;
   onClose: () => void;
 }) {
   const { state, sync } = useHousehold();
@@ -228,6 +238,9 @@ function EventEditor({
           />
           <Button title="Close" onPress={onClose} />
         </View>
+        {event ? (
+          <EventNesting event={event} state={state} sync={sync} onOpenTask={onOpenTask} />
+        ) : null}
         {event && others.length > 0 ? (
           <>
             <Text style={styles.line}>Move to</Text>

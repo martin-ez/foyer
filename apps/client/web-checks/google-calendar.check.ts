@@ -11,6 +11,7 @@ import {
   tapOnTimeline,
   toHour,
 } from "./calendar-pages";
+import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
 import { describeDayInBrowser, describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { googleCalendarMembers, signIn } from "./sign-in";
@@ -19,10 +20,7 @@ import { bundleBuildTimeout, drag } from "./tasks";
 const connectPrompt = "Connect Google Calendar to keep a Google calendar for each of your spaces.";
 
 function memberOfItsOwnFor(testInfo: TestInfo): string {
-  const email = googleCalendarMembers[testInfo.project.name];
-  if (email === undefined)
-    throw new Error(`No Google Calendar member for ${testInfo.project.name}.`);
-  return email;
+  return memberOfItsOwn(googleCalendarMembers, testInfo);
 }
 
 async function openAccount(page: Page) {
@@ -45,13 +43,6 @@ async function signInDisconnected(page: Page, email: string) {
   }
   await expect(page.getByText("Google Calendar: Not connected")).toBeVisible();
   await hideAccount(page);
-}
-
-async function connectAtFakeGoogle(page: Page, choice: RegExp) {
-  await page.getByRole("button", { name: "Connect Google Calendar" }).click();
-  await expect(page.getByRole("heading", { name: "Fake Google" })).toBeVisible();
-  await page.getByRole("link", { name: choice }).click();
-  await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
 }
 
 async function openSpaces(page: Page) {

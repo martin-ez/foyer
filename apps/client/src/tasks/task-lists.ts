@@ -35,9 +35,9 @@ export function isStickerDone(
   return false;
 }
 
-/** A space's tasks in list order: its top-level tasks in the order of their stickers on its pages,
- *  page by page, top to bottom, then left to right, each followed by the tasks under it, in the
- *  order of their stickers on its body page. A task with no such sticker comes last among them. */
+/** A space's tasks, and the events under them, in list order: top-level tasks by their stickers on
+ *  its pages, page by page, top to bottom, then left to right, each followed by the items under it,
+ *  by their stickers on its body page. Items without such a sticker come last among them. */
 export function spaceList(
   spaceId: string,
   items: Iterable<Item>,
@@ -46,19 +46,22 @@ export function spaceList(
   return spaceTree(spaceId, items, stickers).map(({ item }) => item);
 }
 
-/** A space's tasks in list order, as `spaceList` gives them, each with how deep it is: 0 at the
- *  top of the space, 1 under a top-level task, and so on. */
+/** A space's tasks, and the events under them, in list order, as `spaceList` gives them, each with
+ *  how deep it is: 0 at the top of the space, 1 under a top-level task, and so on. */
 export function spaceTree(
   spaceId: string,
   items: Iterable<Item>,
   stickers: Iterable<Sticker>,
 ): { item: Item; depth: number }[] {
-  const tasks = [...items].filter(
-    (item) => item.kind === ItemKind.TASK && item.spaceId === spaceId,
+  const inSpace = [...items].filter((item) => item.spaceId === spaceId);
+  const taskIds = new Set(inSpace.filter(({ kind }) => kind === ItemKind.TASK).map(({ id }) => id));
+  const listable = inSpace.filter(
+    (item) => taskIds.has(item.id) || (item.kind === ItemKind.EVENT && taskIds.has(item.parentId)),
   );
-  const inSpace = new Set(tasks.map(({ id }) => id));
-  const parentOf = (item: Item) => (inSpace.has(item.parentId) ? item.parentId : "");
-  const placedOn = new Map(tasks.map((item) => [item.id, placementPage(spaceId, parentOf(item))]));
+  const parentOf = (item: Item) => (taskIds.has(item.parentId) ? item.parentId : "");
+  const placedOn = new Map(
+    listable.map((item) => [item.id, placementPage(spaceId, parentOf(item))]),
+  );
   const spots = new Map<string, Spot>();
   for (const sticker of stickers) {
     const page = placedOn.get(sticker.itemId)?.(sticker.pageId);
@@ -68,7 +71,7 @@ export function spaceTree(
     if (!known || compareSpots(spot, known) < 0) spots.set(sticker.itemId, spot);
   }
   const byParent = new Map<string, Item[]>();
-  for (const item of tasks)
+  for (const item of listable)
     byParent.set(parentOf(item), [...(byParent.get(parentOf(item)) ?? []), item]);
   const listed: { item: Item; depth: number }[] = [];
   const seen = new Set<string>();

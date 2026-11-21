@@ -243,7 +243,7 @@ export class HouseholdSync {
       case: "itemCreate",
       value: { itemId, kind: ItemKind.TASK, spaceId, title: trimmed, date },
     };
-    const { changes, pageNumber } = this.#stickOn(spaceId, itemId);
+    const { changes, pageNumber } = this.#stickOn(spaceId, itemId, StickerKind.TASK);
     const time = dated?.spot?.time ?? null;
     const timed: ChangeInit[] =
       dated && time !== null
@@ -338,15 +338,15 @@ export class HouseholdSync {
     const removals = this.#placedStickers(item).map(
       ({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }),
     );
-    const { changes, pageNumber } = this.#stickOn(spaceId, itemId);
+    const { changes, pageNumber } = this.#stickOn(spaceId, itemId, StickerKind.TASK);
     const move: ChangeInit = { case: "itemMove", value: { itemId, spaceId } };
     this.#make(`moving “${item.title}”`, ...takeOut, move, ...removals, ...changes);
     return { pageNumber };
   }
 
-  /** Puts a task under another task, with its sticker going to that task's body page, or back at
-   *  the top of its space when `parentId` is null, with its sticker on the space's newest page.
-   *  Under a task in another space, it moves there with everything under it. */
+  /** Puts a task or an event under a task, with its sticker going to that task's body page, or
+   *  back at the top of its space when `parentId` is null, with its sticker on the space's newest
+   *  page. Under a task in another space, it moves there with everything under it. */
   putUnder(itemId: string, parentId: string | null): void {
     const item = this.#state.items.get(itemId);
     if (!item || item.parentId === (parentId ?? "")) return;
@@ -356,10 +356,11 @@ export class HouseholdSync {
     const removals = this.#placedStickers(item).map(
       ({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }),
     );
+    const kind = stickerKindOf(item);
     const placing =
       parentId === null
-        ? this.#stickOn(item.spaceId, itemId).changes
-        : this.#stickOnBody(parentId, itemId);
+        ? this.#stickOn(item.spaceId, itemId, kind).changes
+        : this.#stickOnBody(parentId, itemId, kind);
     const describe = parent
       ? `putting “${item.title}” under “${parent.title}”`
       : `taking out “${item.title}”`;
@@ -378,7 +379,8 @@ export class HouseholdSync {
       value: { itemId, kind: ItemKind.TASK, spaceId: parent.spaceId, title: trimmed },
     };
     const set: ChangeInit = { case: "itemSetParent", value: { itemId, parentId } };
-    this.#make(`adding “${trimmed}”`, create, set, ...this.#stickOnBody(parentId, itemId));
+    const placing = this.#stickOnBody(parentId, itemId, StickerKind.TASK);
+    this.#make(`adding “${trimmed}”`, create, set, ...placing);
     return itemId;
   }
 
@@ -522,10 +524,22 @@ export class HouseholdSync {
     );
   }
 
-  /** Moves an event to another space that has a Google calendar, and so to that calendar. */
+  /** Moves an event to another space that has a Google calendar, and so to that calendar, taking
+   *  it out of its parent first. A sticker it had on its space's pages or its parent's body page
+   *  goes to the new space's newest page; its stickers on the calendar's pages stay. */
   moveEvent(itemId: string, spaceId: string): void {
-    const title = this.#state.items.get(itemId)?.title ?? "an event";
-    this.#make(`moving “${title}”`, { case: "itemMove", value: { itemId, spaceId } });
+    const item = this.#state.items.get(itemId);
+    if (!item || item.spaceId === spaceId) return;
+    const takeOut: ChangeInit[] = item.parentId
+      ? [{ case: "itemSetParent", value: { itemId, parentId: "" } }]
+      : [];
+    const removals = this.#placedStickers(item).map(
+      ({ id }): ChangeInit => ({ case: "stickerRemove", value: { stickerId: id } }),
+    );
+    const placing =
+      removals.length > 0 ? this.#stickOn(spaceId, itemId, StickerKind.EVENT).changes : [];
+    const move: ChangeInit = { case: "itemMove", value: { itemId, spaceId } };
+    this.#make(`moving “${item.title}”`, ...takeOut, move, ...removals, ...placing);
   }
 
   /** Deletes an event, in Google Calendar too. */
@@ -648,11 +662,11 @@ export class HouseholdSync {
     );
   }
 
-  #stickOnBody(parentId: string, itemId: string): ChangeInit[] {
+  #stickOnBody(parentId: string, itemId: string, kind: StickerKind): ChangeInit[] {
     const { pages, stickers } = this.#state;
     const pageId = itemPageId(parentId);
     const size = pageSizeFor("item");
-    const spot = spotOnPage(pageId, StickerKind.TASK, pages, stickers.values(), size);
+    const spot = spotOnPage(pageId, kind, pages, stickers.values(), size);
     const changes: ChangeInit[] = [];
     if (spot.isNewPage) {
       changes.push({
@@ -660,23 +674,27 @@ export class HouseholdSync {
         value: { pageId, kind: PageKind.ITEM, itemId: parentId, ...size },
       });
     }
-    const sticker = { stickerId: newId(), pageId, ...spot.at, itemId, kind: StickerKind.TASK };
+    const sticker = { stickerId: newId(), pageId, ...spot.at, itemId, kind };
     changes.push({ case: "stickerPlace", value: sticker });
     return changes;
   }
 
-  #stickOn(spaceId: string, itemId: string): { changes: ChangeInit[]; pageNumber: number } {
+  #stickOn(
+    spaceId: string,
+    itemId: string,
+    kind: StickerKind,
+  ): { changes: ChangeInit[]; pageNumber: number } {
     const { pages, stickers } = this.#state;
     const newPageSize = pageSizeFor("space");
-    const spot = spotInSpace(spaceId, StickerKind.TASK, pages, stickers.values(), newPageSize);
+    const spot = spotInSpace(spaceId, kind, pages, stickers.values(), newPageSize);
     const changes: ChangeInit[] = [];
     if (spot.isNewPage) {
       const { pageId, number } = spot;
       const value = { pageId, kind: PageKind.SPACE, spaceId, number, ...newPageSize };
       changes.push({ case: "pageCreate", value });
     }
-    const sticker = { stickerId: newId(), pageId: spot.pageId, ...spot.at, itemId };
-    changes.push({ case: "stickerPlace", value: { ...sticker, kind: StickerKind.TASK } });
+    const sticker = { stickerId: newId(), pageId: spot.pageId, ...spot.at, itemId, kind };
+    changes.push({ case: "stickerPlace", value: sticker });
     return { changes, pageNumber: spot.number };
   }
 
@@ -1064,6 +1082,10 @@ const calendarPageKinds: Record<CalendarPageKind, PageKind> = {
 function sizeOfCalendarPage(pageId: string, pages: ReadonlyMap<string, PageSize>): PageSize {
   const calendar = calendarPageOf(pageId);
   return pages.get(pageId) ?? pageSizeFor(calendar?.kind ?? "day");
+}
+
+function stickerKindOf(item: Item): StickerKind {
+  return item.kind === ItemKind.EVENT ? StickerKind.EVENT : StickerKind.TASK;
 }
 
 function eventTimeOf(item: Item): EventTime | null {

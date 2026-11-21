@@ -6,6 +6,7 @@ import {
   calendarPageId,
   calendarPageKinds,
   calendarStickerGap,
+  dayPageId,
   heightOfTime,
   inStrip,
   itemPageId,
@@ -184,6 +185,7 @@ function stickerRow(
     x?: number;
     y?: number;
     placedAt?: number;
+    kind?: StickerKind;
   },
 ): RowInit {
   const { placedAt = 0, ...rest } = sticker;
@@ -1641,6 +1643,142 @@ describe("events", () => {
     ]);
     expect(moved).toBe(work.id);
     expect(sync.getState().items.has(dinnerId)).toBe(false);
+  });
+
+  describe("under a task", () => {
+    const party = {
+      id: "019a8f4e-5c00-7000-8000-0000000000c1",
+      spaceId: personal.id,
+      title: "Party",
+    };
+    const personalPage = spacePageId(personal.id, 1);
+    const partyBody = itemPageId(party.id);
+    const dinnersDay = dayPageId("2026-11-20");
+    const underParty = {
+      ...dinner,
+      row: { ...dinner.row, value: { ...dinner.row.value, parentId: party.id } },
+    };
+    const onItsDay = stickerRow(8, {
+      id: "019a8f4e-5c00-7000-8000-0000000000f1",
+      pageId: dinnersDay,
+      itemId: dinnerId,
+      kind: StickerKind.EVENT,
+    });
+    const nested = () => [
+      spaceRow(1, inbox),
+      spaceRow(2, personal),
+      spaceRow(3, work),
+      underParty,
+      itemRow(5, party),
+      pageRow(6, { id: personalPage, kind: PageKind.SPACE, spaceId: personal.id, number: 1 }),
+      pageRow(7, { id: partyBody, kind: PageKind.ITEM, itemId: party.id }),
+      onItsDay,
+      stickerRow(9, {
+        id: "019a8f4e-5c00-7000-8000-0000000000f2",
+        pageId: personalPage,
+        itemId: party.id,
+      }),
+      stickerRow(10, {
+        id: "019a8f4e-5c00-7000-8000-0000000000f3",
+        pageId: partyBody,
+        itemId: dinnerId,
+        kind: StickerKind.EVENT,
+      }),
+    ];
+
+    function stuckOn(pageId: string) {
+      return stickersOn(pageId, sync.getState().stickers.values()).map(({ itemId, kind }) => ({
+        itemId,
+        kind,
+      }));
+    }
+
+    it("puts an event under a task at once, with an event's sticker on the task's body page", () => {
+      startUpToDate(
+        [spaceRow(1, inbox), spaceRow(2, personal), dinner, itemRow(5, party), onItsDay],
+        8,
+      );
+
+      sync.putUnder(dinnerId, party.id);
+
+      expect(changesIn(household().lastPush())).toEqual([
+        {
+          case: "itemSetParent",
+          value: expect.objectContaining({ itemId: dinnerId, parentId: party.id }),
+        },
+        {
+          case: "pageCreate",
+          value: expect.objectContaining({
+            pageId: partyBody,
+            kind: PageKind.ITEM,
+            itemId: party.id,
+          }),
+        },
+        {
+          case: "stickerPlace",
+          value: expect.objectContaining({
+            pageId: partyBody,
+            itemId: dinnerId,
+            kind: StickerKind.EVENT,
+            x: pageMargin,
+            y: pageMargin,
+          }),
+        },
+      ]);
+      expect(sync.getState().items.get(dinnerId)?.parentId).toBe(party.id);
+      expect(stuckOn(partyBody)).toEqual([{ itemId: dinnerId, kind: StickerKind.EVENT }]);
+      expect(stuckOn(dinnersDay)).toEqual([{ itemId: dinnerId, kind: StickerKind.EVENT }]);
+    });
+
+    it("takes an event out at once, with an event's sticker on its space's newest page", () => {
+      startUpToDate(nested(), 10);
+
+      sync.putUnder(dinnerId, null);
+
+      expect(changesIn(household().lastPush()).map((change) => change.case)).toEqual([
+        "itemSetParent",
+        "stickerRemove",
+        "stickerPlace",
+      ]);
+      expect(sync.getState().items.get(dinnerId)?.parentId).toBe("");
+      expect(stuckOn(partyBody)).toEqual([]);
+      expect(stuckOn(personalPage)).toEqual([
+        { itemId: party.id, kind: StickerKind.TASK },
+        { itemId: dinnerId, kind: StickerKind.EVENT },
+      ]);
+      expect(stuckOn(dinnersDay)).toEqual([{ itemId: dinnerId, kind: StickerKind.EVENT }]);
+    });
+
+    it("takes an event out of its task before moving it, its sticker going to the new space", () => {
+      startUpToDate(nested(), 10);
+
+      sync.moveEvent(dinnerId, work.id);
+
+      const workPage = spacePageId(work.id, 1);
+      expect(changesIn(household().lastPush())).toEqual([
+        {
+          case: "itemSetParent",
+          value: expect.objectContaining({ itemId: dinnerId, parentId: "" }),
+        },
+        {
+          case: "itemMove",
+          value: expect.objectContaining({ itemId: dinnerId, spaceId: work.id }),
+        },
+        { case: "stickerRemove", value: expect.anything() },
+        { case: "pageCreate", value: expect.objectContaining({ pageId: workPage }) },
+        {
+          case: "stickerPlace",
+          value: expect.objectContaining({
+            pageId: workPage,
+            itemId: dinnerId,
+            kind: StickerKind.EVENT,
+          }),
+        },
+      ]);
+      expect(sync.getState().items.get(dinnerId)).toMatchObject({ spaceId: work.id, parentId: "" });
+      expect(stuckOn(partyBody)).toEqual([]);
+      expect(stuckOn(dinnersDay)).toEqual([{ itemId: dinnerId, kind: StickerKind.EVENT }]);
+    });
   });
 
   it("undoes an event the household refuses, and says why", () => {
