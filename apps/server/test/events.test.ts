@@ -303,6 +303,31 @@ describe("changing events in Foyer", () => {
     });
   });
 
+  it("leaves a description written as HTML in Google as it is, until it changes in Foyer", async () => {
+    const { device } = await member(alex);
+    addInGoogle(alexsAccount, "Personal", {
+      summary: "Dentist",
+      description: "Bring:<br><b>the card</b>",
+    });
+    await readAgain();
+    const dentist = (await eventTitled(device, "Dentist"))?.id ?? "";
+
+    await device.push(itemSetTitle(dentist, "Dentist at 7"));
+    await work();
+
+    expect(googleEvents(alexsAccount, "Personal")[0]).toMatchObject({
+      summary: "Dentist at 7",
+      description: "Bring:<br><b>the card</b>",
+    });
+
+    await device.push(itemSetDescription(dentist, "Bring:\nthe card and a pen"));
+    await work();
+
+    expect(googleEvents(alexsAccount, "Personal")[0]?.description).toBe(
+      "Bring:\nthe card and a pen",
+    );
+  });
+
   it("deletes an event in Google", async () => {
     const { device } = await member(alex);
     const dinner = await addInPersonal(device, "Dinner");
@@ -535,6 +560,21 @@ describe("reading changes made in Google", () => {
       endsOn: "2026-12-26",
       date: "2026-12-24",
     });
+  });
+
+  it("reads a description written as HTML as plain text", async () => {
+    const { device } = await member(alex);
+
+    addInGoogle(alexsAccount, "Personal", {
+      summary: "Dentist",
+      description:
+        'Bring:<ul><li>the card</li><li>a pen</li></ul><a href="https://example.com/map">Map</a>',
+    });
+    await readAgain();
+
+    expect((await eventTitled(device, "Dentist"))?.description).toBe(
+      "Bring:\nthe card\na pen\nMap (https://example.com/map)",
+    );
   });
 
   it("cuts a title too long for Foyer, and ends an event that ends before it starts as it starts", async () => {

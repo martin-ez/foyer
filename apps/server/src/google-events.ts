@@ -6,6 +6,7 @@ import {
   readEventTime,
 } from "@foyer/shared";
 import type { GoogleEvent, GoogleEventFields } from "./google-calendar";
+import { plainTextOf } from "./html-text";
 
 /** What Foyer keeps of an event, which it writes to Google and reads back from it. */
 export type EventFields = { title: string; description: string; time: EventTime };
@@ -33,13 +34,14 @@ export function googleFieldsOf({ title, description, time }: EventFields): Googl
 }
 
 /** What Foyer keeps of an event from Google, made to fit Foyer's rules: a blank title becomes
- *  `untitledEvent`, a title or description too long is cut, and an event that ends before it starts
- *  ends as it starts. Null for an event whose start Foyer can't read. */
+ *  `untitledEvent`, an HTML description plain text, a title or description too long is cut, and an
+ *  event that ends before it starts ends as it starts. Null when Foyer can't read its start. */
 export function eventFieldsOf(event: GoogleEvent): EventFields | null {
   const time = timeOf(event);
   if (!time) return null;
   const title = limitItemTitle(event.summary?.trim() || untitledEvent);
-  return { title, description: limitItemDescription(event.description ?? ""), time };
+  const description = limitItemDescription(plainTextOf(event.description ?? ""));
+  return { title, description, time };
 }
 
 /** Whether an event belongs to a repeating series: the series itself, or one of its occurrences. */
