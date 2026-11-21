@@ -84,7 +84,8 @@ export async function boxOf(locator: Locator) {
   return box;
 }
 
-/** Drags a sticker by this many screen pixels. */
+/** Drags a sticker by this many screen pixels, from its centre as it is just before the drag, and
+ *  returns where it was then. */
 export async function drag(page: Page, sticker: Locator, by: { x: number; y: number }) {
   const box = await boxOf(sticker);
   const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -92,6 +93,7 @@ export async function drag(page: Page, sticker: Locator, by: { x: number; y: num
   await page.mouse.down();
   await page.mouse.move(start.x + by.x, start.y + by.y, { steps: 8 });
   await page.mouse.up();
+  return box;
 }
 
 /** Today's date in the browser's own time zone, as the app works it out. */
