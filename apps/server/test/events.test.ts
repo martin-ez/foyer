@@ -793,6 +793,29 @@ describe("events moved in Google from one of Foyer's calendars to another", () =
     expect(after.items.get(idOf(party))?.spaceId).toBe(personal);
   });
 
+  it("keeps the event under a task it was put under after the move in Google, moving it back in Google", async () => {
+    const { device } = await member(alex);
+    const personal = (await spaceNamed(device, "Personal")).id;
+    await personalSpace(device, "Work");
+    const dinner = await addIn(device, personal, "Dinner");
+    const party = itemCreate({ spaceId: personal, title: "Plan the party" });
+    await device.push(party);
+
+    const googleId = moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
+    await device.push(itemSetParent(dinner, idOf(party), { at: madeAt(Date.now() + 1000) }));
+    await readAgain();
+    await work();
+
+    expect((await eventsOf(device)).get(dinner)).toMatchObject({
+      spaceId: personal,
+      parentId: idOf(party),
+    });
+    expect(googleEvents(alexsAccount, "Work")).toEqual([]);
+    expect(googleEvents(alexsAccount, "Personal")).toEqual([
+      expect.objectContaining({ id: googleId, summary: "Dinner" }),
+    ]);
+  });
+
   it("keeps a move made in Foyer after the one made in Google, moving the event on in Google", async () => {
     const { device } = await member(alex);
     await personalSpace(device, "Work");
