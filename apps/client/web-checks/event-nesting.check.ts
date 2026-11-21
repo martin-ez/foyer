@@ -4,6 +4,10 @@ import { saveScreenshot } from "./screenshot";
 import { eventNestingMembers, signIn } from "./sign-in";
 import { addTask, bundleBuildTimeout, openSpace, pageTitle, stickerOf } from "./tasks";
 
+function titleField(page: Page) {
+  return page.getByRole("textbox", { name: "Title", exact: true });
+}
+
 function eventSticker(page: Page, title: string) {
   return page.getByRole("button", { name: `Event: ${title}` });
 }
@@ -46,6 +50,7 @@ test("puts an event under a task, shows it on the task's page and list, and take
   await saveScreenshot(page, testInfo, "event-editor-under-task");
   await page.getByRole("button", { name: `Open “${party}”` }).click();
   await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
 
   await openSpace(page, "Personal");
   await stickerOf(page, party).click();
@@ -55,18 +60,19 @@ test("puts an event under a task, shows it on the task's page and list, and take
   await page.getByRole("button", { name: "Close" }).click();
 
   await page.getByRole("button", { name: "List", exact: true }).click();
-  const names = await page
-    .getByRole("list", { name: "Personal" })
-    .getByRole("button")
-    .allTextContents();
+  const list = page.getByRole("list", { name: "Personal" });
+  const names = await list.getByRole("button").allTextContents();
   const at = names.findIndex((name) => name.startsWith(party));
   expect(names[at + 1]?.startsWith(dinner)).toBe(true);
   await saveScreenshot(page, testInfo, "event-under-task-in-list");
+  await list.getByRole("button", { name: `Event: ${dinner}` }).click();
+  await expect(titleField(page)).toHaveValue(dinner);
+  await page.getByRole("button", { name: "Close" }).click();
   await page.getByRole("button", { name: "Hide list" }).click();
 
   await stickerOf(page, party).click();
   await eventSticker(page, dinner).click();
-  await expect(page.getByLabel("Title")).toHaveValue(dinner);
+  await expect(titleField(page)).toHaveValue(dinner);
   await page.getByRole("button", { name: `Take it out of “${party}”` }).click();
 
   await expect(page.getByText(`Under “${party}”`)).toBeHidden();
