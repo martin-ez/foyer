@@ -7,10 +7,9 @@ import type { SyncState } from "../sync/household-sync";
 import { Checkbox } from "./checkbox";
 import { doneTasks, spaceTree, todayList } from "./task-lists";
 
-/** The member's tasks as lists: the Inbox, Today, then each other space they see, or one space's
- *  list alone when `only` names it, with the events under tasks listed under them. Each task can
- *  be ticked, and tapping a task's or an event's title opens it. The lists leave out tasks that
- *  are done unless `showDone` is on, and Today always does. */
+/** The member's tasks, and the events under them, as lists: the Inbox, Today, then each other space,
+ *  or one space's alone when `only` names it. Tasks can be ticked, and tapping a title opens it.
+ *  Done tasks are left out unless `showDone` is on, and always from Today. */
 export function TasksPanel({
   state,
   only,

@@ -80,7 +80,6 @@ export function EventNesting({
   );
 }
 
-/** The task an item is under, which can be opened, with a way to take the item out of it. */
 function ParentOf({
   item,
   state,
@@ -111,8 +110,6 @@ function ParentOf({
   );
 }
 
-/** A search for a task to put an item under: any task the member sees whose space `canGoIn`
- *  allows, other than the item's parent, the item itself and what's under it. */
 function PutUnderTask({
   item,
   state,

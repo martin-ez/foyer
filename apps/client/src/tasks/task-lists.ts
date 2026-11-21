@@ -35,10 +35,9 @@ export function isStickerDone(
   return false;
 }
 
-/** A space's tasks, and the events under them, in list order: its top-level tasks in the order of
- *  their stickers on its pages, page by page, top to bottom, then left to right, each followed by
- *  the items under it, in the order of their stickers on its body page. An item with no such
- *  sticker comes last among them. */
+/** A space's tasks, and the events under them, in list order: top-level tasks by their stickers on
+ *  its pages, page by page, top to bottom, then left to right, each followed by the items under it,
+ *  by their stickers on its body page. Items without such a sticker come last among them. */
 export function spaceList(
   spaceId: string,
   items: Iterable<Item>,
