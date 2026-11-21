@@ -7,6 +7,7 @@ import {
   deleteEvent,
   findCalendar,
   type GoogleEvent,
+  type GoogleEventFields,
   insertEvent,
   listEvents,
   moveEvent,
@@ -335,7 +336,7 @@ export class EventSync {
           target.google_calendar_id,
           link.google_event_id,
           etag,
-          googleFieldsOf(fields),
+          withoutDescriptionUnchangedSinceRead(fields, known),
         ),
       );
       if ("ok" in patched) {
@@ -784,6 +785,14 @@ function newGoogleEventId(): string {
 function fieldsOfStored(event: StoredEvent): EventFields | null {
   const time = storedEventTime(event);
   return time && { title: event.title, description: event.description, time };
+}
+
+function withoutDescriptionUnchangedSinceRead(
+  fields: EventFields,
+  lastRead: EventFields | null,
+): GoogleEventFields {
+  const { description, ...changes } = googleFieldsOf(fields);
+  return lastRead?.description === fields.description ? changes : { ...changes, description };
 }
 
 function readFields(json: string | null): EventFields | null {
