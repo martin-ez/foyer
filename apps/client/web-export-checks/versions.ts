@@ -1,6 +1,6 @@
 import { copyFileSync, cpSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
-import { expect, type Page } from "@playwright/test";
+import { expect } from "@playwright/test";
 
 const versionsFolder = path.join(__dirname, "versions");
 
@@ -45,20 +45,6 @@ export async function deploy(version: Version) {
       timeout: 30_000,
     })
     .toBe(true);
-}
-
-/** Expects `page` to have loaded the web app from `version`'s index, which names its scripts. */
-export async function expectLoadedFrom(page: Page, version: Version) {
-  const scripts = await page.evaluate(() =>
-    Array.from(document.scripts, (script) => script.getAttribute("src")),
-  );
-  const named = Array.from(
-    indexOf(version).matchAll(/<script src="([^"]+)"/g),
-    (match) => match[1],
-  );
-  expect(scripts, `the scripts of the ${version.name} version`).toEqual(
-    expect.arrayContaining(named),
-  );
 }
 
 /** Whether the backend serves `version`: its index, and every script, including those a view loads

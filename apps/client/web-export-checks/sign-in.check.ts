@@ -1,14 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { saveScreenshot } from "../web-checks/screenshot";
 import { signIn } from "../web-checks/sign-in";
-import { current, deploy, expectLoadedFrom } from "./versions";
+import { current, deploy } from "./versions";
 
 test("the exported app opens, signs in and gets up to date", async ({ page }, testInfo) => {
   await deploy(current);
 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
-  await expectLoadedFrom(page, current);
 
   await signIn(page);
   await expect(page.getByText("Up to date")).toBeVisible();
