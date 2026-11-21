@@ -50,17 +50,13 @@ test("keeps a dragged sticker under the pointer on a zoomed page", async ({ page
   const title = await addTask(page);
   const sticker = stickerOf(page, title);
   const box = await boxOf(sticker);
-  const held = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await page.mouse.move(held.x, held.y);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.keyboard.down("Control");
   for (let step = 0; step < 4; step++) await page.mouse.wheel(0, -100);
   await page.keyboard.up("Control");
   await expect.poll(async () => (await boxOf(sticker)).width).toBeGreaterThan(box.width * 1.5);
-  const zoomed = await boxOf(sticker);
 
-  await page.mouse.down();
-  await page.mouse.move(held.x + 50, held.y, { steps: 5 });
-  await page.mouse.up();
+  const zoomed = await drag(page, sticker, { x: 50, y: 0 });
 
   await expect.poll(async () => (await boxOf(sticker)).x - zoomed.x).toBeCloseTo(50, 0);
 });
