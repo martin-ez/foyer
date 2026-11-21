@@ -20,7 +20,7 @@ import {
   isRepeating,
   updatedAt,
 } from "./google-events";
-import { deleteItemForHousehold, insertItem } from "./items";
+import { deleteItemForHousehold, insertItem, moveItemForHousehold } from "./items";
 import { nextSeq, type RowKey } from "./rows";
 
 const minute = 60_000;
@@ -65,6 +65,11 @@ type Link = {
   etag: string | null;
   fields: string | null;
 };
+
+type Destination =
+  | { calendar: SpaceCalendar; event: GoogleEvent }
+  | { nowhere: true }
+  | { stopped: SyncOutcome };
 
 type StoredEvent = {
   space_id: string;
@@ -220,13 +225,17 @@ export class EventSync {
       }
       for (const event of page.ok.events) {
         seen.add(event.id);
-        this.#take(calendar, event);
+        const taken = await this.#take(calendar, event);
+        if (taken !== "done") return taken;
       }
       if (page.ok.nextPageToken) {
         from = { pageToken: page.ok.nextPageToken };
         continue;
       }
-      if (full) this.#dropMissing(calendar.google_calendar_id, seen);
+      if (full) {
+        const dropped = await this.#dropMissing(calendar.google_calendar_id, seen);
+        if (dropped !== "done") return dropped;
+      }
       sql.exec(
         "UPDATE space_calendars SET sync_token = ?, read_at = ? WHERE space_id = ?",
         page.ok.nextSyncToken ?? null,
@@ -269,7 +278,13 @@ export class EventSync {
         if ("ok" in moved) {
           this.#keepLink({ ...link, google_calendar_id: target.google_calendar_id }, moved.ok);
         } else if ("gone" in moved) {
-          this.#storage.sql.exec("DELETE FROM google_events WHERE item_id = ?", itemId);
+          const destination = await this.#destinationOf(link);
+          if ("stopped" in destination) return destination.stopped;
+          if ("calendar" in destination) {
+            this.#follow(link, destination.calendar, destination.event);
+          } else {
+            this.#storage.sql.exec("DELETE FROM google_events WHERE item_id = ?", itemId);
+          }
         } else {
           return outcomeOf(target.member_id, moved);
         }
@@ -352,6 +367,12 @@ export class EventSync {
         return "waiting";
       }
       if (!("ok" in calendar)) return outcomeOf(target.member_id, calendar);
+      const destination = await this.#destinationOf(link);
+      if ("stopped" in destination) return destination.stopped;
+      if ("calendar" in destination) {
+        this.#follow(link, destination.calendar, destination.event);
+        continue;
+      }
       this.#deleteInFoyer(itemId);
       return "done";
     }
@@ -400,25 +421,37 @@ export class EventSync {
     }
   }
 
-  #take(calendar: SpaceCalendar, event: GoogleEvent): void {
-    if (isRepeating(event)) return;
-    const { sql } = this.#storage;
-    const [link] = sql
-      .exec<Link>(
-        `SELECT item_id, google_calendar_id, google_event_id, etag, fields FROM google_events
-         WHERE google_calendar_id = ? AND google_event_id = ?`,
-        calendar.google_calendar_id,
-        event.id,
-      )
-      .toArray();
-    if (event.status === "cancelled") {
-      if (link) this.#deleteInFoyer(link.item_id);
-      return;
-    }
+  async #take(calendar: SpaceCalendar, event: GoogleEvent): Promise<SyncOutcome> {
+    if (isRepeating(event)) return "done";
+    const [link] = this.#links(
+      "google_calendar_id = ? AND google_event_id = ?",
+      calendar.google_calendar_id,
+      event.id,
+    );
+    if (event.status === "cancelled") return link ? this.#leave(link) : "done";
     if (link) {
       this.#settleWithGoogle(link.item_id, event, { queueIfDifferent: true });
-      return;
+      return "done";
     }
+    const elsewhere = this.#links(
+      `google_event_id = ? AND google_calendar_id != ?
+       AND item_id IN (SELECT id FROM items WHERE kind = 'event')`,
+      event.id,
+      calendar.google_calendar_id,
+    );
+    for (const known of elsewhere) {
+      const left = await this.#hasLeft(known);
+      if (typeof left === "object") return left.stopped;
+      if (!left) continue;
+      this.#follow(known, calendar, event);
+      return "done";
+    }
+    this.#add(calendar, event);
+    return "done";
+  }
+
+  #add(calendar: SpaceCalendar, event: GoogleEvent): void {
+    const { sql } = this.#storage;
     const fields = eventFieldsOf(event);
     if (!fields) return;
     const at = updatedAt(event) ?? Date.now();
@@ -538,6 +571,80 @@ export class EventSync {
     this.#changed(changed);
   }
 
+  async #leave(link: Link): Promise<SyncOutcome> {
+    if (!this.#event(link.item_id)) {
+      this.#deleteInFoyer(link.item_id);
+      return "done";
+    }
+    const destination = await this.#destinationOf(link);
+    if ("stopped" in destination) return destination.stopped;
+    if ("calendar" in destination) {
+      this.#follow(link, destination.calendar, destination.event);
+    } else {
+      this.#deleteInFoyer(link.item_id);
+    }
+    return "done";
+  }
+
+  async #destinationOf(link: Link): Promise<Destination> {
+    const others = this.#storage.sql
+      .exec<SpaceCalendar>(
+        `SELECT space_id, member_id, google_calendar_id, time_zone, sync_token, read_at, lost_at
+         FROM space_calendars
+         WHERE google_calendar_id != ? AND lost_at IS NULL
+           AND google_calendar_id NOT IN
+             (SELECT google_calendar_id FROM google_events WHERE google_event_id = ?)
+         ORDER BY created_at, space_id`,
+        link.google_calendar_id,
+        link.google_event_id,
+      )
+      .toArray()
+      .filter(({ member_id }) => this.#isConnected(member_id));
+    for (const calendar of others) {
+      const found = await this.#withAccess(calendar.member_id, (token) =>
+        readEvent(token, calendar.google_calendar_id, link.google_event_id),
+      );
+      if ("ok" in found) {
+        if (found.ok.status !== "cancelled" && !isRepeating(found.ok)) {
+          return { calendar, event: found.ok };
+        }
+      } else if (!("gone" in found)) {
+        return { stopped: outcomeOf(calendar.member_id, found) };
+      }
+    }
+    return { nowhere: true };
+  }
+
+  async #hasLeft(link: Link): Promise<boolean | { stopped: SyncOutcome }> {
+    const calendar = this.#calendarById(link.google_calendar_id);
+    const canAsk =
+      calendar !== null && calendar.lost_at === null && this.#isConnected(calendar.member_id);
+    if (!canAsk) return true;
+    const found = await this.#withAccess(calendar.member_id, (token) =>
+      readEvent(token, link.google_calendar_id, link.google_event_id),
+    );
+    if ("ok" in found) return found.ok.status === "cancelled";
+    if ("gone" in found) return true;
+    return { stopped: outcomeOf(calendar.member_id, found) };
+  }
+
+  #follow(link: Link, to: SpaceCalendar, event: GoogleEvent): void {
+    const { sql } = this.#storage;
+    const setter: Setter = { at: updatedAt(event) ?? Date.now(), changeId: newId() };
+    const changed = this.#storage.transactionSync(() => {
+      sql.exec(
+        "UPDATE google_events SET google_calendar_id = ? WHERE item_id = ?",
+        to.google_calendar_id,
+        link.item_id,
+      );
+      const moved = moveItemForHousehold(sql, link.item_id, to.space_id, setter);
+      if (moved === null) queueEventWrites(sql, [{ kind: "item", id: link.item_id }]);
+      return moved ?? [];
+    });
+    this.#changed(changed);
+    this.#settleWithGoogle(link.item_id, event, { queueIfDifferent: true });
+  }
+
   #deleteInFoyer(itemId: string): void {
     const { sql } = this.#storage;
     const changed = this.#storage.transactionSync(() => {
@@ -548,17 +655,14 @@ export class EventSync {
     this.#changed(changed);
   }
 
-  #dropMissing(calendarId: string, seen: ReadonlySet<string>): void {
-    const linked = this.#storage.sql
-      .exec<{ item_id: string; google_event_id: string }>(
-        `SELECT item_id, google_event_id FROM google_events
-         WHERE google_calendar_id = ? AND etag IS NOT NULL`,
-        calendarId,
-      )
-      .toArray();
-    for (const { item_id, google_event_id } of linked) {
-      if (!seen.has(google_event_id)) this.#deleteInFoyer(item_id);
+  async #dropMissing(calendarId: string, seen: ReadonlySet<string>): Promise<SyncOutcome> {
+    const linked = this.#links("google_calendar_id = ? AND etag IS NOT NULL", calendarId);
+    for (const link of linked) {
+      if (seen.has(link.google_event_id)) continue;
+      const left = await this.#leave(link);
+      if (left !== "done") return left;
     }
+    return "done";
   }
 
   #changeTimeZone(spaceId: string, timeZone: string): void {
@@ -616,14 +720,18 @@ export class EventSync {
   }
 
   #link(itemId: string): Link | null {
-    const [link] = this.#storage.sql
+    const [link] = this.#links("item_id = ?", itemId);
+    return link ?? null;
+  }
+
+  #links(where: string, ...values: string[]): Link[] {
+    return this.#storage.sql
       .exec<Link>(
         `SELECT item_id, google_calendar_id, google_event_id, etag, fields FROM google_events
-         WHERE item_id = ?`,
-        itemId,
+         WHERE ${where} ORDER BY item_id`,
+        ...values,
       )
       .toArray();
-    return link ?? null;
   }
 
   #event(itemId: string): StoredEvent | null {

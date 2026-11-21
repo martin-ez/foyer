@@ -1,5 +1,5 @@
 # Where do calendar events live?
-Decided in #25, #60, #13 and #26
+Decided in #25, #60, #13, #26 and #165
 
 **Applies when:** showing, creating, moving or storing events, keeping them in step with Google, or asking Google for access.
 
@@ -24,7 +24,7 @@ What Foyer keeps of an event is its title, description and when it happens (`wha
 
 Keeping events in step with Google, done by the household with each calendar's holder's access:
 - **Reading Google:** the household reads each calendar's changes with Google's sync tokens as soon as a device connects, every minute while any device is connected, and every 15 minutes otherwise. If Google drops a sync token, it reads the whole calendar again, and events no longer in it are deleted in Foyer.
-- **From Google to Foyer:** an event new in Google becomes an event in Foyer, with an id the household makes, no creator (`created_by` empty, which the app shows as added in Google Calendar) and Google's time as `created_at`. An event deleted in Google is deleted in Foyer, with its stickers.
+- **From Google to Foyer:** an event new in Google becomes an event in Foyer, with an id the household makes, no creator (`created_by` empty, which the app shows as added in Google Calendar) and Google's time as `created_at`. An event deleted in Google is deleted in Foyer, with its stickers. An event moved in Google from one of Foyer's calendars to another is moved in Foyer to that calendar's space, as moving it in Foyer does, keeping its id, its stickers, its body page and the items under it, unless a move made in Foyer later wins. Google reports the move as a deletion in one calendar and a new event in the other, in either order, so the household asks Google whether an event that left one of Foyer's calendars is in another of them before deleting it.
 - **From Foyer to Google:** each committed change to an event is written to Google afterwards, with the event's whole current version of the fields Foyer keeps, and tried again, waiting longer each time, until it works. Deleting an event in Foyer deletes it in Google. Moving it to another space moves it to that space's calendar: with Google's move within one account, or made in the new calendar and deleted from the old across accounts. Its Google id changes; its Foyer id doesn't.
 - **Conflicts:** the change made last wins, field by field, as everywhere in Foyer (`how-do-devices-stay-in-sync.md`). Google gives only one time for a whole event, its `updated`, so a change read from Google sets each field that changed in Google with that time, and loses to a change made in Foyer later. Writes to Google name the version they change; if the event changed there since, the household reads it, settles it this way, and writes again.
 - **Refused for good:** if Google refuses a change as invalid, rather than failing, the household takes Google's version back into Foyer as a change made then, so the two match again. An event Google refuses to create is deleted in Foyer.

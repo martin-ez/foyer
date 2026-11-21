@@ -118,6 +118,18 @@ export class FakeGoogle {
     this.#touch(calendarId, event);
   }
 
+  /** Moves an event to another calendar, keeping its id, as if someone moved it in Google
+   *  Calendar, where a calendar shared with them can be in another account. */
+  moveEvent(calendarId: string, eventId: string, destinationId: string): void {
+    const event = this.#calendar(calendarId).events.get(eventId);
+    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
+    const moved: FakeEvent = { ...event, start: { ...event.start }, end: { ...event.end } };
+    this.#calendar(destinationId).events.set(eventId, moved);
+    this.#touch(destinationId, moved);
+    event.status = "cancelled";
+    this.#touch(calendarId, event);
+  }
+
   /** Stops accepting a calendar's sync tokens given so far, as Google sometimes does, so the next
    *  read must read every event again. */
   dropSyncTokens(calendarId: string): void {
