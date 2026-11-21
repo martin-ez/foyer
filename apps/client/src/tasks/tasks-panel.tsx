@@ -1,14 +1,16 @@
-import type { Item } from "@foyer/shared/gen/foyer/item/v1/item_pb";
+import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Space, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { describeEventTime, timeOf } from "../calendar/events";
 import { localToday } from "../page/calendar-date";
 import type { SyncState } from "../sync/household-sync";
 import { Checkbox } from "./checkbox";
 import { doneTasks, spaceTree, todayList } from "./task-lists";
 
 /** The member's tasks as lists: the Inbox, Today, then each other space they see, or one space's
- *  list alone when `only` names it. Each task can be ticked, and tapping its title opens it. The
- *  lists leave out tasks that are done unless `showDone` is on, and Today always does. */
+ *  list alone when `only` names it, with the events under tasks listed under them. Each task can
+ *  be ticked, and tapping a task's or an event's title opens it. The lists leave out tasks that
+ *  are done unless `showDone` is on, and Today always does. */
 export function TasksPanel({
   state,
   only,
@@ -74,24 +76,53 @@ function TaskList({
         {heading}
       </Text>
       {tasks.length === 0 ? <Text style={styles.line}>No tasks</Text> : null}
-      {tasks.map(({ item: task, depth }) => (
-        <View key={task.id} style={[styles.row, { paddingLeft: depth * 16 }]}>
-          <Checkbox
-            checked={done.has(task.id)}
-            label={`Done: ${task.title}`}
-            onChange={(ticked) => onTick(task.id, ticked)}
-          />
-          <Text
-            style={[styles.task, done.has(task.id) ? styles.done : null]}
-            accessibilityRole="button"
-            onPress={() => onOpenTask(task.id)}
-          >
-            {task.title}
-            {task.date ? <Text style={styles.line}> · {task.date}</Text> : null}
-            {task.repeat ? <Text style={styles.line}>, repeats</Text> : null}
-          </Text>
-        </View>
-      ))}
+      {tasks.map(({ item: task, depth }) =>
+        task.kind === ItemKind.EVENT ? (
+          <EventRow key={task.id} event={task} depth={depth} onOpen={onOpenTask} />
+        ) : (
+          <View key={task.id} style={[styles.row, { paddingLeft: depth * 16 }]}>
+            <Checkbox
+              checked={done.has(task.id)}
+              label={`Done: ${task.title}`}
+              onChange={(ticked) => onTick(task.id, ticked)}
+            />
+            <Text
+              style={[styles.task, done.has(task.id) ? styles.done : null]}
+              accessibilityRole="button"
+              onPress={() => onOpenTask(task.id)}
+            >
+              {task.title}
+              {task.date ? <Text style={styles.line}> · {task.date}</Text> : null}
+              {task.repeat ? <Text style={styles.line}>, repeats</Text> : null}
+            </Text>
+          </View>
+        ),
+      )}
+    </View>
+  );
+}
+
+function EventRow({
+  event,
+  depth,
+  onOpen,
+}: {
+  event: Item;
+  depth: number;
+  onOpen: (itemId: string) => void;
+}) {
+  const time = timeOf(event);
+  return (
+    <View style={[styles.row, { paddingLeft: depth * 16 }]}>
+      <Text
+        style={styles.task}
+        accessibilityRole="button"
+        accessibilityLabel={`Event: ${event.title}`}
+        onPress={() => onOpen(event.id)}
+      >
+        {event.title}
+        {time ? <Text style={styles.line}> · {describeEventTime(time)}</Text> : null}
+      </Text>
     </View>
   );
 }

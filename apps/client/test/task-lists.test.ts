@@ -225,6 +225,32 @@ describe("spaceTree", () => {
     ]);
   });
 
+  it("lists the events under a task among its children, and leaves out events at the top", () => {
+    const event = (id: string, parentId = "") =>
+      create(ItemSchema, {
+        id,
+        kind: ItemKind.EVENT,
+        spaceId: inbox.id,
+        title: `Event ${id}`,
+        parentId,
+      });
+    const items = [task("a", inbox.id), under("b", "a"), event("c", "a"), event("d")];
+    const stickers = [
+      sticker("a", inbox.id, 1, 36),
+      onBody("b", "a", 100),
+      { ...onBody("c", "a", 36), kind: StickerKind.EVENT },
+      { ...sticker("d", inbox.id, 1, 100), kind: StickerKind.EVENT },
+    ];
+
+    expect(spaceTree(inbox.id, items, stickers).map(({ item, depth }) => [item.id, depth])).toEqual(
+      [
+        ["a", 0],
+        ["c", 1],
+        ["b", 1],
+      ],
+    );
+  });
+
   it("lists a task whose parent isn't in the space at the top", () => {
     const items = [under("a", "z")];
 

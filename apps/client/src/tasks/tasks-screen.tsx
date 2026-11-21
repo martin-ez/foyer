@@ -1,7 +1,9 @@
 import { limitItemTitle } from "@foyer/shared";
+import { ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, StyleSheet, Text, TextInput, View } from "react-native";
+import { EventEditor, spacesWithCalendar } from "../calendar/events-panel";
 import { describePage, type OpenPage } from "../page/open-page";
 import { PageView } from "../page/page-view";
 import { newestSpacePage } from "../page/sticker-layout";
@@ -17,8 +19,8 @@ import { useTick } from "./ticking";
 type SpacePage = { spaceId: string; number: number };
 
 /** The member's spaces and their tasks: a space's page, opening on the Inbox's newest, with ways to
- *  move between its pages and add tasks, to open, tick and edit a task above its body page, and to
- *  show the spaces and the task lists. */
+ *  move between its pages and add tasks, to open, tick and edit a task above its body page, to open
+ *  an event above the page its sticker is on, and to show the spaces and the task lists. */
 export function TasksScreen() {
   const { member, state, sync } = useHousehold();
   const [chosen, setChosen] = useState<SpacePage | null>(null);
@@ -29,7 +31,9 @@ export function TasksScreen() {
   const space =
     chosen ??
     (inbox ? { spaceId: inbox.id, number: newestSpacePage(inbox.id, state.pages) } : null);
-  const openTask = openTaskId === null ? undefined : state.items.get(openTaskId);
+  const openItem = openTaskId === null ? undefined : state.items.get(openTaskId);
+  const openTask = openItem?.kind === ItemKind.EVENT ? undefined : openItem;
+  const openEvent = openItem?.kind === ItemKind.EVENT ? openItem : undefined;
   const toggle = (which: typeof panel) => {
     setOpenTaskId(null);
     setPanel(panel === which ? null : which);
@@ -46,8 +50,9 @@ export function TasksScreen() {
       </View>
     );
   }
-  const shown: OpenPage = openTask
-    ? { kind: "item", itemId: openTask.id }
+  const bodyPageOf = openTask?.id ?? openEvent?.parentId;
+  const shown: OpenPage = bodyPageOf
+    ? { kind: "item", itemId: bodyPageOf }
     : { kind: "space", ...space };
 
   return (
@@ -76,6 +81,14 @@ export function TasksScreen() {
           onOpenTask={setOpenTaskId}
           onClose={() => setOpenTaskId(null)}
         />
+      ) : openEvent ? (
+        <EventEditor
+          key={openEvent.id}
+          event={openEvent}
+          spaces={spacesWithCalendar(state.spaces)}
+          onOpenTask={setOpenTaskId}
+          onClose={() => setOpenTaskId(null)}
+        />
       ) : (
         <SpacePageBar
           page={space}
@@ -88,7 +101,7 @@ export function TasksScreen() {
       )}
       <View style={styles.fill}>
         <PageView page={shown} onOpenItem={setOpenTaskId} />
-        {openTask ? null : panel === "spaces" ? (
+        {openItem ? null : panel === "spaces" ? (
           <SpacesPanel
             state={state}
             sync={sync}
