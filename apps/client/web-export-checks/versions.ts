@@ -24,15 +24,14 @@ export const earlier: Version = { name: "earlier", folder: path.join(versionsFol
 const scriptsFolder = "_expo/static/js/web";
 
 /** Serves `version` from the export checks' backend in place of the version it served before, as
- *  a deploy does: none of the earlier version's files are left. Returns once the backend serves
- *  every file of the new version. */
+ *  a deploy does: none of the earlier version's files are left, and its index arrives last.
+ *  Returns once the backend has restarted and serves every file of the new version. */
 export async function deploy(version: Version) {
   const servedIndex = path.join(servedFolder, "index.html");
   if (!existsSync(servedIndex) || readFileSync(servedIndex, "utf8") !== indexOf(version)) {
     for (const file of readdirSync(servedFolder)) {
       rmSync(path.join(servedFolder, file), { recursive: true });
     }
-    // The index goes last, so the backend never serves it without the files it names.
     cpSync(version.folder, servedFolder, {
       recursive: true,
       filter: (file) => file !== path.join(version.folder, "index.html"),
@@ -40,17 +39,14 @@ export async function deploy(version: Version) {
     copyFileSync(path.join(version.folder, "index.html"), servedIndex);
   }
   await expect
-    .poll(() => serves(version), {
-      message: `the export checks' backend serves the ${version.name} version`,
+    .poll(() => servesEveryFileOf(version), {
+      message: `the export checks' backend has restarted with every file of the ${version.name} version`,
       timeout: 30_000,
     })
     .toBe(true);
 }
 
-/** Whether the backend serves `version`: its index, and every script, including those a view loads
- *  when it's first opened. Wrangler reads the index from disk on each request, but serves the
- *  files a deploy added only once it has restarted, which takes up to a second. */
-async function serves(version: Version): Promise<boolean> {
+async function servesEveryFileOf(version: Version): Promise<boolean> {
   const answer = (file: string, method = "GET") =>
     fetch(new URL(file, exportChecksBackend), { method }).catch(() => null);
   const index = await answer("/");
