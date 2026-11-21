@@ -8,6 +8,7 @@
     "web": "pnpm --filter @foyer/shared generate && expo start --web",
     "export-web": "expo export --platform web",
     "check-web": "pnpm --filter @foyer/shared generate && playwright test",
+    "check-web-export": "pnpm --filter @foyer/shared generate && sh web-export-checks/export-versions.sh && playwright test --config playwright.export.config.ts",
     "check-ios-bundle": "pnpm --filter @foyer/shared generate && dir=\"$(mktemp -d)\" && trap 'rm -rf \"$dir\"' EXIT && expo export --platform ios --output-dir \"$dir\"",
     "typecheck": "tsc --noEmit",
     "postinstall": "setup-skia-web public",

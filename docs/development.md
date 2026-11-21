@@ -21,11 +21,11 @@ After that:
 - `pnpm --filter @foyer/shared check-breaking` checks that changes to the contracts don't break apps or data made with the contracts on your local `main` branch. CI runs it against `main` for every pull request.
 - `pnpm test` runs the tests that CI runs: unit tests, the comparison of page drawings with their golden images, and the backend's tests in the Workers runtime. It runs one package's tests at a time, because each generates the contracts' TypeScript first, which, when it's out of date, replaces `src/gen/` while another package's tests could be reading it. `pnpm --filter <package> test` runs one package's tests.
 - `pnpm update-golden-images` saves the current page drawings as the new golden images, for when a drawing changes on purpose.
-- `pnpm --filter @foyer/client check-web` and `pnpm --filter @foyer/client check-ios-bundle` check the app as a whole, as [Checking the app](#checking-the-app) explains.
+- `pnpm --filter @foyer/client check-web`, `pnpm --filter @foyer/client check-web-export` and `pnpm --filter @foyer/client check-ios-bundle` check the app as a whole, as [Checking the app](#checking-the-app) explains.
 
 ## Checking the app
 
-The tests check pieces of code on their own. Two more checks look at the app as a whole, to check your work before asking for review. CI doesn't run them.
+The tests check pieces of code on their own. Three more checks look at the app as a whole, to check your work before asking for review. CI doesn't run them.
 
 - **In a browser:** `pnpm --filter @foyer/client check-web` runs the checks in `apps/client/web-checks/` with Playwright, in Chromium, in an iPad's viewport and a phone's.
   - It generates the contracts' TypeScript first, so the two servers it starts find it up to date and neither replaces it while the other reads it. Then it starts Expo's development server, or reuses one already running, and a backend of its own at `http://localhost:8788`, whose household starts empty on every run. It never reuses the backend at `http://localhost:8787`, so the household you try the app in stays as it was. The checks' backend keeps its storage in `apps/server/.wrangler/web-checks`, which it empties when it starts, and forwards the app's pages to Expo's server as the usual backend does, so the two can share it.
@@ -54,6 +54,12 @@ The tests check pieces of code on their own. Two more checks look at the app as 
   - Checks that add tasks first create a personal space of their own and work on its page, so that no other check, such as the same check in the other viewport, adds to the pages they look at.
   - The first visit waits while Expo builds the app's bundle, which takes up to a minute after the dependencies change.
   - Playwright needs its Chromium. Cloud sessions come with it. On your computer, download it once with `pnpm --filter @foyer/client exec playwright install chromium`.
+- **The exported web app:** `pnpm --filter @foyer/client check-web-export` checks the web app as deploys export it, served as the deployed Worker serves it. `check-web` never sees the export: it runs the app on Expo's development server, where some things work differently, such as how a view's file is loaded. Run it for changes to how the web app is built, loaded or served. It takes about a minute.
+  - It exports the web app twice, into `apps/client/web-export-checks/versions/`: once as deploys do, and once without minifying, so that every file has another name. The second stands in for the version that a deploy replaces under an open tab.
+  - Its backend, at `http://localhost:8789`, serves the export without Expo's server, with a household that starts empty on every run, stored in `apps/server/.wrangler/web-export-checks`. It lets in the web checks' members, and sets the settings it needs itself, so `.dev.vars` doesn't change what it serves.
+  - Each check first deploys the version it needs, by replacing the files the backend serves, and waits until the backend has restarted with them, as after a deploy. So the checks run one at a time.
+  - The checks are in `apps/client/web-export-checks/`, with their screenshots in `screenshots/` and failures in `results/` there. Arguments after `check-web-export` go to `playwright test`, as with `check-web`.
+  - A run that's stopped before it's done can leave its backend running, and the next run then fails at the start. Stop it with `pkill -f -- '--port [8]789'`.
 - **The iPad app's bundle:** `pnpm --filter @foyer/client check-ios-bundle` builds the JavaScript the iPad app runs, compiled for Hermes, into a temporary folder that it deletes afterwards. It fails on code that doesn't build for iOS, such as a broken import in a file only the iPad app uses, and needs no Mac. It takes about 30 seconds.
 
 Running the app on the iPad simulator needs a Mac with Xcode: [#110](https://github.com/martin-ez/foyer/issues/110) adds how to check it there.
