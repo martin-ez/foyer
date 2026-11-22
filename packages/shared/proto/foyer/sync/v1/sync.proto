@@ -11,6 +11,7 @@ import "foyer/space/v1/space.proto";
 import "foyer/sticker/v1/sticker.proto";
 import "foyer/sync/v1/live.proto";
 import "foyer/task/v1/task.proto";
+import "foyer/text/v1/text.proto";
 import "google/protobuf/timestamp.proto";
 
 // Sync keeps devices up to date over a WebSocket at the backend's /sync address, which carries the
@@ -65,6 +66,14 @@ message Change {
     foyer.item.v1.ItemSetParent item_set_parent = 18;
     foyer.event.v1.EventSetTime event_set_time = 19;
     foyer.item.v1.ItemSetTime item_set_time = 20;
+    foyer.text.v1.TextGroupCreate text_group_create = 21;
+    foyer.text.v1.TextGroupMove text_group_move = 22;
+    foyer.text.v1.TextGroupResize text_group_resize = 23;
+    foyer.text.v1.TextGroupDelete text_group_delete = 24;
+    foyer.text.v1.TextBlockCreate text_block_create = 25;
+    foyer.text.v1.TextBlockEdit text_block_edit = 26;
+    foyer.text.v1.TextBlockDelete text_block_delete = 27;
+    foyer.text.v1.TextBlockMove text_block_move = 28;
   }
 }
 
@@ -148,6 +157,8 @@ message Row {
     foyer.sticker.v1.Sticker sticker = 7;
     foyer.task.v1.Completion completion = 8;
     foyer.calendar.v1.GoogleConnection google_connection = 9;
+    foyer.text.v1.TextGroup text_group = 10;
+    foyer.text.v1.TextBlock text_block = 11;
   }
 }
 
@@ -167,4 +178,6 @@ enum RowKind {
   ROW_KIND_STICKER = 5;
   ROW_KIND_COMPLETION = 6;
   ROW_KIND_GOOGLE_CONNECTION = 7;
+  ROW_KIND_TEXT_GROUP = 8;
+  ROW_KIND_TEXT_BLOCK = 9;
 }

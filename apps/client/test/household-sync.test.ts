@@ -45,6 +45,7 @@ import {
   silenceLimit,
 } from "../src/sync/household-sync";
 import { reportEvents, syncAddress } from "../src/sync/socket";
+import { blocksIn } from "../src/text/text-groups";
 
 type RowInit = MessageInitShape<typeof RowSchema>;
 
@@ -2222,5 +2223,198 @@ describe("times on a day page's timeline", () => {
       startsAt: timestampFromMs(new Date(2026, 10, 20, 10, 0).getTime()),
       endsAt: timestampFromMs(new Date(2026, 10, 20, 11, 0).getTime()),
     });
+  });
+});
+
+describe("text on pages", () => {
+  const day = dayPageId("2026-11-21");
+  const group = {
+    id: "019a8f4e-5c00-7000-8000-0000000000e1",
+    pageId: day,
+    x: 48,
+    y: 60,
+    width: 300,
+  };
+  const first = { id: "019a8f4e-5c00-7000-8000-0000000000f1", groupId: group.id, order: "V" };
+  const second = { id: "019a8f4e-5c00-7000-8000-0000000000f2", groupId: group.id, order: "k" };
+
+  function groupRow(seq: number, value: typeof group): RowInit {
+    return { seq: BigInt(seq), row: { case: "textGroup", value } };
+  }
+
+  function blockRow(seq: number, value: typeof first, markdown = "Buy milk"): RowInit {
+    return { seq: BigInt(seq), row: { case: "textBlock", value: { ...value, markdown } } };
+  }
+
+  function startWithText() {
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        pageRow(2, { id: day }),
+        groupRow(3, group),
+        blockRow(4, first, "# Shopping"),
+        blockRow(5, second, "- Oat milk"),
+      ],
+      5,
+    );
+  }
+
+  function changesIn(push: Push) {
+    return push.changes.map(({ change }) => ({ case: change.case, value: change.value }));
+  }
+
+  function textOf(groupId: string) {
+    const { textBlocks } = sync.getState();
+    return blocksIn(groupId, textBlocks).map(({ markdown }) => markdown);
+  }
+
+  it("keeps the text the household sends, and drops a deleted group", () => {
+    startWithText();
+
+    expect(sync.getState().textGroups.get(group.id)).toMatchObject({ x: 48, width: 300 });
+    expect(textOf(group.id)).toEqual(["# Shopping", "- Oat milk"]);
+
+    household().update(
+      { seq: 6n, row: { case: "deleted", value: { kind: RowKind.TEXT_GROUP, id: group.id } } },
+      { seq: 6n, row: { case: "deleted", value: { kind: RowKind.TEXT_BLOCK, id: first.id } } },
+      { seq: 6n, row: { case: "deleted", value: { kind: RowKind.TEXT_BLOCK, id: second.id } } },
+    );
+
+    expect(sync.getState().textGroups.size).toBe(0);
+    expect(sync.getState().textBlocks.size).toBe(0);
+  });
+
+  it("adds text on a page nobody has written on, with the page, the group and its block in one push", () => {
+    startUpToDate([spaceRow(1, inbox)], 1);
+
+    const { groupId, blockId } = sync.addText(day, { x: 40, y: 80 }, 280, "# Monday");
+
+    expect(changesIn(household().lastPush())).toEqual([
+      {
+        case: "pageCreate",
+        value: expect.objectContaining({ pageId: day, kind: PageKind.DAY, ...a4Portrait }),
+      },
+      {
+        case: "textGroupCreate",
+        value: expect.objectContaining({ groupId, pageId: day, x: 40, y: 80, width: 280 }),
+      },
+      {
+        case: "textBlockCreate",
+        value: expect.objectContaining({ blockId, groupId, markdown: "# Monday" }),
+      },
+    ]);
+    expect(sync.getState().textGroups.get(groupId)).toMatchObject({ placedBy: me, createdBy: me });
+    expect(textOf(groupId)).toEqual(["# Monday"]);
+  });
+
+  it("adds text on a task's body page, creating the page", () => {
+    const task = { id: "019a8f4e-5c00-7000-8000-0000000000c1", spaceId: inbox.id, title: "Trip" };
+    startUpToDate([spaceRow(1, inbox), itemRow(2, task)], 2);
+
+    sync.addText(itemPageId(task.id), { x: 40, y: 40 }, 300, "Pack");
+
+    expect(changesIn(household().lastPush())[0]).toEqual({
+      case: "pageCreate",
+      value: expect.objectContaining({
+        pageId: itemPageId(task.id),
+        kind: PageKind.ITEM,
+        itemId: task.id,
+      }),
+    });
+  });
+
+  it("adds blocks between others, at the start and at the end of a group", () => {
+    startWithText();
+
+    sync.addBlock(group.id, first.id, "Between");
+    sync.addBlock(group.id, null, "Start");
+    sync.addBlock(group.id, second.id, "End");
+
+    expect(textOf(group.id)).toEqual(["Start", "# Shopping", "Between", "- Oat milk", "End"]);
+  });
+
+  it("edits, moves, resizes and deletes text at once, and undoes a refused change", () => {
+    startWithText();
+
+    sync.editBlock(first.id, "# Groceries");
+    sync.moveTextGroup(group.id, 100, 200);
+    sync.resizeTextGroup(group.id, 240);
+
+    expect(textOf(group.id)).toEqual(["# Groceries", "- Oat milk"]);
+    expect(sync.getState().textGroups.get(group.id)).toMatchObject({ x: 100, y: 200, width: 240 });
+    const edit = household().pushes()[0];
+    if (!edit) throw new Error("Nothing was pushed");
+    household().commit(edit, { [edit.changes[0]?.changeId ?? ""]: "Too long." });
+
+    expect(textOf(group.id)).toEqual(["# Shopping", "- Oat milk"]);
+    expect(sync.getState().problems).toEqual(["Couldn't save changing text: Too long."]);
+
+    sync.deleteBlock(second.id);
+
+    expect(textOf(group.id)).toEqual(["# Shopping"]);
+  });
+
+  it("deletes the group when its last block is deleted", () => {
+    startWithText();
+
+    sync.deleteBlock(second.id);
+    sync.deleteBlock(first.id);
+
+    expect(changesIn(household().lastPush())).toEqual([
+      { case: "textGroupDelete", value: expect.objectContaining({ groupId: group.id }) },
+    ]);
+    expect(sync.getState().textGroups.size).toBe(0);
+    expect(sync.getState().textBlocks.size).toBe(0);
+  });
+
+  it("splits a group before a block into a new group, as wide, and joins it back", () => {
+    startWithText();
+
+    const split = sync.splitTextGroup(second.id, { x: 48, y: 400 });
+
+    if (!split) throw new Error("Nothing was split");
+    expect(sync.getState().textGroups.get(split)).toMatchObject({
+      pageId: day,
+      y: 400,
+      width: 300,
+    });
+    expect(textOf(group.id)).toEqual(["# Shopping"]);
+    expect(textOf(split)).toEqual(["- Oat milk"]);
+
+    sync.joinTextGroups(group.id, split);
+
+    expect(textOf(group.id)).toEqual(["# Shopping", "- Oat milk"]);
+    expect(sync.getState().textGroups.has(split)).toBe(false);
+    expect(changesIn(household().lastPush()).map(({ case: kind }) => kind)).toEqual([
+      "textBlockMove",
+      "textGroupDelete",
+    ]);
+  });
+
+  it("splits nothing before a group's first block", () => {
+    startWithText();
+
+    expect(sync.splitTextGroup(first.id, { x: 0, y: 0 })).toBe(null);
+    expect(household().pushes()).toEqual([]);
+  });
+
+  it("deletes the text on a task's body page with the task", () => {
+    const task = { id: "019a8f4e-5c00-7000-8000-0000000000c1", spaceId: inbox.id, title: "Trip" };
+    const body = itemPageId(task.id);
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        itemRow(2, task),
+        pageRow(3, { id: body, kind: PageKind.ITEM, itemId: task.id }),
+        groupRow(4, { ...group, pageId: body }),
+        blockRow(5, first),
+      ],
+      5,
+    );
+
+    sync.deleteTask(task.id);
+
+    expect(sync.getState().textGroups.size).toBe(0);
+    expect(sync.getState().textBlocks.size).toBe(0);
   });
 });

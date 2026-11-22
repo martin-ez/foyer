@@ -32,6 +32,7 @@ import {
 import { type MovedUp, type Placer, stickMovedUp } from "./moved-up";
 import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
+import { buryGroups, textOnPagesOf } from "./text";
 
 const badDate = "A task's date must be a day, as in “2026-11-17”.";
 const badTime = "A task's time must be hours and minutes, as in “19:00”.";
@@ -435,6 +436,17 @@ export function moveIntoSpace(
       seq,
       id,
     );
+    sql.exec(
+      "UPDATE text_groups SET seq = ? WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
+      seq,
+      id,
+    );
+    sql.exec(
+      `UPDATE text_blocks SET seq = ? WHERE group_id IN (SELECT text_groups.id FROM text_groups
+         JOIN pages ON pages.id = text_groups.page_id WHERE pages.item_id = ?)`,
+      seq,
+      id,
+    );
   }
   redateEvents(sql, items, setter, seq);
 
@@ -554,6 +566,10 @@ function deleteFound(
     sql.exec("DELETE FROM stickers WHERE id = ?", sticker.id);
     bury("sticker", sticker.id, sticker.owner_id);
   }
+  const groups = textOnPagesOf(sql, itemId)
+    .filter(({ kind }) => kind === "text_group")
+    .map(({ id }) => id);
+  const text = buryGroups(sql, groups, owner, seq);
   const carried = carriedBy(sql, itemId).filter(({ kind }) => kind !== "sticker");
   for (const row of carried) bury(row.kind, row.id, owner);
   sql.exec("DELETE FROM completions WHERE item_id = ?", itemId);
@@ -565,6 +581,7 @@ function deleteFound(
   const changed: RowKey[] = [
     { kind: "item", id: itemId },
     ...carried,
+    ...text,
     ...stickers.map(({ id }): RowKey => ({ kind: "sticker", id })),
     ...children.map(({ id }): RowKey => ({ kind: "item", id })),
     ...stickMovedUp(sql, children, to, placer, seq),
@@ -586,6 +603,7 @@ function carriedBy(sql: SqlStorage, itemId: string): RowKey[] {
     ...ids("SELECT id FROM stickers WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)").map(
       (id): RowKey => ({ kind: "sticker", id }),
     ),
+    ...textOnPagesOf(sql, itemId),
   ];
 }
 

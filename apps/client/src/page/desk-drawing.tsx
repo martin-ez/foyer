@@ -1,4 +1,5 @@
 import type { PageSize } from "@foyer/shared";
+import type { ReactNode } from "react";
 import { Fill, Group, Rect, Shadow } from "react-native-skia";
 import { PageDrawing, paperColour, type Ruling } from "./page-drawing";
 import type { Camera } from "./sheet-camera";
@@ -7,15 +8,18 @@ import type { Camera } from "./sheet-camera";
 export const deskColour = "#e9e4da";
 
 /** The Skia elements of a page lying on the desk, where `camera` puts it, with what's printed on
- *  it. Everything on the page is drawn in one group, so it all moves and zooms together. */
+ *  it and `children`, Skia elements in its own points. Everything on the page is drawn in one
+ *  group, so it all moves and zooms together. */
 export function DeskDrawing({
   page,
   ruling,
   camera,
+  children,
 }: {
   page: PageSize;
   ruling?: Ruling;
   camera: Camera;
+  children?: ReactNode;
 }) {
   const { x, y, scale } = camera;
   return (
@@ -25,7 +29,9 @@ export function DeskDrawing({
         <Shadow dx={0} dy={2} blur={8} color="rgba(0, 0, 0, 0.18)" />
       </Rect>
       <Group transform={[{ translateX: x }, { translateY: y }, { scale }]}>
-        <PageDrawing size={page} ruling={ruling} />
+        <PageDrawing size={page} ruling={ruling}>
+          {children}
+        </PageDrawing>
       </Group>
     </>
   );

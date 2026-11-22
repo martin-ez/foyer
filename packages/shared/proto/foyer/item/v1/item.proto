@@ -152,8 +152,9 @@ message ItemMove {
   string space_id = 2;
 }
 
-// Deletes an item, and its stickers on every page. Items still under it move up to its parent, or
-// to the top of its space. An event is deleted in Google Calendar too.
+// Deletes an item, its stickers on every page, and its pages with everything on them, its text
+// included. Items still under it move up to its parent, or to the top of its space. An event is
+// deleted in Google Calendar too.
 message ItemDelete {
   string item_id = 1;
 }

@@ -15,6 +15,7 @@ import {
   itemTitleProblem,
   minutesOf,
   newId,
+  orderBetween,
   type PageSize,
   type PlacedSticker,
   pageSizeFor,
@@ -23,6 +24,7 @@ import {
   type RepeatRule,
   signedOutCloseCode,
   spaceNameProblem,
+  spacePageId,
   timeOfDay,
 } from "@foyer/shared";
 import type { GoogleConnection } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
@@ -49,11 +51,18 @@ import {
   RowKind,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { type Completion, CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
+import {
+  type TextBlock,
+  TextBlockSchema,
+  type TextGroup,
+  TextGroupSchema,
+} from "@foyer/shared/gen/foyer/text/v1/text_pb";
 import { localToday, minutesIntoLocalDay, momentInLocalDay } from "../page/calendar-date";
 import type { Point } from "../page/sheet-camera";
 import { spotInSpace, spotOnPage } from "../page/sticker-layout";
 import { currentOccurrence, firstDateOf, repeatFromKind, tickOf } from "../tasks/repeats";
 import { itemsUnder } from "../tasks/task-lists";
+import { blocksIn } from "../text/text-groups";
 
 /** What happens to the items under a task when it's deleted: they're deleted too, they move up to
  *  its own parent, or to the top of its space. */
@@ -86,6 +95,10 @@ export type SyncState = {
   stickers: ReadonlyMap<string, Sticker>;
   /** The completions of the tasks the member sees, by id: one each time a task was ticked. */
   completions: ReadonlyMap<string, Completion>;
+  /** The text groups on the pages the member sees, by id. */
+  textGroups: ReadonlyMap<string, TextGroup>;
+  /** The blocks of those text groups, by id. */
+  textBlocks: ReadonlyMap<string, TextBlock>;
   /** The member's connection to their Google account, or null when they aren't connected. */
   googleConnection: GoogleConnection | null;
   /** How many changes the household hasn't saved yet. */
@@ -139,6 +152,8 @@ export class HouseholdSync {
   readonly #stickers = new Map<string, { seq: bigint; sticker: Sticker }>();
   readonly #completions = new Map<string, { seq: bigint; completion: Completion }>();
   readonly #googleConnections = new Map<string, { seq: bigint; connection: GoogleConnection }>();
+  readonly #textGroups = new Map<string, { seq: bigint; group: TextGroup }>();
+  readonly #textBlocks = new Map<string, { seq: bigint; block: TextBlock }>();
   readonly #rowsOfKind = {
     member: this.#members,
     space: this.#spaces,
@@ -147,6 +162,8 @@ export class HouseholdSync {
     sticker: this.#stickers,
     completion: this.#completions,
     googleConnection: this.#googleConnections,
+    textGroup: this.#textGroups,
+    textBlock: this.#textBlocks,
   };
   readonly #deleted = new Map<string, bigint>();
   #pending: Pending[] = [];
@@ -548,6 +565,143 @@ export class HouseholdSync {
     this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
   }
 
+  /** Puts a text group on a page, with its corner `at` and its first block, creating the page if
+   *  nothing is on it yet. Returns the ids of the group and its block. */
+  addText(
+    pageId: string,
+    at: Point,
+    width: number,
+    markdown: string,
+  ): { groupId: string; blockId: string } {
+    const groupId = newId();
+    const blockId = newId();
+    this.#make(
+      "adding text",
+      ...this.#creatingPage(pageId),
+      { case: "textGroupCreate", value: { groupId, pageId, ...at, width } },
+      {
+        case: "textBlockCreate",
+        value: { blockId, groupId, order: orderBetween(null, null), markdown },
+      },
+    );
+    return { groupId, blockId };
+  }
+
+  /** Adds a block to a text group, after the block `after`, or at its start when null, and returns
+   *  its id. */
+  addBlock(groupId: string, after: string | null, markdown: string): string {
+    const blockId = newId();
+    const order = this.#orderAfter(groupId, after);
+    this.#make("adding text", {
+      case: "textBlockCreate",
+      value: { blockId, groupId, order, markdown },
+    });
+    return blockId;
+  }
+
+  /** Changes a block's text, as Markdown. */
+  editBlock(blockId: string, markdown: string): void {
+    this.#make("changing text", { case: "textBlockEdit", value: { blockId, markdown } });
+  }
+
+  /** Deletes a block, with its group when it's the group's last. */
+  deleteBlock(blockId: string): void {
+    const block = this.#state.textBlocks.get(blockId);
+    if (!block) return;
+    const others = blocksIn(block.groupId, this.#state.textBlocks).filter(
+      ({ id }) => id !== blockId,
+    );
+    if (others.length === 0) this.deleteTextGroup(block.groupId);
+    else this.#make("deleting text", { case: "textBlockDelete", value: { blockId } });
+  }
+
+  /** Moves a text group within its page, which brings it to the top. */
+  moveTextGroup(groupId: string, x: number, y: number): void {
+    this.#make("moving text", { case: "textGroupMove", value: { groupId, x, y } });
+  }
+
+  /** Changes how wide a text group is, in points. */
+  resizeTextGroup(groupId: string, width: number): void {
+    this.#make("resizing text", { case: "textGroupResize", value: { groupId, width } });
+  }
+
+  /** Deletes a text group with its blocks. */
+  deleteTextGroup(groupId: string): void {
+    this.#make("deleting text", { case: "textGroupDelete", value: { groupId } });
+  }
+
+  /** Splits a text group before one of its blocks, other than its first: that block and those after
+   *  it go to a new group with its corner `at`, as wide as the first. Returns the new group's id, or
+   *  null if nothing was split. */
+  splitTextGroup(blockId: string, at: Point): string | null {
+    const block = this.#state.textBlocks.get(blockId);
+    const group = block && this.#state.textGroups.get(block.groupId);
+    if (!block || !group) return null;
+    const blocks = blocksIn(group.id, this.#state.textBlocks);
+    const from = blocks.findIndex(({ id }) => id === blockId);
+    if (from <= 0) return null;
+    const newGroupId = newId();
+    const create: ChangeInit = {
+      case: "textGroupCreate",
+      value: { groupId: newGroupId, pageId: group.pageId, ...at, width: group.width },
+    };
+    const moves = blocks.slice(from).map(
+      ({ id, order }): ChangeInit => ({
+        case: "textBlockMove",
+        value: { blockId: id, groupId: newGroupId, order },
+      }),
+    );
+    this.#make("splitting text", create, ...moves);
+    return newGroupId;
+  }
+
+  /** Joins a text group onto the end of another on the same page: its blocks move there, after the
+   *  other's, and it's deleted. */
+  joinTextGroups(intoGroupId: string, fromGroupId: string): void {
+    const into = this.#state.textGroups.get(intoGroupId);
+    const from = this.#state.textGroups.get(fromGroupId);
+    if (!into || !from || into.id === from.id || into.pageId !== from.pageId) return;
+    let last = blocksIn(into.id, this.#state.textBlocks).at(-1)?.order ?? null;
+    const moves = blocksIn(from.id, this.#state.textBlocks).map(({ id }): ChangeInit => {
+      last = orderBetween(last, null);
+      return { case: "textBlockMove", value: { blockId: id, groupId: into.id, order: last } };
+    });
+    this.#make("joining text", ...moves, {
+      case: "textGroupDelete",
+      value: { groupId: from.id },
+    });
+  }
+
+  #orderAfter(groupId: string, after: string | null): string {
+    const blocks = blocksIn(groupId, this.#state.textBlocks);
+    const index = after === null ? -1 : blocks.findIndex(({ id }) => id === after);
+    const before = index >= 0 ? (blocks[index]?.order ?? null) : null;
+    const next = blocks.slice(index + 1).find(({ order }) => before === null || order > before);
+    return orderBetween(before, next?.order ?? null);
+  }
+
+  #creatingPage(pageId: string): ChangeInit[] {
+    if (this.#state.pages.has(pageId)) return [];
+    const calendar = calendarPageOf(pageId);
+    if (calendar) {
+      const size = pageSizeFor(calendar.kind);
+      return [
+        { case: "pageCreate", value: { pageId, kind: calendarPageKinds[calendar.kind], ...size } },
+      ];
+    }
+    const [kind = "", id = "", number = ""] = pageId.split(":");
+    if (kind === "item" && pageId === itemPageId(id)) {
+      const value = { pageId, kind: PageKind.ITEM, itemId: id, ...pageSizeFor("item") };
+      return [{ case: "pageCreate", value }];
+    }
+    if (kind === "space" && pageId === spacePageId(id, Number(number))) {
+      const size = pageSizeFor("space");
+      const value = { pageId, kind: PageKind.SPACE, spaceId: id, number: Number(number), ...size };
+      return [{ case: "pageCreate", value }];
+    }
+    return [];
+  }
+
   /** Forgets the refused changes the state reports. */
   dismissProblems(): void {
     this.#problems = [];
@@ -820,6 +974,16 @@ export class HouseholdSync {
             this.#googleConnections.set(row.value.memberId, { seq, connection: row.value });
           }
           break;
+        case "textGroup":
+          if (this.#isNewer("textGroup", row.value.id, seq, this.#textGroups)) {
+            this.#textGroups.set(row.value.id, { seq, group: row.value });
+          }
+          break;
+        case "textBlock":
+          if (this.#isNewer("textBlock", row.value.id, seq, this.#textBlocks)) {
+            this.#textBlocks.set(row.value.id, { seq, block: row.value });
+          }
+          break;
         case "deleted": {
           const kind = rowKindNames[row.value.kind];
           const rows = kind && this.#rowsOfKind[kind];
@@ -892,6 +1056,12 @@ export class HouseholdSync {
     const completions = new Map(
       [...this.#completions].map(([id, { completion }]) => [id, completion]),
     );
+    const textGroups = new Map([...this.#textGroups].map(([id, { group }]) => [id, group]));
+    const textBlocks = new Map([...this.#textBlocks].map(([id, { block }]) => [id, block]));
+    const deleteGroup = (groupId: string) => {
+      textGroups.delete(groupId);
+      for (const [id, block] of textBlocks) if (block.groupId === groupId) textBlocks.delete(id);
+    };
     for (const { change } of this.#pending) {
       const { at } = change;
       switch (change.change.case) {
@@ -1025,6 +1195,7 @@ export class HouseholdSync {
           for (const [id, completion] of completions) {
             if (completion.itemId === itemId) completions.delete(id);
           }
+          for (const [id, group] of textGroups) if (itemPages.has(group.pageId)) deleteGroup(id);
           break;
         }
         case "taskTick": {
@@ -1052,6 +1223,59 @@ export class HouseholdSync {
           }
           break;
         }
+        case "textGroupCreate": {
+          const { groupId, pageId, x, y, width } = change.change.value;
+          if (!textGroups.has(groupId) && !this.#deleted.has(`textGroup ${groupId}`)) {
+            const made = { placedAt: at, placedBy: this.#memberId };
+            const created = { createdAt: at, createdBy: this.#memberId };
+            const group = { id: groupId, pageId, x, y, width, ...made, ...created };
+            textGroups.set(groupId, create(TextGroupSchema, group));
+          }
+          break;
+        }
+        case "textGroupMove": {
+          const { groupId, x, y } = change.change.value;
+          const group = textGroups.get(groupId);
+          if (group) {
+            textGroups.set(groupId, { ...group, x, y, placedAt: at, placedBy: this.#memberId });
+          }
+          break;
+        }
+        case "textGroupResize": {
+          const { groupId, width } = change.change.value;
+          const group = textGroups.get(groupId);
+          if (group) textGroups.set(groupId, { ...group, width });
+          break;
+        }
+        case "textGroupDelete":
+          deleteGroup(change.change.value.groupId);
+          break;
+        case "textBlockCreate": {
+          const { blockId, groupId, order, markdown } = change.change.value;
+          const fresh = !textBlocks.has(blockId) && !this.#deleted.has(`textBlock ${blockId}`);
+          if (fresh && textGroups.has(groupId)) {
+            const created = { createdAt: at, createdBy: this.#memberId };
+            const block = { id: blockId, groupId, order, markdown, ...created };
+            textBlocks.set(blockId, create(TextBlockSchema, block));
+          }
+          break;
+        }
+        case "textBlockEdit": {
+          const { blockId, markdown } = change.change.value;
+          const block = textBlocks.get(blockId);
+          if (block) textBlocks.set(blockId, { ...block, markdown });
+          break;
+        }
+        case "textBlockMove": {
+          const { blockId, groupId, order } = change.change.value;
+          const block = textBlocks.get(blockId);
+          if (block && textGroups.has(groupId))
+            textBlocks.set(blockId, { ...block, groupId, order });
+          break;
+        }
+        case "textBlockDelete":
+          textBlocks.delete(change.change.value.blockId);
+          break;
       }
     }
     return {
@@ -1066,6 +1290,8 @@ export class HouseholdSync {
       items,
       stickers,
       completions,
+      textGroups,
+      textBlocks,
       googleConnection: this.#googleConnections.get(this.#memberId)?.connection ?? null,
       unsaved: this.#pending.length,
       problems: [...this.#problems],
@@ -1153,7 +1379,9 @@ type RowKindName =
   | "item"
   | "sticker"
   | "completion"
-  | "googleConnection";
+  | "googleConnection"
+  | "textGroup"
+  | "textBlock";
 
 const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.MEMBER]: "member",
@@ -1163,6 +1391,8 @@ const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.STICKER]: "sticker",
   [RowKind.COMPLETION]: "completion",
   [RowKind.GOOGLE_CONNECTION]: "googleConnection",
+  [RowKind.TEXT_GROUP]: "textGroup",
+  [RowKind.TEXT_BLOCK]: "textBlock",
 };
 
 const kindOrder: Record<SpaceKind, number> = {

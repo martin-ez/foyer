@@ -1,11 +1,11 @@
 # What is a page?
-Decided in #10, #16, #17, #23, #24, #64 and #80
+Decided in #10, #16, #17, #23, #24, #30, #64 and #80
 
 **Applies when:** building any view people write on, laying things out on a page, storing or syncing pages, positioning anything on a page, or deciding how people move around pages.
 
 **Answer:** A paper-like sheet with a fixed shape, and the unit everything in Foyer happens on: calendar pages (month, week and day), notebook pages and items' body pages. A page never stretches, and it looks the same on every device, so ink and stickers land in the same place everywhere. A long note gets more pages.
 
-Things on a page stack in the order they were added, as on paper: a scribble made after a sticker sits on top of it, and a sticker added after a scribble sits on top of the scribble. Moving something brings it to the top, like peeling it off and sticking it down again. The eraser only removes ink. Until #40 is built, ink is drawn above stickers and text.
+Things on a page stack in the order they were added, as on paper: a scribble made after a sticker sits on top of it, and a sticker added after a scribble sits on top of the scribble. Moving something brings it to the top, like peeling it off and sticking it down again. The eraser only removes ink. Until #40 is built, ink is drawn above stickers and text, and text below stickers.
 
 - **Stacking order:** by when each thing was placed or last moved, by the device's clock, with equal times settled by id. A sticker keeps that time as `placed_at`, the time of the change that placed or moved it, and strokes and text store the same time, so stacking them together needs no conversion.
 

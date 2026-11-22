@@ -23,6 +23,7 @@ import { tapSlop } from "./sticker-drag";
 export function PageSheet({
   size,
   ruling,
+  drawn,
   label,
   onPoint,
   onTap,
@@ -31,6 +32,9 @@ export function PageSheet({
   size: PageSize;
   /** What's printed on the page, such as a calendar's grid. */
   ruling?: Ruling;
+  /** Skia elements drawn on the page above what's printed on it, in its own points, such as its
+   *  text. */
+  drawn?: ReactNode;
   label: string;
   /** Called as the pointer moves over the page, in points from its top-left corner. */
   onPoint?: (at: Point) => void;
@@ -94,7 +98,9 @@ export function PageSheet({
   return (
     <View ref={keepHost} style={styles.desk} onLayout={onLayout} accessibilityLabel={label}>
       <Canvas style={styles.fill}>
-        <DeskDrawing page={size} ruling={ruling} camera={camera} />
+        <DeskDrawing page={size} ruling={ruling} camera={camera}>
+          {drawn}
+        </DeskDrawing>
       </Canvas>
       <View
         style={[

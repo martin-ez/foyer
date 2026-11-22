@@ -1,5 +1,5 @@
 # Who can see what?
-Decided in #10, #13 and #98
+Decided in #10, #13, #30 and #98
 
 **Applies when:** creating an item or a space, moving an item between spaces, deciding which devices receive a change, or designing anything about sharing or privacy.
 
@@ -28,7 +28,7 @@ A space's name follows these rules, which the household applies to `SpaceCreate`
 - **A create that clashes is numbered, not refused,** because a space created offline may already hold items. The household adds the first free number, as in "Groceries 2", shortening the name before the number if it would pass 120 characters, and the device receives the space under that name. The "Personal" space a member gets when they join is numbered the same way.
 - **A rename that clashes is refused**, and the device undoes it. A space can take its own name in another case. A rename that loses to one made later has no effect and isn't checked.
 
-Ink on calendar pages is the one exception: it's always shared with the whole household, even though the stickers under it keep their own space's visibility. Private handwriting belongs in a personal notebook or an item's body page.
+Ink and typed text on calendar pages are the one exception: they're always shared with the whole household, even though the stickers under them keep their own space's visibility. Private handwriting belongs in a personal notebook or an item's body page.
 
 **Why:**
 - One rule per container is easier to understand and to enforce than permissions on every item.

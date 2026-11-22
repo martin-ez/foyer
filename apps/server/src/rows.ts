@@ -11,10 +11,20 @@ import { CalendarState, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/s
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { type Row, RowKind, RowSchema } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
+import { TextBlockSchema, TextGroupSchema } from "@foyer/shared/gen/foyer/text/v1/text_pb";
 
 /** Which row devices hold: its kind and its id. */
 export type RowKey = {
-  kind: "member" | "space" | "page" | "item" | "sticker" | "completion" | "google_connection";
+  kind:
+    | "member"
+    | "space"
+    | "page"
+    | "item"
+    | "sticker"
+    | "completion"
+    | "google_connection"
+    | "text_group"
+    | "text_block";
   id: string;
 };
 
@@ -76,6 +86,16 @@ export function pullRows(
       memberId,
       cursor,
       memberId,
+      cursor,
+      memberId,
+      cursor,
+      memberId,
+    ),
+    ...seqsOf(
+      `SELECT text_groups.seq AS seq FROM ${textGroupsWithOwner}
+         AND text_groups.seq > ? AND ${pageSeenBy}
+       UNION ALL SELECT text_blocks.seq FROM ${textBlocksWithOwner}
+         AND text_blocks.seq > ? AND ${pageSeenBy}`,
       cursor,
       memberId,
       cursor,
@@ -150,6 +170,16 @@ function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
         .exec<GoogleConnectionRow>(`${selectGoogleConnections} WHERE member_id = ?`, id)
         .toArray()
         .map(googleConnectionRow);
+    case "text_group":
+      return sql
+        .exec<TextGroupRow>(`${selectTextGroups} AND text_groups.id = ?`, id)
+        .toArray()
+        .map(textGroupRow);
+    case "text_block":
+      return sql
+        .exec<TextBlockRow>(`${selectTextBlocks} AND text_blocks.id = ?`, id)
+        .toArray()
+        .map(textBlockRow);
   }
 }
 
@@ -229,6 +259,31 @@ type CompletionRow = {
   owner_id: string | null;
 };
 
+type TextGroupRow = {
+  id: string;
+  page_id: string;
+  x: number;
+  y: number;
+  width: number;
+  placed_at: number;
+  placed_by: string;
+  created_by: string;
+  created_at: number;
+  seq: number;
+  owner_id: string | null;
+};
+
+type TextBlockRow = {
+  id: string;
+  group_id: string;
+  block_order: string;
+  markdown: string;
+  created_by: string;
+  created_at: number;
+  seq: number;
+  owner_id: string | null;
+};
+
 type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; seq: number };
 
 const selectMembers = "SELECT id, name, seq FROM members";
@@ -279,6 +334,23 @@ const selectCompletions = `SELECT completions.id, completions.item_id, completio
   completions.done_at, completions.done_by, completions.seq, spaces.owner_id
   FROM ${completionsWithOwner}`;
 
+const textGroupsWithOwner = `text_groups JOIN pages ON pages.id = text_groups.page_id
+  ${joinPageSpace} WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
+
+const selectTextGroups = `SELECT text_groups.id, text_groups.page_id, text_groups.x, text_groups.y,
+  text_groups.width, text_groups.placed_at, text_groups.placed_by, text_groups.created_by,
+  text_groups.created_at, text_groups.seq, spaces.owner_id
+  FROM ${textGroupsWithOwner}`;
+
+const textBlocksWithOwner = `text_blocks JOIN text_groups ON text_groups.id = text_blocks.group_id
+  JOIN pages ON pages.id = text_groups.page_id ${joinPageSpace}
+  WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
+
+const selectTextBlocks = `SELECT text_blocks.id, text_blocks.group_id, text_blocks.block_order,
+  text_blocks.markdown, text_blocks.created_by, text_blocks.created_at, text_blocks.seq,
+  spaces.owner_id
+  FROM ${textBlocksWithOwner}`;
+
 const selectTombstones = "SELECT kind, id, visible_to, seq FROM tombstones";
 
 const selectHiddenRows = "SELECT kind, id, member_id AS visible_to, seq FROM hidden_rows";
@@ -318,6 +390,8 @@ const rowKinds = {
   sticker: RowKind.STICKER,
   completion: RowKind.COMPLETION,
   google_connection: RowKind.GOOGLE_CONNECTION,
+  text_group: RowKind.TEXT_GROUP,
+  text_block: RowKind.TEXT_BLOCK,
 } as const;
 
 const googleConnectionStates = {
@@ -385,6 +459,24 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     )
     .toArray()
     .map(googleConnectionRow);
+  const textGroups = sql
+    .exec<TextGroupRow>(
+      `${selectTextGroups} AND text_groups.seq > ? AND text_groups.seq <= ? AND ${pageSeenBy}`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(textGroupRow);
+  const textBlocks = sql
+    .exec<TextBlockRow>(
+      `${selectTextBlocks} AND text_blocks.seq > ? AND text_blocks.seq <= ? AND ${pageSeenBy}`,
+      after,
+      upTo,
+      memberId,
+    )
+    .toArray()
+    .map(textBlockRow);
   const tombstones = sql
     .exec<Tombstone>(
       `${selectTombstones} WHERE seq > ? AND seq <= ? AND (visible_to IS NULL OR visible_to = ?)`,
@@ -411,6 +503,8 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
     ...stickers,
     ...completions,
     ...googleConnections,
+    ...textGroups,
+    ...textBlocks,
     ...tombstones,
     ...hidden,
   ]
@@ -531,6 +625,39 @@ function completionRow(completion: CompletionRow): VisibleRow {
   return {
     row: create(RowSchema, { seq: BigInt(completion.seq), row: { case: "completion", value } }),
     visibleTo: completion.owner_id,
+  };
+}
+
+function textGroupRow(group: TextGroupRow): VisibleRow {
+  const value = create(TextGroupSchema, {
+    id: group.id,
+    pageId: group.page_id,
+    x: group.x,
+    y: group.y,
+    width: group.width,
+    placedAt: timestampFromMs(group.placed_at),
+    placedBy: group.placed_by,
+    createdBy: group.created_by,
+    createdAt: timestampFromMs(group.created_at),
+  });
+  return {
+    row: create(RowSchema, { seq: BigInt(group.seq), row: { case: "textGroup", value } }),
+    visibleTo: group.owner_id,
+  };
+}
+
+function textBlockRow(block: TextBlockRow): VisibleRow {
+  const value = create(TextBlockSchema, {
+    id: block.id,
+    groupId: block.group_id,
+    order: block.block_order,
+    markdown: block.markdown,
+    createdBy: block.created_by,
+    createdAt: timestampFromMs(block.created_at),
+  });
+  return {
+    row: create(RowSchema, { seq: BigInt(block.seq), row: { case: "textBlock", value } }),
+    visibleTo: block.owner_id,
   };
 }
 
