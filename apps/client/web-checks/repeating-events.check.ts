@@ -4,7 +4,7 @@ import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
 import { describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { repeatingEventMembers, signIn } from "./sign-in";
-import { bundleBuildTimeout } from "./tasks";
+import { addTask, bundleBuildTimeout, createSpaceOfItsOwn, openSpace } from "./tasks";
 
 /** A weekday of the week `weeks` weeks from this one, counted from Monday as 0, as an ISO 8601 date
  *  in the browser's time zone. */
@@ -30,6 +30,11 @@ test("shows each occurrence of a series added in Google on its day, and changes 
   await signIn(page, email);
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
   await connectAtFakeGoogle(page, /^Continue as /);
+  const otherSpace = await createSpaceOfItsOwn(page);
+  await openSpace(page, otherSpace);
+  const elsewhere = await addTask(page, `${title} sheet music`);
+  await openSpace(page, "Personal");
+  const sameSpace = await addTask(page, `${title} practice`);
   const firstDay = await weekdayInBrowser(page, 1, 2);
   const nextDay = await weekdayInBrowser(page, 1, 3);
 
@@ -69,6 +74,12 @@ test("shows each occurrence of a series added in Google on its day, and changes 
     page.getByText("A repeating event moves with its series, in Google Calendar."),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /^Move to / })).toHaveCount(0);
+  await page.getByLabel("Put it under a task").fill(title);
+  await expect(page.getByRole("button", { name: `Put under “${sameSpace}”` })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Put under “${elsewhere}” in ${otherSpace}` }),
+  ).toHaveCount(0);
+  await page.getByLabel("Put it under a task").fill("");
   await page.getByLabel("Title").fill(`${title}, at Ana's`);
   await saveScreenshot(page, testInfo, "repeating-event-editor");
   await page.getByRole("button", { name: "Save" }).click();

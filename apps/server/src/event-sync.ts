@@ -756,7 +756,12 @@ export class EventSync {
       if ("gone" in page) return this.#seriesLeft(series);
       if ("invalid" in page) {
         console.error(`Google refused to list series ${series.series_id}: ${page.invalid}`);
-        break;
+        this.#storage.sql.exec(
+          "UPDATE google_series SET made_until = ? WHERE series_id = ?",
+          window.to,
+          series.series_id,
+        );
+        return "done";
       }
       if (!("ok" in page)) return outcomeOf(calendar.member_id, page);
       instances.push(...page.ok.events.filter(({ status }) => status !== "cancelled"));

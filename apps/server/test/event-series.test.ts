@@ -400,6 +400,31 @@ describe("changes made in Google", () => {
     expect(await occurrences(device, "Choir")).toEqual([]);
   });
 
+  it("keep their occurrences when Google refuses to list the series", async () => {
+    const device = await member(alex);
+    const series = addSeries("Personal", "2026-11-24", {
+      summary: "Choir",
+      recurrence: ["RRULE:FREQ=WEEKLY;COUNT=3"],
+    });
+    await later();
+    const before = await occurrences(device, "Choir");
+    const answer = fakeGoogle.answer.bind(fakeGoogle);
+    vi.spyOn(fakeGoogle, "answer").mockImplementation((request) =>
+      new URL(request.url).pathname.endsWith("/instances")
+        ? Promise.resolve(Response.json({ error: { code: 400 } }, { status: 400 }))
+        : answer(request),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    fakeGoogle.changeEvent(calendarOf("Personal"), series.id, { summary: "Choir practice" });
+    await later();
+
+    expect(before).toHaveLength(3);
+    expect((await occurrences(device, "Choir")).map(({ id }) => id)).toEqual(
+      before.map(({ id }) => id),
+    );
+  });
+
   it("deleting the series deletes its occurrences", async () => {
     const device = await member(alex);
     const series = addSeries("Personal", "2026-11-24", {
@@ -432,6 +457,27 @@ describe("changes made in Google", () => {
     const after = await occurrences(device, "Choir");
     expect(after.map(({ id }) => id)).toEqual(before.map(({ id }) => id));
     expect(after.every(({ spaceId }) => spaceId === family.id)).toBe(true);
+  });
+
+  it("moving the series to a calendar read before its own moves its occurrences, keeping them", async () => {
+    const device = await member(alex);
+    await device.push(spaceCreate({ name: "Family" }));
+    await work();
+    const series = addSeries("Family", "2026-11-24", {
+      summary: "Choir",
+      recurrence: ["RRULE:FREQ=WEEKLY;COUNT=3"],
+    });
+    await later();
+    const before = await occurrences(device, "Choir");
+
+    fakeGoogle.moveEvent(calendarOf("Family"), series.id, calendarOf("Personal"));
+    await later();
+
+    const personal = await spaceNamed(device, "Personal");
+    const after = await occurrences(device, "Choir");
+    expect(before).toHaveLength(3);
+    expect(after.map(({ id }) => id)).toEqual(before.map(({ id }) => id));
+    expect(after.every(({ spaceId }) => spaceId === personal.id)).toBe(true);
   });
 
   it("keep occurrences when Google drops the sync token and every event is read again", async () => {
