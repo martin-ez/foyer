@@ -76,10 +76,9 @@ message Change {
     foyer.text.v1.TextBlockDelete text_block_delete = 27;
     foyer.text.v1.TextBlockMove text_block_move = 28;
   }
-  // A UUID version 7, made by the device, shared by the changes it makes together for one action,
-  // such as putting a task under another: setting its parent and moving its sticker. The household
-  // applies an action's changes all or none: if one is refused, each is refused with its reason.
-  // Empty when the change stands alone.
+  // A UUID version 7 the device makes, shared by the changes it makes for one action, such as
+  // putting a task under another. The household applies an action all or none: if one change is
+  // refused, each is refused with its reason. Empty when the change stands alone.
   string action_id = 29;
 }
 

@@ -72,8 +72,6 @@ type Outcome = { seq: number } | { refused: string };
 
 const unexpected = "Something went wrong while saving this change.";
 
-/** Splits a push into actions: the changes one after another that share an action id, or a change
- *  on its own. */
 function actionsOf(changes: Change[]): Change[][] {
   const actions: Change[][] = [];
   for (const change of changes) {
@@ -84,16 +82,12 @@ function actionsOf(changes: Change[]): Change[][] {
   return actions;
 }
 
-/** Thrown to undo what an action applied when one of its changes is refused. */
 class ActionRefused extends Error {
   constructor(readonly reason: string) {
     super(reason);
   }
 }
 
-/** Applies an action's changes in order, in one transaction. If one is refused, none is applied,
- *  and each is remembered as refused with its reason. A change sent before is answered as it was
- *  the first time. If something fails unexpectedly, none is applied or remembered. */
 function applyAction(
   storage: DurableObjectStorage,
   memberId: string,
@@ -109,7 +103,7 @@ function applyAction(
       changes.map((change) => {
         const before = rememberedOutcome(storage.sql, change.changeId);
         if (before && "refused" in before) throw new ActionRefused(before.refused);
-        if (before) return again(before);
+        if (before) return answerAgain(before);
         const applied = problem ? { refused: problem } : apply(storage.sql, memberId, change, now);
         if ("refused" in applied) throw new ActionRefused(applied.refused);
         remember(storage.sql, change.changeId, memberId, applied, now);
@@ -125,7 +119,7 @@ function applyAction(
     return storage.transactionSync(() =>
       changes.map((change) => {
         const before = rememberedOutcome(storage.sql, change.changeId);
-        if (before) return again(before);
+        if (before) return answerAgain(before);
         remember(storage.sql, change.changeId, memberId, refused, now);
         return refused;
       }),
@@ -141,8 +135,7 @@ function failed(changes: Change[], error: unknown): Applied[] {
   return changes.map(() => ({ refused: unexpected }));
 }
 
-/** What a change sent before did, answered again, now with no effect. */
-function again(before: Outcome): Applied {
+function answerAgain(before: Outcome): Applied {
   return "seq" in before ? { ...before, changed: [], unchanged: [] } : before;
 }
 

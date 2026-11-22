@@ -490,6 +490,28 @@ describe("changing things", () => {
     });
   });
 
+  it("says once for each refused action, and for each refused change made alone", () => {
+    startUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+    sync.renameSpace(home.id, "Our house");
+    sync.addTask(home.id, "Water the plants");
+    sync.addTask(home.id, "Feed the cat");
+    vi.advanceTimersByTime(1000);
+    household().welcome(2);
+    const push = household().lastPush();
+
+    const refused = Object.fromEntries(push.changes.map(({ changeId }) => [changeId, "No."]));
+    household().commit(push, refused);
+
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save renaming a space to “Our home”: No.",
+      "Couldn't save renaming a space to “Our house”: No.",
+      "Couldn't save adding “Water the plants”: No.",
+      "Couldn't save adding “Feed the cat”: No.",
+    ]);
+  });
+
   it("forgets the refused changes it reported once they're dismissed", () => {
     startUpToDate();
     sync.renameSpace(home.id, "Our home");

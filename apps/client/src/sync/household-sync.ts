@@ -129,14 +129,13 @@ export const silenceLimit = 75_000;
 /** The longest wait between attempts to connect again. */
 export const longestReconnectDelay = 30_000;
 
-/** At most this many changes go in one push. */
+/** At most this many changes go in one push, unless one action alone has more: it goes whole, in
+ *  a push of its own. An action is never split between pushes. */
 export const pushChangeLimit = 100;
 
 type Pending = { change: Change; describe: string; pushId?: string };
 
-/** The first changes, up to `pushChangeLimit`, without splitting an action, unless the first
- *  action alone has more: then that action, whole. */
-function wholeActions(unsent: Pending[]): Pending[] {
+function nextPush(unsent: Pending[]): Pending[] {
   const actionAt = (index: number) => unsent[index]?.change.actionId || undefined;
   let end = Math.min(unsent.length, pushChangeLimit);
   const split = actionAt(end);
@@ -868,7 +867,6 @@ export class HouseholdSync {
     return { changes, pageNumber: spot.number };
   }
 
-  /** Makes the changes of one action, which the household applies all or none. */
   #make(describe: string, ...changes: ChangeInit[]): void {
     const at = timestampFromMs(Date.now());
     const actionId = changes.length > 1 ? newId() : "";
@@ -1027,7 +1025,7 @@ export class HouseholdSync {
   #pushUnsent(): void {
     if (this.#status !== "catching-up" && this.#status !== "up-to-date") return;
     for (;;) {
-      const unsent = wholeActions(this.#pending.filter(({ pushId }) => !pushId));
+      const unsent = nextPush(this.#pending.filter(({ pushId }) => !pushId));
       if (unsent.length === 0) return;
       const pushId = newId();
       for (const pending of unsent) pending.pushId = pushId;

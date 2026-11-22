@@ -506,6 +506,25 @@ describe("actions", () => {
     ]);
     expect(await device.updates()).toEqual([]);
   });
+
+  it("applies the rest of an action when one of its changes loses a conflict", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const home = spaceCreate({ name: "Home" }, { at: madeAt(Date.now() - 2000) });
+    await device.push(home, spaceRename(spaceIdOf(home), "Our home"));
+    await device.updates();
+
+    const committed = await device.push(
+      ...together([
+        spaceRename(spaceIdOf(home), "Old name", { at: madeAt(Date.now() - 1000) }),
+        spaceCreate({ name: "Garden" }),
+      ]),
+    );
+
+    expect(committed.results.map(({ result }) => result.case)).toEqual(["seq", "seq"]);
+    expect(describeRows(await device.updates()).map((row) => row.space)).toEqual(
+      expect.arrayContaining(["Our home", "Garden"]),
+    );
+  });
 });
 
 describe("conflicting changes", () => {
