@@ -48,10 +48,11 @@ export async function finishSignIn(
   }
 }
 
-/** Signs out: ends the session on the backend, then forgets its token on this device. */
+/** Signs out: ends the session on the backend, then forgets what this device keeps for it, such as
+ *  its token. */
 export async function signOut(
   sessions: Sessions,
-  forgetToken: () => Promise<void>,
+  forgetOnDevice: () => Promise<void>,
 ): Promise<Session> {
   try {
     await sessions.signOut({});
@@ -59,7 +60,7 @@ export async function signOut(
     const reason = ConnectError.from(error);
     return { status: "unreachable", problem: `Couldn't reach the backend: ${reason.message}` };
   }
-  await forgetToken();
+  await forgetOnDevice();
   return { status: "signed-out" };
 }
 

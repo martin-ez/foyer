@@ -25,6 +25,7 @@ import { CalendarState, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space
 import { StickerKind } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import {
   type Change,
+  ChangeSchema,
   type DeviceMessage,
   DeviceMessageSchema,
   HouseholdMessageSchema,
@@ -39,10 +40,12 @@ import {
   type Connect,
   type ConnectionEvents,
   HouseholdSync,
+  type KeptChange,
   keepAliveInterval,
   longestReconnectDelay,
   pushChangeLimit,
   silenceLimit,
+  type UnsentChanges,
 } from "../src/sync/household-sync";
 import { reportEvents, syncAddress } from "../src/sync/socket";
 import { blocksIn } from "../src/text/text-groups";
@@ -768,6 +771,153 @@ describe("losing the connection", () => {
     expect(household().closedByDevice).toBe(true);
     expect(sync.getState().status).toBe("offline");
     expect(connections).toHaveLength(1);
+  });
+});
+
+describe("keeping unsent changes between launches", () => {
+  class KeptChanges implements UnsentChanges {
+    kept: KeptChange[] = [];
+    load = async () => [...this.kept];
+    keep = (changes: KeptChange[]) => {
+      this.kept.push(...changes);
+    };
+    forget = (changeIds: string[]) => {
+      this.kept = this.kept.filter(({ changeId }) => !changeIds.includes(changeId));
+    };
+    forgetAll = () => {
+      this.kept = [];
+    };
+  }
+
+  let unsent: KeptChanges;
+
+  function launch() {
+    sync.stop();
+    sync = new HouseholdSync({ memberId: me, connect, unsent });
+  }
+
+  async function startedUpToDate(rows?: RowInit[], seq?: number) {
+    startUpToDate(rows, seq);
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function keptIds() {
+    return unsent.kept.map(({ changeId }) => changeId);
+  }
+
+  beforeEach(() => {
+    unsent = new KeptChanges();
+    launch();
+  });
+
+  it("keeps each change as it's made, encoded as it's sent", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+
+    sync.renameSpace(home.id, "Our home");
+
+    const [kept] = unsent.kept;
+    expect(unsent.kept).toHaveLength(1);
+    expect(kept?.describe).toBe("renaming a space to “Our home”");
+    const change = fromBinary(ChangeSchema, kept?.encoded ?? new Uint8Array());
+    expect(change.changeId).toBe(kept?.changeId);
+    expect(nameIn(change)).toBe("Our home");
+  });
+
+  it("forgets the changes the household commits", async () => {
+    await startedUpToDate();
+    sync.addTask(home.id, "Water the plants");
+    expect(unsent.kept.length).toBeGreaterThan(1);
+
+    household().commit(household().lastPush());
+
+    expect(unsent.kept).toEqual([]);
+  });
+
+  it("forgets the changes the household refuses", async () => {
+    await startedUpToDate();
+    sync.renameSpace(home.id, "Our home");
+    const push = household().lastPush();
+
+    household().commit(push, { [push.changes[0]?.changeId ?? ""]: "Not your space." });
+
+    expect(unsent.kept).toEqual([]);
+    expect(sync.getState().problems).toHaveLength(1);
+  });
+
+  it("sends the changes kept from before first, as the same changes, and shows them at once", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.addTask(home.id, "Water the plants");
+    const before = keptIds();
+
+    launch();
+    sync.start();
+    sync.renameSpace(home.id, "Our home");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sync.getState().unsaved).toBe(before.length + 1);
+    expect([...sync.getState().items.values()].map(({ title }) => title)).toEqual([
+      "Water the plants",
+    ]);
+    household().welcome(2);
+
+    const sent = household()
+      .pushes()
+      .flatMap(({ changes }) => changes);
+    expect(sent.map(({ changeId }) => changeId)).toEqual([...before, ...keptIds().slice(-1)]);
+    const actions = new Set(sent.slice(0, -1).map(({ actionId }) => actionId));
+    expect(actions.size).toBe(1);
+    expect(actions.has("")).toBe(false);
+  });
+
+  it("pushes nothing until the changes kept from before are back", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+
+    launch();
+    sync.start();
+    household().welcome(2);
+    expect(household().pushes()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(household().pushes()).toHaveLength(1);
+  });
+
+  it("says a change kept from before couldn't be saved, in the words it was made with", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+
+    launch();
+    await startedUpToDate();
+    const push = household().lastPush();
+    household().commit(push, { [push.changes[0]?.changeId ?? ""]: "Not your space." });
+
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save renaming a space to “Our home”: Not your space.",
+    ]);
+    expect(names()).toEqual(["Inbox", "Home"]);
+  });
+
+  it("forgets every kept change once the household says the session has ended", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+    vi.advanceTimersByTime(1000);
+
+    household().closeWith(signedOutCloseCode);
+
+    expect(unsent.kept).toEqual([]);
+  });
+
+  it("starts with nothing kept when what was kept can't be read", async () => {
+    unsent.load = () => Promise.reject(new Error("The browser keeps nothing"));
+
+    await startedUpToDate();
+    sync.renameSpace(home.id, "Our home");
+
+    expect(household().lastPush().changes).toHaveLength(1);
   });
 });
 

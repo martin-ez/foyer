@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { connectToHousehold } from "./connect";
 import { HouseholdSync } from "./household-sync";
+import { unsentChangesOf } from "./unsent-changes";
 
 /** Keeps this device in sync with the household while the component is shown, for the signed-in
  *  member. Calls `onSignedOut` when the household says the session has ended. */
 export function useHouseholdSync(memberId: string, onSignedOut: () => void) {
   const sync = useMemo(
-    () => new HouseholdSync({ memberId, connect: connectToHousehold }),
+    () =>
+      new HouseholdSync({
+        memberId,
+        connect: connectToHousehold,
+        unsent: unsentChangesOf(memberId),
+      }),
     [memberId],
   );
   useEffect(() => {
