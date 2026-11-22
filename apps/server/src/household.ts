@@ -20,7 +20,7 @@ import {
 } from "./capture";
 import { applyPush } from "./changes";
 import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
-import { householdMigrations, migrate, runJobs } from "./migrations";
+import { migrateHousehold, runJobs } from "./migrations";
 import { canSeePage } from "./pages";
 import { latestSeq, nextSeq, pullRows, type RowKey, readRows, type VisibleRow } from "./rows";
 import { hashSecret, newSecret } from "./secrets";
@@ -63,7 +63,7 @@ export class Household extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, bindings: Env) {
     super(ctx, bindings);
-    migrate(ctx.storage, householdMigrations);
+    migrateHousehold(ctx.storage);
     runJobs(ctx.storage, { "place calendar stickers": placeAllCalendarStickers });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     this.#alarm = new EarliestAlarm(ctx.storage);

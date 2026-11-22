@@ -1,8 +1,8 @@
 import { evictDurableObject, reset, runInDurableObject } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { env, withEnv } from "cloudflare:workers";
 import { afterEach, describe, expect, it } from "vitest";
 import { theHousehold } from "../src/household";
-import { householdMigrations, migrate } from "../src/migrations";
+import { householdMigrations, migrate, migrateHousehold } from "../src/migrations";
 
 type Member = {
   id: string;
@@ -43,6 +43,18 @@ function hasTable(storage: DurableObjectStorage, name: string): boolean {
       .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", name)
       .toArray().length > 0
   );
+}
+
+function failedHouseholdMigration(settings: Env): Promise<string> {
+  return runInDurableObject(theHousehold(), (_, { storage }) => {
+    storage.sql.exec("DELETE FROM migrations");
+    try {
+      withEnv(settings, () => migrateHousehold(storage));
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error("The household's migrations ran");
+  });
 }
 
 afterEach(() => reset());
@@ -148,6 +160,40 @@ describe("storage migrations", () => {
     });
 
     expect(result).toEqual({ failed: true, left: false, fixedOneRuns: true });
+  });
+
+  it("name a migration that fails by its number", async () => {
+    const branchChange = "CREATE TABLE branch_change (value TEXT)";
+    const mainChange = "CREATE TABLE main_change (value TEXT)";
+
+    const migrating = runInDurableObject(theHousehold(), (_, { storage }) => {
+      migrate(storage, [...householdMigrations, branchChange]);
+      migrate(storage, [...householdMigrations, mainChange, branchChange]);
+    });
+
+    await expect(migrating).rejects.toThrow(
+      `Storage change ${householdMigrations.length + 2} in apps/server/src/migrations.ts failed: table branch_change already exists`,
+    );
+  });
+
+  it("on a local backend, also say how to start the household afresh when one fails", async () => {
+    const message = await failedHouseholdMigration({ ...env, DEV_SIGN_IN: "1" });
+
+    expect(message).toContain(
+      "Storage change 1 in apps/server/src/migrations.ts failed: table members already exists",
+    );
+    expect(message).toContain(
+      "start the local household afresh: stop the local backend, delete apps/server/.wrangler/state",
+    );
+  });
+
+  it("on a deployed backend, only name the one that fails", async () => {
+    const message = await failedHouseholdMigration({ ...env, DEV_SIGN_IN: "0" });
+
+    expect(message).toContain(
+      "Storage change 1 in apps/server/src/migrations.ts failed: table members already exists",
+    );
+    expect(message).not.toContain(".wrangler/state");
   });
 
   it("leave storage that ran newer migrations as it is", async () => {
