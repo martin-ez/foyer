@@ -300,6 +300,38 @@ export const householdMigrations: readonly Migration[] = [
   INSERT INTO household_jobs (name) VALUES ('place calendar stickers')`,
   `ALTER TABLE items ADD COLUMN time TEXT;
   INSERT OR IGNORE INTO household_jobs (name) VALUES ('place calendar stickers')`,
+  `CREATE TABLE text_groups (
+    id TEXT PRIMARY KEY,
+    page_id TEXT NOT NULL REFERENCES pages (id),
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    width REAL NOT NULL CHECK (width > 0),
+    placed_at INTEGER NOT NULL,
+    placed_change_id TEXT NOT NULL,
+    placed_by TEXT NOT NULL REFERENCES members (id),
+    width_at INTEGER NOT NULL,
+    width_change_id TEXT NOT NULL,
+    created_by TEXT NOT NULL REFERENCES members (id),
+    created_at INTEGER NOT NULL,
+    seq INTEGER NOT NULL
+  );
+  CREATE INDEX text_groups_by_seq ON text_groups (seq);
+  CREATE INDEX text_groups_by_page ON text_groups (page_id);
+  CREATE TABLE text_blocks (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES text_groups (id),
+    block_order TEXT NOT NULL,
+    order_at INTEGER NOT NULL,
+    order_change_id TEXT NOT NULL,
+    markdown TEXT NOT NULL,
+    markdown_at INTEGER NOT NULL,
+    markdown_change_id TEXT NOT NULL,
+    created_by TEXT NOT NULL REFERENCES members (id),
+    created_at INTEGER NOT NULL,
+    seq INTEGER NOT NULL
+  );
+  CREATE INDEX text_blocks_by_seq ON text_blocks (seq);
+  CREATE INDEX text_blocks_by_group ON text_blocks (group_id)`,
 ];
 
 /** Work on the household's data that needs today's code rather than the code of the migration

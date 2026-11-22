@@ -20,6 +20,10 @@ import {
   HouseholdMessageSchema,
   type Row,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import type {
+  TextBlockCreateSchema,
+  TextGroupCreateSchema,
+} from "@foyer/shared/gen/foyer/text/v1/text_pb";
 import { theHousehold } from "../src/household";
 import { backendUrl } from "./backend";
 
@@ -379,9 +383,54 @@ export function idOf({ change }: ChangeInit): string {
     case "stickerMove":
     case "stickerRemove":
       return change.value.stickerId ?? "";
+    case "textGroupCreate":
+    case "textGroupMove":
+    case "textGroupResize":
+    case "textGroupDelete":
+      return change.value.groupId ?? "";
+    case "textBlockCreate":
+    case "textBlockEdit":
+    case "textBlockDelete":
+    case "textBlockMove":
+      return change.value.blockId ?? "";
     default:
       throw new Error("The change names no id");
   }
+}
+
+/** Makes a text group, 300 points wide near the page's top-left corner unless `group` says
+ *  otherwise, made by the device now unless `made` says otherwise. */
+export function textGroupCreate(
+  group: Omit<MessageInitShape<typeof TextGroupCreateSchema>, "$typeName"> & { pageId: string },
+  made: Made = {},
+): ChangeInit {
+  const value = { groupId: newId(), x: 36, y: 36, width: 300, ...group };
+  return { ...madeNow(made), change: { case: "textGroupCreate", value } };
+}
+
+/** Adds a paragraph to a text group, made by the device now unless `made` says otherwise. */
+export function textBlockCreate(
+  block: Omit<MessageInitShape<typeof TextBlockCreateSchema>, "$typeName"> & { groupId: string },
+  made: Made = {},
+): ChangeInit {
+  const value = { blockId: newId(), order: "V", markdown: "Buy milk", ...block };
+  return { ...madeNow(made), change: { case: "textBlockCreate", value } };
+}
+
+/** Makes any other change to text, made by the device now unless `made` says otherwise. */
+export function textChange(
+  change: Exclude<ChangeInit["change"], undefined> & {
+    case:
+      | "textGroupMove"
+      | "textGroupResize"
+      | "textGroupDelete"
+      | "textBlockEdit"
+      | "textBlockDelete"
+      | "textBlockMove";
+  },
+  made: Made = {},
+): ChangeInit {
+  return { ...madeNow(made), change };
 }
 
 function madeNow(made: Made): Made {

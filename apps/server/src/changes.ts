@@ -18,6 +18,16 @@ import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
 import { namesSeenBy } from "./spaces";
 import { moveSticker, placeSticker, removeSticker } from "./stickers";
+import {
+  createTextBlock,
+  createTextGroup,
+  deleteTextBlock,
+  deleteTextGroup,
+  editTextBlock,
+  moveTextBlock,
+  moveTextGroup,
+  resizeTextGroup,
+} from "./text";
 
 /** What a push did: what became of each change, the rows it changed, and the rows that changes
  *  with no effect would have changed, which only the device that pushed them receives. */
@@ -146,6 +156,22 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       const { itemId, time } = change.change.value;
       return setItemField(sql, memberId, setter, itemId, "time", time);
     }
+    case "textGroupCreate":
+      return createTextGroup(sql, memberId, setter, change.change.value);
+    case "textGroupMove":
+      return moveTextGroup(sql, memberId, setter, change.change.value);
+    case "textGroupResize":
+      return resizeTextGroup(sql, memberId, setter, change.change.value);
+    case "textGroupDelete":
+      return deleteTextGroup(sql, memberId, change.change.value);
+    case "textBlockCreate":
+      return createTextBlock(sql, memberId, setter, change.change.value);
+    case "textBlockEdit":
+      return editTextBlock(sql, memberId, setter, change.change.value);
+    case "textBlockDelete":
+      return deleteTextBlock(sql, memberId, change.change.value);
+    case "textBlockMove":
+      return moveTextBlock(sql, memberId, setter, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

@@ -107,6 +107,20 @@ export {
   unknownStickerSize,
 } from "./sticker-spot";
 export { signedOutCloseCode, syncPath } from "./sync";
+export {
+  mergeRuns,
+  orderBetween,
+  plainTextOf,
+  readBlockMarkdown,
+  type TextBlockContent,
+  type TextBlockKind,
+  type TextRun,
+  textBlockLimit,
+  textBlockProblem,
+  textOrderLimit,
+  textOrderProblem,
+  writeBlockMarkdown,
+} from "./text";
 export { isTimeOfDay, minutesIntoDay, minutesOf, timeOfDay } from "./time";
 
 /** The product name, shown by the app and reported by the backend. */

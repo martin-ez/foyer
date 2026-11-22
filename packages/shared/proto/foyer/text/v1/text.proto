@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package foyer.text.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Typed text on a page comes in groups, each a column of blocks that flow from its top down. A
+// group belongs to its page, as ink does: everyone who sees the page sees its text and can change
+// it. Devices receive all the text they can see. Things on a page stack by when they were placed or
+// last moved, with equal times settled by id.
+
+// A column of text blocks at a spot on a page.
+message TextGroup {
+  // A UUID version 7, made by the device that created it.
+  string id = 1;
+  // The page it's on, which it never leaves.
+  string page_id = 2;
+  // Where its top-left corner is, in points from the page's top-left corner.
+  double x = 3;
+  double y = 4;
+  // How wide it is, in points, which its text wraps within. Its height comes from laying its text
+  // out, which is the same on every device, so it isn't stored.
+  double width = 5;
+  // When it was made, or last moved, by the clock of the device that did it.
+  google.protobuf.Timestamp placed_at = 6;
+  // The member who made or last moved it.
+  string placed_by = 7;
+  // The member who made it, and when, by their device's clock.
+  string created_by = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// A paragraph, heading or list item in a text group.
+message TextBlock {
+  // A UUID version 7, made by the device that created it.
+  string id = 1;
+  // The group it's in, on the same page.
+  string group_id = 2;
+  // Where it is in its group: blocks are in the order of these strings, compared character by
+  // character, with equal orders settled by id. Each is made of the characters 0-9, A-Z and a-z,
+  // and never ends in 0, so another always fits between two.
+  string order = 3;
+  // The block as one line of Markdown, of at most 10,000 Unicode code points. Its type is
+  // Markdown's prefix: none for a paragraph, "# ", "## " or "### " for headings, "- " for a
+  // bulleted item and "1. " for a numbered item, after two spaces for each level a list item is
+  // nested. Inside it, only **bold**, *italic* and ***both***; any other character Markdown would
+  // read as more is escaped with a backslash, so it reads as typed.
+  string markdown = 4;
+  // The member who made it, and when, by their device's clock.
+  string created_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// Makes a group on a page, pushed with its first block.
+message TextGroupCreate {
+  // A new UUID version 7, made by the device.
+  string group_id = 1;
+  // A page that has been created, which the member sees.
+  string page_id = 2;
+  // Its top-left corner, in points from the page's top-left corner, on the page.
+  double x = 3;
+  double y = 4;
+  // A positive number of points, no wider than the page.
+  double width = 5;
+}
+
+// Moves a group within its page, which brings it to the top. The move made last wins, by the
+// device's clock.
+message TextGroupMove {
+  string group_id = 1;
+  // Its new top-left corner, in points from the page's top-left corner, on the page.
+  double x = 2;
+  double y = 3;
+}
+
+// Changes how wide a group is. The change made last wins, by the device's clock.
+message TextGroupResize {
+  string group_id = 1;
+  // A positive number of points, no wider than the page.
+  double width = 2;
+}
+
+// Deletes a group with its blocks. Deleting it again has no effect.
+message TextGroupDelete {
+  string group_id = 1;
+}
+
+// Adds a block to a group.
+message TextBlockCreate {
+  // A new UUID version 7, made by the device.
+  string block_id = 1;
+  // A group the member sees. Adding to a deleted group has no effect.
+  string group_id = 2;
+  // Where it goes in the group, as TextBlock.order describes.
+  string order = 3;
+  // Its Markdown, as TextBlock.markdown describes.
+  string markdown = 4;
+}
+
+// Changes a block's text. The change made last wins on the whole block, by the device's clock.
+message TextBlockEdit {
+  string block_id = 1;
+  // Its new Markdown, as TextBlock.markdown describes.
+  string markdown = 2;
+}
+
+// Deletes a block. Deleting it again has no effect.
+message TextBlockDelete {
+  string block_id = 1;
+}
+
+// Moves a block within its group, or to another group on the same page. Its group and its order
+// change together, and the move made last wins, by the device's clock. Splitting a group is a new
+// group and moves; joining two is moves and deleting the emptied group, in one push.
+message TextBlockMove {
+  string block_id = 1;
+  // A group on the same page.
+  string group_id = 2;
+  // Where it goes in that group, as TextBlock.order describes.
+  string order = 3;
+}
