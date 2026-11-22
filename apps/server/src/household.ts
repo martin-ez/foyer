@@ -14,6 +14,7 @@ import {
   type CaptureKey,
   captureKeyOf,
   captureTask,
+  dailyCaptureLimit,
   makeCaptureKey,
   removeCaptureKey,
   useCaptureKey,
@@ -359,21 +360,22 @@ export class Household extends DurableObject<Env> {
     return captureKeyOf(this.ctx.storage.sql, memberId);
   }
 
-  /** Adds a task to the Inbox of the member a capture key belongs to, as if their device had pushed
-   *  it, and sends it to their devices. A key works while it's their current one and their email
-   *  is on the allowlist. The title is trimmed, and its problem returned if it has one. */
+  /** Adds a task to the Inbox of a capture key's member, as their device would, and sends it to
+   *  their devices. The key must be current, its member on the allowlist, and under the day's
+   *  limit. The title is trimmed, and its problem returned if it has one. */
   async capture(
     key: string,
     title: string,
-  ): Promise<"captured" | "unauthenticated" | { problem: string }> {
+  ): Promise<"captured" | "unauthenticated" | "limited" | { problem: string }> {
     const now = Date.now();
     const { sql } = this.ctx.storage;
-    const owner = await useCaptureKey(sql, key, now);
-    if (!owner || !isOnAllowlist(owner.email)) return "unauthenticated";
+    const used = await useCaptureKey(sql, key, now);
+    if (!used || !isOnAllowlist(used.email)) return "unauthenticated";
+    if (used.capturesToday >= dailyCaptureLimit) return "limited";
     const trimmed = title.trim();
     const problem = itemTitleProblem(trimmed);
     if (problem) return { problem };
-    this.#sendUpdates(readRows(sql, captureTask(this.ctx.storage, owner.memberId, trimmed, now)));
+    this.#sendUpdates(readRows(sql, captureTask(this.ctx.storage, used, trimmed, now)));
     return "captured";
   }
 

@@ -13,6 +13,8 @@ Making the key on the iPhone, in the web app in Safari, saves moving it between 
 
 Each member has one key. It works only for adding tasks to its member's Inbox, and doesn't expire. It stops working when you replace or remove it, under Shortcuts, or when your email leaves the household's allowlist. Replace it if someone else may have seen it.
 
+A key can make 100 captures a day, counted by UTC, so a key that leaks can't fill your Inbox. After that, Foyer refuses its captures until midnight UTC, with "This key has made 100 captures today. Replace it if you didn't make them." A replaced key starts again at zero, and refused captures don't count.
+
 ## Build the Shortcut
 
 In the Shortcuts app on the iPhone, make a new Shortcut, named "Capture" for example, with three actions:
@@ -24,7 +26,7 @@ In the Shortcuts app on the iPhone, make a new Shortcut, named "Capture" for exa
    - **Request Body:** JSON, with one Text field, `title`, set to **Provided Input**.
 3. **Show Notification**, showing **Contents of URL**.
 
-Foyer answers `{}` when it added the task. When it refuses a capture, its answer's `message` says why, such as "A task's title can't be blank.", or that the key doesn't work. To show "Added to Inbox" instead of `{}`, put these in place of the third action:
+Foyer answers `{}` when it added the task. When it refuses a capture, its answer's `message` says why, such as "A title can't be blank.", that the key doesn't work, or that it has made all of today's captures. To show "Added to Inbox" instead of `{}`, put these in place of the third action:
 
 1. **Get Dictionary Value**, getting the value for `message` in **Contents of URL**.
 2. **If** the Dictionary Value **has any value**, **Show Notification** with the Dictionary Value; **Otherwise**, **Show Notification** with "Added to Inbox".

@@ -4,6 +4,7 @@ import { ItemCreateSchema, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item
 import { PageCreateSchema, PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { StickerKind, StickerPlaceSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import type { Applied } from "./changes";
+import { utcDay } from "./days";
 import { createItem } from "./items";
 import { createPage, newestPageOf } from "./pages";
 import type { RowKey } from "./rows";
@@ -11,6 +12,9 @@ import { hashSecret, newSecret } from "./secrets";
 import { placeSticker } from "./stickers";
 
 const day = 24 * 60 * 60 * 1000;
+
+/** How many captures a key can make in a day, by UTC, before the household refuses the rest. */
+export const dailyCaptureLimit = 100;
 
 /** A member's capture key, as they see it: when it was made, and when it was last used, to within
  *  a day, or null when it never was. */
@@ -55,16 +59,33 @@ export function captureKeyOf(sql: SqlStorage, memberId: string): CaptureKey | nu
   return key ? { createdAt: key.created_at, lastUsedAt: key.last_used_at } : null;
 }
 
-/** The member a capture key belongs to, with their email, or null for a key that was never made,
- *  was replaced or was removed. Moves the key's last use forward, at most once a day. */
+/** A capture key in use: its id, the member it belongs to, with their email, and how many
+ *  captures it has made today, by UTC. */
+export type UsedCaptureKey = {
+  keyId: string;
+  memberId: string;
+  email: string;
+  capturesToday: number;
+};
+
+/** The capture key a key is, or null for a key that was never made, was replaced or was removed.
+ *  Moves the key's last use forward, at most once a day. */
 export async function useCaptureKey(
   sql: SqlStorage,
   key: string,
   now: number,
-): Promise<{ memberId: string; email: string } | null> {
+): Promise<UsedCaptureKey | null> {
   const [found] = sql
-    .exec<{ id: string; member_id: string; email: string; last_used_at: number | null }>(
-      `SELECT capture_keys.id, capture_keys.member_id, capture_keys.last_used_at, members.email
+    .exec<{
+      id: string;
+      member_id: string;
+      email: string;
+      last_used_at: number | null;
+      captures_day: string | null;
+      captures: number;
+    }>(
+      `SELECT capture_keys.id, capture_keys.member_id, capture_keys.last_used_at,
+         capture_keys.captures_day, capture_keys.captures, members.email
        FROM capture_keys JOIN members ON members.id = capture_keys.member_id
        WHERE capture_keys.token_hash = ?`,
       await hashSecret(key),
@@ -74,20 +95,34 @@ export async function useCaptureKey(
   if (found.last_used_at === null || found.last_used_at <= now - day) {
     sql.exec("UPDATE capture_keys SET last_used_at = ? WHERE id = ?", now, found.id);
   }
-  return { memberId: found.member_id, email: found.email };
+  return {
+    keyId: found.id,
+    memberId: found.member_id,
+    email: found.email,
+    capturesToday: found.captures_day === utcDay(now) ? found.captures : 0,
+  };
 }
 
-/** Adds a task with a checked title to a member's Inbox, as if their device had pushed it: the
- *  task, with its sticker in the next free spot of the Inbox's newest page, or on a new page when
- *  it's full, each a change made at `now`. Returns the rows it changed. */
+/** Adds a task with a checked title to a key's member's Inbox, as if their device had pushed it,
+ *  with its sticker in the next free spot, each a change made at `now`. Counts it among the key's
+ *  captures that day, by UTC. Returns the rows it changed. */
 export function captureTask(
   storage: DurableObjectStorage,
-  memberId: string,
+  { keyId, memberId }: Pick<UsedCaptureKey, "keyId" | "memberId">,
   title: string,
   now: number,
 ): RowKey[] {
   const { sql } = storage;
   return storage.transactionSync(() => {
+    const today = utcDay(now);
+    sql.exec(
+      `UPDATE capture_keys
+       SET captures = CASE WHEN captures_day = ? THEN captures + 1 ELSE 1 END, captures_day = ?
+       WHERE id = ?`,
+      today,
+      today,
+      keyId,
+    );
     const inbox = sql
       .exec<{ id: string }>("SELECT id FROM spaces WHERE kind = 'inbox' AND owner_id = ?", memberId)
       .one().id;
