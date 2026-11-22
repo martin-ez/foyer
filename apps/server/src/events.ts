@@ -145,6 +145,20 @@ export function eventsCanMoveTo(sql: SqlStorage, itemIds: readonly string[], spa
 /** Refused when an event would move into a space without a Google calendar. */
 export const eventNeedsCalendar = "An event can only go in a space with a Google calendar.";
 
+/** Whether any of some items is an occurrence of a repeating event, which moves to another space
+ *  only with its series, in Google Calendar. */
+export function holdsOccurrence(sql: SqlStorage, itemIds: readonly string[]): boolean {
+  return itemIds.some(
+    (id) =>
+      sql.exec("SELECT 1 FROM items WHERE id = ? AND series_id IS NOT NULL", id).toArray().length >
+      0,
+  );
+}
+
+/** Refused when an occurrence of a repeating event would move to another space. */
+export const occurrenceMovesWithSeries =
+  "A repeating event moves with its series, in Google Calendar.";
+
 type StoredTime = {
   starts_on: string | null;
   ends_on: string | null;
