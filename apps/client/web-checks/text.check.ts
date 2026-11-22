@@ -24,9 +24,7 @@ test.beforeEach(() => {
   test.setTimeout(bundleBuildTimeout + 90_000);
 });
 
-/** Day pages are the whole household's, so each viewport writes on days of its own, in weeks no
- *  other check uses. */
-function weeksAhead(testInfo: TestInfo, which: number): number {
+function weeksNoOtherCheckUses(testInfo: TestInfo, which: number): number {
   return 11 + 2 * which + (testInfo.project.name === "ipad" ? 0 : 1);
 }
 
@@ -37,14 +35,11 @@ async function openDay(page: Page, weeks: number, email?: string) {
   return openDayInWeek(page, weeks, 3);
 }
 
-/** The open page, as its view on the screen. */
 function openPage(page: Page, name: string | RegExp): Locator {
   return page.getByLabel(name, { exact: typeof name === "string" }).last();
 }
 
-/** Where an A4 page lies on the screen when it has just opened, fitted to its view with a margin
- *  around it, in its middle. */
-async function paperOf(sheet: Locator) {
+async function fittedA4PaperOf(sheet: Locator) {
   const desk = await boxOf(sheet);
   const page = { width: 595.28, height: 841.89 };
   const margin = 24;
@@ -62,18 +57,15 @@ async function paperOf(sheet: Locator) {
   };
 }
 
-/** Puts new text on the open page, a share of the way across and down it, and waits for its
- *  first block. */
 async function addTextAt(page: Page, sheet: Locator, across: number, down: number) {
   await page.getByRole("button", { name: "Add text" }).click();
   await expect(page.getByText("Tap the page where the text goes.")).toBeVisible();
-  const paper = await paperOf(sheet);
+  const paper = await fittedA4PaperOf(sheet);
   await page.mouse.click(paper.x + paper.width * across, paper.y + paper.height * down);
   await expect(page.getByRole("textbox", { name: "Text" })).toBeFocused();
 }
 
-/** A text group on the open page, by its text as a screen reader reads it. */
-function textGroup(page: Page, text: string | RegExp): Locator {
+function textGroupNamed(page: Page, text: string | RegExp): Locator {
   return page.getByRole("button", { name: text, exact: typeof text === "string" });
 }
 
@@ -86,7 +78,7 @@ async function done(page: Page) {
 test("types headings, lists, bold and italic on a day page, and the household sees it", async ({
   page,
 }, testInfo) => {
-  const weeks = weeksAhead(testInfo, 0);
+  const weeks = weeksNoOtherCheckUses(testInfo, 0);
   const day = await openDay(page, weeks);
   await addTextAt(page, openPage(page, day), 0.1, 0.12);
 
@@ -108,29 +100,29 @@ test("types headings, lists, bold and italic on a day page, and the household se
   await done(page);
 
   const written = "Saturday\nGet oat milk, not dairy 🧺\n• Bread\n• Sourdough\n1. Call the plumber";
-  await expect(textGroup(page, written)).toBeVisible();
+  await expect(textGroupNamed(page, written)).toBeVisible();
   await saveScreenshot(page, testInfo, "text-on-day-page");
   const other = await page.context().browser()?.newContext(testInfo.project.use);
   if (!other) throw new Error("No other context");
   const theirs = await other.newPage();
   await openDay(theirs, weeks, housemate);
-  await expectOnAnotherDevice(textGroup(theirs, written)).toBeVisible();
+  await expectOnAnotherDevice(textGroupNamed(theirs, written)).toBeVisible();
   await saveScreenshot(theirs, testInfo, "text-on-another-device");
   await other.close();
 });
 
 test("moves, resizes, splits and joins text", async ({ page }, testInfo) => {
-  const day = await openDay(page, weeksAhead(testInfo, 1));
+  const day = await openDay(page, weeksNoOtherCheckUses(testInfo, 1));
   const sheet = openPage(page, day);
   await addTextAt(page, sheet, 0.1, 0.1);
   await page.keyboard.type("Groceries");
   await page.keyboard.press("Enter");
   await page.keyboard.type("Chores, a long line that wraps when the text is made narrow enough");
   await done(page);
-  const whole = textGroup(page, /^Groceries Chores/);
+  const whole = textGroupNamed(page, /^Groceries Chores/);
 
   const before = await boxOf(whole);
-  const paper = await paperOf(sheet);
+  const paper = await fittedA4PaperOf(sheet);
   await drag(page, whole, { x: paper.width * 0.05, y: paper.height * 0.15 });
   await expect
     .poll(async () => (await boxOf(whole)).y)
@@ -147,15 +139,15 @@ test("moves, resizes, splits and joins text", async ({ page }, testInfo) => {
   await page.getByRole("textbox", { name: "Text" }).last().click();
   await page.getByRole("button", { name: "Split here" }).click();
   await done(page);
-  await expect(textGroup(page, "Groceries")).toBeVisible();
-  await expect(textGroup(page, /^Chores/)).toBeVisible();
+  await expect(textGroupNamed(page, "Groceries")).toBeVisible();
+  await expect(textGroupNamed(page, /^Chores/)).toBeVisible();
   await saveScreenshot(page, testInfo, "text-split");
 
-  await textGroup(page, "Groceries").click();
+  await textGroupNamed(page, "Groceries").click();
   await page.getByRole("button", { name: "Join the text below" }).click();
   await done(page);
   await expect(whole).toBeVisible();
-  await expect(textGroup(page, "Groceries")).toBeHidden();
+  await expect(textGroupNamed(page, "Groceries")).toBeHidden();
 });
 
 test("writes on a task's body page, which the member's other devices show", async ({
@@ -169,12 +161,12 @@ test("writes on a task's body page, which the member's other devices show", asyn
   await page.keyboard.press("Enter");
   await page.keyboard.type("1. Passports");
   await done(page);
-  await expect(textGroup(page, "Pack\n1. Passports")).toBeVisible();
+  await expect(textGroupNamed(page, "Pack\n1. Passports")).toBeVisible();
   await saveScreenshot(page, testInfo, "text-on-body-page");
 
   const other = await sameMemberOnAnotherDevice(page, space);
   await stickerOf(other, task).click();
-  await expectOnAnotherDevice(textGroup(other, "Pack\n1. Passports")).toBeVisible();
+  await expectOnAnotherDevice(textGroupNamed(other, "Pack\n1. Passports")).toBeVisible();
 });
 
 test("can't change text while offline", async ({ page }, testInfo) => {
@@ -185,7 +177,7 @@ test("can't change text while offline", async ({ page }, testInfo) => {
     socket.connectToServer();
     connection = socket;
   });
-  const day = await openDay(page, weeksAhead(testInfo, 2));
+  const day = await openDay(page, weeksNoOtherCheckUses(testInfo, 2));
   await addTextAt(page, openPage(page, day), 0.1, 0.2);
   await page.keyboard.type("Written while connected");
 
@@ -194,7 +186,7 @@ test("can't change text while offline", async ({ page }, testInfo) => {
 
   await expect(page.getByText("Text can't be changed while offline.")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Text" })).toBeHidden();
-  const written = textGroup(page, "Written while connected");
+  const written = textGroupNamed(page, "Written while connected");
   await expect(written).toBeDisabled();
   await expect(page.getByRole("button", { name: "Add text" })).toBeDisabled();
   await saveScreenshot(page, testInfo, "text-offline");

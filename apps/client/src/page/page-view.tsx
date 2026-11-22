@@ -43,10 +43,9 @@ type PageViewProps = {
   children?: ReactNode;
 };
 
-/** A page as everyone on it sees it: what's printed on it, its text, which can be added, edited and
- *  moved while connected, its stickers, which can be moved, ticked and tapped, and where others on
- *  it are pointing, with a day page's events at their times here. It's drawn, and this device is
- *  on the page, only while its screen is the one in front. */
+/** A page as everyone on it sees it: what's printed on it, its text, its stickers, which can be
+ *  moved, ticked and tapped, and where others on it are pointing, with a day page's events at their
+ *  times here. It's drawn, and this device is on the page, only while its screen is in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <ShownPage {...props} /> : null;
 }
@@ -172,8 +171,6 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
   );
 }
 
-/** The text groups on a page, laid out once the fonts have loaded, bottom first. Paragraphs laid
- *  out for earlier versions of the text are let go once they're no longer drawn. */
 function useLaidOutText(
   pageId: string,
   groups: ReadonlyMap<string, TextGroup>,

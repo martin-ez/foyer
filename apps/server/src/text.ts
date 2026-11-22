@@ -365,8 +365,6 @@ function blockFor(sql: SqlStorage, memberId: string, blockId: string): Found<"bl
   return { applied: missing(sql, "text_block", blockId, "There's no such text block.") };
 }
 
-/** What a change to a row that isn't there does: nothing, if it was deleted, and otherwise a
- *  refusal, so that nobody learns of rows they can't see. */
 function missing(
   sql: SqlStorage,
   kind: "text_group" | "text_block",

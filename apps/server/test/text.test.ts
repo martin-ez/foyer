@@ -70,7 +70,6 @@ async function spaceOwnedBy(device: Device, kind: SpaceKind): Promise<string> {
   return spaces.find((each) => each.kind === kind)?.id ?? "";
 }
 
-/** Makes a text group with one block on a page, and returns their ids. */
 async function newText(device: Device, pageId: string, ...first: ChangeInit[]) {
   const group = textGroupCreate({ pageId });
   const block = textBlockCreate({ groupId: idOf(group), markdown: "# Shopping" });
@@ -79,7 +78,6 @@ async function newText(device: Device, pageId: string, ...first: ChangeInit[]) {
   return { groupId: idOf(group), blockId: idOf(block) };
 }
 
-/** Makes a task in a space with a body page, and returns their ids. */
 async function newTaskWithBodyPage(device: Device, spaceId: string) {
   const task = itemCreate({ spaceId });
   const pageId = itemPageId(idOf(task));

@@ -4,10 +4,9 @@ package foyer.text.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// Typed text on a page comes in groups, each a column of blocks that flow from its top down. A
-// group belongs to its page, as ink does: everyone who sees the page sees its text and can change
-// it. Devices receive all the text they can see. Things on a page stack by when they were placed or
-// last moved, with equal times settled by id.
+// Typed text comes in groups of blocks that flow from the group's top down. A group belongs to its
+// page, as ink does: everyone who sees the page sees its text and can change it, and devices
+// receive all the text they can see.
 
 // A column of text blocks at a spot on a page.
 message TextGroup {
@@ -40,11 +39,9 @@ message TextBlock {
   // character, with equal orders settled by id. Each is made of the characters 0-9, A-Z and a-z,
   // and never ends in 0, so another always fits between two.
   string order = 3;
-  // The block as one line of Markdown, of at most 10,000 Unicode code points. Its type is
-  // Markdown's prefix: none for a paragraph, "# ", "## " or "### " for headings, "- " for a
-  // bulleted item and "1. " for a numbered item, after two spaces for each level a list item is
-  // nested. Inside it, only **bold**, *italic* and ***both***; any other character Markdown would
-  // read as more is escaped with a backslash, so it reads as typed.
+  // One line of Markdown of at most 10,000 code points: its type's prefix ("# " to "### ", or "- "
+  // or "1. " after two spaces per level of nesting), then only **bold**, *italic* and ***both***,
+  // with any other character Markdown would read as more escaped with a backslash.
   string markdown = 4;
   // The member who made it, and when, by their device's clock.
   string created_by = 5;
