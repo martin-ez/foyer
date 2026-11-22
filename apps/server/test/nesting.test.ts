@@ -30,6 +30,7 @@ import {
   spaceCreate,
   stickerPlace,
   stickerRemove,
+  together,
 } from "./sync-device";
 
 const alex = "member@example.com";
@@ -148,6 +149,43 @@ describe("putting an item under another", () => {
     await alexDevice.push(itemSetParent(cake, "", secondsAgo(10)));
 
     expect(itemsIn(await samDevice.updates())).toEqual([{ ...under, parentId: "" }]);
+  });
+
+  it("leaves the item where it was, with its sticker, when moving its sticker is refused", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const home = await newSharedSpace(alexDevice);
+    const party = await newTask(alexDevice, home);
+    const cake = await newTask(alexDevice, home);
+    const spacePage = spacePageId(home, 1);
+    const onSpacePage = stickerPlace({ pageId: spacePage, itemId: cake });
+    const page = { pageId: spacePage, kind: PageKind.SPACE, spaceId: home, number: 1 };
+    await alexDevice.push(pageCreate({ ...page, ...a4Portrait }), onSpacePage);
+    const bodyPage = await bodyPageOf(alexDevice, party);
+    await Promise.all([alexDevice.updates(), samDevice.updates()]);
+
+    const committed = await alexDevice.push(
+      ...together([
+        itemSetParent(cake, party),
+        stickerRemove(newId()),
+        stickerPlace({ pageId: bodyPage, itemId: cake }),
+      ]),
+    );
+
+    const refused = { refused: "There's no such sticker." };
+    expect(committed.results.map(resultOf)).toEqual([refused, refused, refused]);
+    for (const device of [alexDevice, samDevice]) {
+      expect(await device.updates()).toEqual([]);
+      const rows = await rowsCaughtUpBy(device);
+      expect(itemsIn(rows).find(({ id }) => id === cake)).toEqual({
+        id: cake,
+        spaceId: home,
+        parentId: "",
+      });
+      expect(stickersIn(rows).filter(({ itemId }) => itemId === cake)).toEqual([
+        expect.objectContaining({ pageId: spacePage }),
+      ]);
+    }
   });
 
   it("nests as deep as people like", async () => {

@@ -1,7 +1,7 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25 and #26
+Decided in #14, #21, #25, #26 and #151
 
-**Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
+**Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
 **Answer:**
 - **The household stores the current version of everything, each row stamped with the number of its last change.**
@@ -19,6 +19,13 @@ Decided in #14, #21, #25 and #26
 - **What each device receives:** everything its member can see except ink, plus the ink of the pages it opens. On connecting, it catches up from its cursor. While connected, it receives every change it can see as soon as the change is committed, its own included.
 - **Who receives what:** each row belongs to a space, to the household, as members do, or to one member, as their Google connection does. The household's rows go to every member, a space's rows to the members who can see the space (`who-can-see-what.md`), and a member's own rows to them alone. Members never learn of changes in spaces they can't see. Stickers belong to their page, not to their item (`what-is-a-sticker.md`).
 - **Refused changes:** the household refuses a change it can't apply, such as renaming someone else's personal space, and says why in a sentence. The device undoes the change, drops it, and says it couldn't be saved. A change that loses a conflict isn't refused: it's committed with no effect, and the device that made it receives the row as it now is.
+- **Actions:** the changes a device makes together for one action, such as putting a task under another, which sets its parent and moves its sticker, stand or fall together.
+  - They share an `action_id`, a UUID version 7 the device makes. A change made alone has none.
+  - The device sends an action's changes one after another in one push, in the order it made them, never split between pushes.
+  - The household applies them in one transaction, in that order. If one is refused, none is applied, and each is answered as refused with that one's reason. Committed, each gets its own number.
+  - A change that loses a conflict isn't refused, so it doesn't undo the rest of its action.
+  - Each change is remembered by its id, as any change is, so an action sent again is answered as it was the first time.
+  - The device undoes a refused action whole, and says once that it couldn't be saved.
 - **The connection** is a WebSocket at `/sync`, which carries the session as calls do (`how-do-people-sign-in.md`). The Worker checks the session before the connection reaches the household, and takes the web app's cookie only from the backend's own site.
   - Each binary WebSocket message is one Protocol Buffers message from `foyer.sync.v1`. A device sends `Push {push_id, changes[]}` and `Pull {cursor}`. The household sends `Welcome {seq}` when the connection opens, `Updates {rows[]}`, `Committed {push_id, results[]}` after a push's updates, and `PullReply {rows[], cursor, done}`.
   - A pull reply holds at most 500 rows, and never splits the rows of one change. The device pulls again from the reply's cursor until it's done.
@@ -38,8 +45,11 @@ Keeping what the iPad receives between launches is built by #20.
 - Connections drop in bursts with no fault on the server (#4), so every device must connect again and pull from its cursor.
 - Sending a whole day's changes in one reply took 7 ms of CPU against a 10 ms limit (#4), so replies are capped.
 - A device whose session has ended can't send changes again, so remembering changes for longer than a session lasts unused is useless.
+- An action applied in part leaves things half done, such as a task under another with its sticker still on its space's page (#151). Refusing it whole leaves things as they were before, on every device.
 
 **Rejected:**
 - A log of every change, replayed on catching up. It keeps history for free, but it grows forever and a new device replays everything ever done.
 - The change that arrives last wins. It needs no stored times, but a late offline edit overwrites newer ones.
 - Every device holding the whole household, ink included, which grows by gigabytes over the years.
+- Applying each change of an action on its own, and having devices notice and fix what a refused change left half done. Every action would need its own repair.
+- Having the household move a task's sticker itself when it moves the task. It fixes stickers only, and not other actions made of several changes.

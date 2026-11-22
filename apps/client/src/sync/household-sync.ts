@@ -129,10 +129,23 @@ export const silenceLimit = 75_000;
 /** The longest wait between attempts to connect again. */
 export const longestReconnectDelay = 30_000;
 
-/** At most this many changes go in one push. */
+/** At most this many changes go in one push, unless one action alone has more: it goes whole, in
+ *  a push of its own. An action is never split between pushes. */
 export const pushChangeLimit = 100;
 
 type Pending = { change: Change; describe: string; pushId?: string };
+
+function nextPush(unsent: Pending[]): Pending[] {
+  const actionAt = (index: number) => unsent[index]?.change.actionId || undefined;
+  let end = Math.min(unsent.length, pushChangeLimit);
+  const split = actionAt(end);
+  while (split && end > 0 && actionAt(end - 1) === split) end--;
+  if (end > 0) return unsent.slice(0, end);
+  const first = actionAt(0);
+  end = 1;
+  while (first && actionAt(end) === first) end++;
+  return unsent.slice(0, end);
+}
 
 /** Keeps a device in step with the household, in memory: catches up when it connects, applies
  *  what others change, and shows the member's own changes at once until the household commits or
@@ -401,23 +414,25 @@ export class HouseholdSync {
     return itemId;
   }
 
-  /** Deletes a task, and its stickers on every page. The items under it are deleted too, or moved
-   *  up to its own parent or to the top of its space, each with its sticker on its new page. */
+  /** Deletes a task, and its stickers on every page. The items under it are deleted with it, all or
+   *  none, or moved up to its own parent or to the top of its space, each with its sticker on its
+   *  new page. */
   deleteTask(itemId: string, under: ItemsUnderDeleted = "delete"): void {
     const item = this.#state.items.get(itemId);
     const title = item?.title ?? "a task";
-    if (item && under === "delete") {
-      const deletions = itemsUnder(itemId, this.#state.items.values())
-        .reverse()
-        .map((id): ChangeInit => ({ case: "itemDelete", value: { itemId: id } }));
-      if (deletions.length > 0) this.#make(`deleting what's under “${title}”`, ...deletions);
-    } else if (item) {
+    const deletions =
+      item && under === "delete"
+        ? itemsUnder(itemId, this.#state.items.values())
+            .reverse()
+            .map((id): ChangeInit => ({ case: "itemDelete", value: { itemId: id } }))
+        : [];
+    if (item && under !== "delete") {
       const target = under === "move-up" && item.parentId ? item.parentId : null;
       for (const child of [...this.#state.items.values()].filter((i) => i.parentId === itemId)) {
         this.putUnder(child.id, target);
       }
     }
-    this.#make(`deleting “${title}”`, { case: "itemDelete", value: { itemId } });
+    this.#make(`deleting “${title}”`, ...deletions, { case: "itemDelete", value: { itemId } });
   }
 
   /** Ticks a task, which adds a completion unless it's already done. A repeating task's tick is
@@ -854,8 +869,9 @@ export class HouseholdSync {
 
   #make(describe: string, ...changes: ChangeInit[]): void {
     const at = timestampFromMs(Date.now());
+    const actionId = changes.length > 1 ? newId() : "";
     for (const change of changes) {
-      const made = create(ChangeSchema, { changeId: newId(), at, change });
+      const made = create(ChangeSchema, { changeId: newId(), at, actionId, change });
       this.#pending.push({ change: made, describe });
     }
     this.#pushUnsent();
@@ -923,15 +939,19 @@ export class HouseholdSync {
           for (const { seq } of message.value.rows) if (seq > this.#cursor) this.#cursor = seq;
         }
         break;
-      case "committed":
+      case "committed": {
+        const reported = new Set<string>();
         for (const { changeId, result } of message.value.results) {
           const pending = this.#pending.find(({ change }) => change.changeId === changeId);
           this.#pending = this.#pending.filter((each) => each !== pending);
-          if (pending && result.case === "refused") {
-            this.#problems.push(`Couldn't save ${pending.describe}: ${result.value.reason}`);
-          }
+          if (!pending || result.case !== "refused") continue;
+          const { actionId } = pending.change;
+          if (reported.has(actionId)) continue;
+          if (actionId !== "") reported.add(actionId);
+          this.#problems.push(`Couldn't save ${pending.describe}: ${result.value.reason}`);
         }
         break;
+      }
     }
     this.#changed();
   }
@@ -1005,7 +1025,7 @@ export class HouseholdSync {
   #pushUnsent(): void {
     if (this.#status !== "catching-up" && this.#status !== "up-to-date") return;
     for (;;) {
-      const unsent = this.#pending.filter(({ pushId }) => !pushId).slice(0, pushChangeLimit);
+      const unsent = nextPush(this.#pending.filter(({ pushId }) => !pushId));
       if (unsent.length === 0) return;
       const pushId = newId();
       for (const pending of unsent) pending.pushId = pushId;

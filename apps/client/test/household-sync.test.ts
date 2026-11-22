@@ -458,6 +458,23 @@ describe("changing things", () => {
     expect(new Set(changes.map(({ changeId }) => changeId)).size).toBe(2);
   });
 
+  it("gives the changes of one action an action id of their own, and a change alone none", () => {
+    startUpToDate();
+
+    sync.renameSpace(home.id, "Our home");
+    sync.addTask(home.id, "Water the plants");
+    sync.addTask(home.id, "Feed the cat");
+
+    const [renamed, watered, fed] = household()
+      .pushes()
+      .map(({ changes }) => new Set(changes.map(({ actionId }) => actionId)));
+    expect(renamed).toEqual(new Set([""]));
+    expect(watered?.size).toBe(1);
+    expect(fed?.size).toBe(1);
+    expect([...(watered ?? [])][0]).not.toBe("");
+    expect([...(watered ?? [])][0]).not.toBe([...(fed ?? [])][0]);
+  });
+
   it("undoes a change the household refuses, and says it couldn't be saved", () => {
     startUpToDate();
     sync.renameSpace(home.id, "Our home");
@@ -471,6 +488,28 @@ describe("changing things", () => {
       unsaved: 0,
       problems: ["Couldn't save renaming a space to “Our home”: There's no such space."],
     });
+  });
+
+  it("says once for each refused action, and for each refused change made alone", () => {
+    startUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+    sync.renameSpace(home.id, "Our house");
+    sync.addTask(home.id, "Water the plants");
+    sync.addTask(home.id, "Feed the cat");
+    vi.advanceTimersByTime(1000);
+    household().welcome(2);
+    const push = household().lastPush();
+
+    const refused = Object.fromEntries(push.changes.map(({ changeId }) => [changeId, "No."]));
+    household().commit(push, refused);
+
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save renaming a space to “Our home”: No.",
+      "Couldn't save renaming a space to “Our house”: No.",
+      "Couldn't save adding “Water the plants”: No.",
+      "Couldn't save adding “Feed the cat”: No.",
+    ]);
   });
 
   it("forgets the refused changes it reported once they're dismissed", () => {
@@ -518,6 +557,51 @@ describe("changing things", () => {
         .pushes()
         .map(({ changes }) => changes.length),
     ).toEqual([pushChangeLimit, 1]);
+  });
+
+  it("keeps an action's changes in one push, sending it in the next when it doesn't fit", () => {
+    startUpToDate();
+    household().closeWith(1006);
+    for (let index = 1; index < pushChangeLimit; index++) {
+      sync.renameSpace(home.id, `Home ${index}`);
+    }
+    sync.addTask(home.id, "Water the plants");
+
+    vi.advanceTimersByTime(1000);
+    household().welcome(2);
+
+    const [lone, action] = household().pushes();
+    expect(lone?.changes).toHaveLength(pushChangeLimit - 1);
+    expect(action?.changes.length).toBeGreaterThan(1);
+    expect(new Set(action?.changes.map(({ actionId }) => actionId)).size).toBe(1);
+  });
+
+  it(`sends an action of more than ${pushChangeLimit} changes whole, in a push of its own`, () => {
+    const tasks = Array.from({ length: pushChangeLimit + 1 }, (_, index) => ({
+      id: newId(),
+      spaceId: home.id,
+      title: `Task ${index}`,
+    }));
+    startUpToDate(
+      [
+        spaceRow(1, inbox),
+        spaceRow(2, home),
+        ...tasks.map((task, index) => itemRow(3 + index, task)),
+      ],
+      200,
+    );
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+    sync.tickTasks(tasks.map(({ id }) => id));
+
+    vi.advanceTimersByTime(1000);
+    household().welcome(200);
+
+    expect(
+      household()
+        .pushes()
+        .map(({ changes }) => changes.length),
+    ).toEqual([1, pushChangeLimit + 1]);
   });
 });
 
@@ -1405,6 +1489,26 @@ describe("nesting tasks", () => {
     expect(itemsStuckOn(partyBody)).toEqual([cake.id]);
   });
 
+  it("undoes all of an action the household refuses, saying once that it couldn't be saved", () => {
+    startUpToDate(nested(), 12);
+    sync.putUnder(food.id, null);
+    const push = household().lastPush();
+
+    const reason = "There's no such sticker.";
+    household().commit(
+      push,
+      Object.fromEntries(push.changes.map(({ changeId }) => [changeId, reason])),
+    );
+
+    expect(shown(food.id)).toEqual({ spaceId: inbox.id, parentId: party.id });
+    expect(itemsStuckOn(partyBody)).toEqual([food.id]);
+    expect(itemsStuckOn(inboxPage)).toEqual([party.id]);
+    expect(sync.getState()).toMatchObject({
+      unsaved: 0,
+      problems: [`Couldn't save taking out “Food”: ${reason}`],
+    });
+  });
+
   it("takes a task out, back on its space's newest page at once", () => {
     startUpToDate(nested(), 12);
 
@@ -1502,6 +1606,14 @@ describe("nesting tasks", () => {
       .flatMap(({ changes }) => changes)
       .map(({ change }) => (change.case === "itemDelete" ? change.value.itemId : null));
     expect(deleted).toEqual([cake.id, food.id, party.id]);
+    expect(household().pushes()).toHaveLength(1);
+    expect(
+      new Set(
+        household()
+          .lastPush()
+          .changes.map(({ actionId }) => actionId),
+      ).size,
+    ).toBe(1);
     expect(sync.getState().items.size).toBe(0);
   });
 
