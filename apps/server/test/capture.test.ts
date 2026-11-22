@@ -1,4 +1,4 @@
-import { reset, runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, reset, runInDurableObject } from "cloudflare:test";
 import { env, withEnv } from "cloudflare:workers";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -88,6 +88,22 @@ async function fillInboxPage(device: Device, inbox: string, number: number, lowe
 }
 
 const lastThatFits = a4Portrait.height - pageMargin - taskStickerSize.height;
+
+const limited = {
+  code: Code.ResourceExhausted,
+  message: "This key has made 100 captures today. Replace it if you didn't make them.",
+};
+
+async function captureMany(key: string, count: number) {
+  for (let made = 1; made <= count; made++) {
+    expect(await codeOf(capture(key, `Task ${made}`))).toEqual({});
+  }
+}
+
+function clockAt(at: number) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(at);
+}
 
 describe("capturing with a key", () => {
   it("adds a task to the member's Inbox, which their devices receive at once", async () => {
@@ -395,5 +411,80 @@ describe("managing a capture key", () => {
     const { key } = await memberWithKey(alex);
 
     expect((await codeOf(captureClient().getKey({}, bearer(key)))).code).toBe(Code.Unauthenticated);
+  });
+});
+
+describe("limiting a key's captures", () => {
+  const morning = Date.UTC(2026, 10, 17, 9);
+
+  it("takes a key's 100th capture of the day and refuses its 101st, with a sentence the Shortcut shows", async () => {
+    const { device, key } = await memberWithKey(alex);
+    clockAt(morning);
+    await captureMany(key, 100);
+
+    const answer = await requestBackend(captureAddress, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ title: "Call the plumber" }),
+    });
+
+    expect(answer.status).toBe(429);
+    expect(await answer.json()).toEqual({ code: "resource_exhausted", message: limited.message });
+    const titles = ofCase(await device.updates(), "item").map(({ title }) => title);
+    expect(titles).toHaveLength(100);
+    expect(titles).not.toContain("Call the plumber");
+  });
+
+  it("doesn't count a refused capture", async () => {
+    const { key } = await memberWithKey(alex);
+    clockAt(morning);
+    await captureMany(key, 99);
+
+    expect((await codeOf(capture(key, " "))).code).toBe(Code.InvalidArgument);
+    expect(await codeOf(capture(key, "Call the plumber"))).toEqual({});
+    expect(await codeOf(capture(key, "Call the plumber"))).toEqual(limited);
+  });
+
+  it("starts counting again at midnight UTC", async () => {
+    const { key } = await memberWithKey(alex);
+    const midnight = Date.UTC(2026, 10, 18);
+    clockAt(midnight - 60 * 60 * 1000);
+    await captureMany(key, 100);
+
+    vi.setSystemTime(midnight - 1);
+    expect(await codeOf(capture(key, "Call the plumber"))).toEqual(limited);
+    vi.setSystemTime(midnight);
+    expect(await codeOf(capture(key, "Call the plumber"))).toEqual({});
+  });
+
+  it("keeps the count while the household sleeps", async () => {
+    const { key } = await memberWithKey(alex);
+    clockAt(morning);
+    await captureMany(key, 100);
+
+    await evictDurableObject(theHousehold());
+
+    expect(await codeOf(capture(key, "Call the plumber"))).toEqual(limited);
+  });
+
+  it("starts a replaced key at zero", async () => {
+    const { key, token } = await memberWithKey(alex);
+    clockAt(morning);
+    await captureMany(key, 100);
+
+    const { key: replacement } = await captureClient().makeKey({}, bearer(token));
+
+    await captureMany(replacement, 100);
+    expect(await codeOf(capture(replacement, "Call the plumber"))).toEqual(limited);
+  });
+
+  it("counts each member's key on its own", async () => {
+    const alexs = await memberWithKey(alex);
+    const sams = await memberWithKey(sam);
+    clockAt(morning);
+    await captureMany(alexs.key, 100);
+
+    expect(await codeOf(capture(alexs.key, "Call the plumber"))).toEqual(limited);
+    expect(await codeOf(capture(sams.key, "Feed the cat"))).toEqual({});
   });
 });

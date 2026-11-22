@@ -1,6 +1,7 @@
 import { create, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { pointsPerSecond } from "@foyer/shared";
 import { HouseholdMessageSchema } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { utcDay } from "./days";
 
 /** How long a device can stay on a page without the household hearing from it, by a message or
  *  the "ping" devices send every 30 seconds. */
@@ -291,10 +292,6 @@ export class LiveLane {
     live.day = today;
     live.unsavedPoints = 0;
   }
-}
-
-function utcDay(now: number): string {
-  return new Date(now).toISOString().slice(0, 10);
 }
 
 function send(socket: WebSocket, message: HouseholdMessageInit): void {

@@ -343,6 +343,8 @@ export const householdMigrations: readonly Migration[] = [
   );
   CREATE INDEX text_blocks_by_seq ON text_blocks (seq);
   CREATE INDEX text_blocks_by_group ON text_blocks (group_id)`,
+  `ALTER TABLE capture_keys ADD COLUMN captures_day TEXT;
+  ALTER TABLE capture_keys ADD COLUMN captures INTEGER NOT NULL DEFAULT 0`,
 ];
 
 /** Work on the household's data that needs today's code rather than the code of the migration
