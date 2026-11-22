@@ -49,6 +49,12 @@ export function TaskNesting({
 /** Where an event sits among tasks: the task it's under, which can be opened, with a way to take
  *  it out, and a search for a task to put it under, in its own space or one with a Google
  *  calendar, where an event can go. */
+/** Whether an event is an occurrence of a repeating series, which moves to another space only with
+ *  its series, in Google Calendar. */
+export function repeats(event: Item): boolean {
+  return event.seriesId !== "";
+}
+
 export function EventNesting({
   event,
   state,
@@ -62,9 +68,10 @@ export function EventNesting({
 }) {
   const canGoIn = (spaceId: string) =>
     spaceId === event.spaceId ||
-    state.spaces.some(
-      ({ id, calendarState }) => id === spaceId && calendarState !== CalendarState.NONE,
-    );
+    (!repeats(event) &&
+      state.spaces.some(
+        ({ id, calendarState }) => id === spaceId && calendarState !== CalendarState.NONE,
+      ));
 
   return (
     <View style={styles.section}>

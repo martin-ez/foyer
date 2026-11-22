@@ -202,7 +202,7 @@ export async function renameCalendar(
 }
 
 /** An event as Google's Calendar API sends it, with the fields Foyer reads. A repeating event's
- *  series has `recurrence`, and each of its occurrences that differs from it `recurringEventId`. */
+ *  series has `recurrence`, and each of its occurrences `recurringEventId`, the series' id. */
 export type GoogleEvent = {
   id: string;
   status?: string;
@@ -216,6 +216,9 @@ export type GoogleEvent = {
   recurrence?: string[];
   recurringEventId?: string;
 };
+
+/** How many of a series' occurrences Google sends at most in one page, its largest page. */
+export const instancesPerPage = 2500;
 
 /** When an event starts or ends: a day for an all-day event, which ends the day after its last,
  *  or a moment, as RFC 3339. */
@@ -263,6 +266,32 @@ export async function listEvents(
       ...(typeof page.nextPageToken === "string" ? { nextPageToken: page.nextPageToken } : {}),
       ...(typeof page.nextSyncToken === "string" ? { nextSyncToken: page.nextSyncToken } : {}),
       ...(typeof page.timeZone === "string" ? { timeZone: page.timeZone } : {}),
+    },
+  };
+}
+
+/** Reads one page of the occurrences of a repeating series that happen at least partly between
+ *  two moments, in milliseconds since 1970, leaving out those deleted. */
+export async function listInstances(
+  accessToken: string,
+  calendarId: string,
+  seriesId: string,
+  from: { timeMin: number; timeMax: number; pageToken?: string },
+): Promise<CalendarAnswer<EventPage>> {
+  const query = new URLSearchParams({
+    maxResults: String(instancesPerPage),
+    timeMin: new Date(from.timeMin).toISOString(),
+    timeMax: new Date(from.timeMax).toISOString(),
+  });
+  if (from.pageToken) query.set("pageToken", from.pageToken);
+  const address = `${eventAddress(calendarId, seriesId)}/instances?${query}`;
+  const answer = await callCalendars(accessToken, address, "GET");
+  if (!("ok" in answer)) return answer;
+  const page = answer.ok as { items?: unknown; nextPageToken?: unknown };
+  return {
+    ok: {
+      events: Array.isArray(page.items) ? (page.items as GoogleEvent[]) : [],
+      ...(typeof page.nextPageToken === "string" ? { nextPageToken: page.nextPageToken } : {}),
     },
   };
 }

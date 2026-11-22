@@ -1,4 +1,5 @@
 import { newId } from "@foyer/shared";
+import { type FakeOccurrence, fakeOccurrences } from "./fake-series";
 import { toBase64Url } from "./secrets";
 
 /** A calendar that the fake Google holds: the account it's in, its name, its time zone and its
@@ -14,7 +15,8 @@ export type FakeCalendar = {
 };
 
 /** An event that the fake Google holds, as Google's Calendar API sends it, with the version of its
- *  calendar that last changed it. */
+ *  calendar that last changed it. A series has `recurrence`, and an occurrence of one, which the
+ *  fake holds only once it's changed or deleted, `recurringEventId`. */
 export type FakeEvent = {
   id: string;
   status: "confirmed" | "cancelled";
@@ -26,11 +28,14 @@ export type FakeEvent = {
   created: string;
   updated: string;
   recurrence?: string[];
+  recurringEventId?: string;
+  originalStartTime?: FakeEventTime;
   version: number;
 };
 
-/** When a fake event starts or ends: a day, or a moment as RFC 3339. */
-export type FakeEventTime = { date?: string; dateTime?: string };
+/** When a fake event starts or ends: a day, or a moment as RFC 3339, with the time zone a series
+ *  with times repeats in. */
+export type FakeEventTime = { date?: string; dateTime?: string; timeZone?: string };
 
 /** The fields of an event that a test sets as if someone changed it in Google Calendar. */
 export type FakeEventFields = Partial<
@@ -77,10 +82,34 @@ export class FakeGoogle {
     return [...this.calendars.values()].filter((calendar) => calendar.subject === subject);
   }
 
-  /** The events in a calendar that aren't deleted, or none when it doesn't exist. */
+  /** The events in a calendar that aren't deleted, or none when it doesn't exist: single events,
+   *  repeating series, and the occurrences changed in their series. */
   eventsOf(calendarId: string): FakeEvent[] {
     const events = this.calendars.get(calendarId)?.events.values() ?? [];
     return [...events].filter(({ status }) => status !== "cancelled");
+  }
+
+  /** The occurrences of a repeating series that aren't deleted and happen at least partly between
+   *  two moments, in milliseconds since 1970, soonest first, as Google lists a series' instances. */
+  instancesOf(
+    calendarId: string,
+    seriesId: string,
+    between: { from?: number; to?: number } = {},
+  ): FakeEvent[] {
+    const calendar = this.#calendar(calendarId);
+    const series = calendar.events.get(seriesId);
+    if (!series?.recurrence || series.status === "cancelled") return [];
+    const { from = Number.NEGATIVE_INFINITY, to = Date.now() + 3 * 365 * day } = between;
+    return fakeOccurrences(series, calendar.timeZone, to)
+      .map((occurrence) => {
+        const id = `${seriesId}_${occurrence.suffix}`;
+        return calendar.events.get(id) ?? occurrenceMadeFrom(series, occurrence);
+      })
+      .filter((event) => event.status !== "cancelled")
+      .filter((event) => {
+        const [start, end] = [event.start, event.end].map(momentOf);
+        return (end ?? 0) > from && (start ?? 0) < to;
+      });
   }
 
   /** Adds an event to a calendar, as if someone added it in Google Calendar, and returns it. */
@@ -102,32 +131,39 @@ export class FakeGoogle {
     return event;
   }
 
-  /** Changes an event's fields, as if someone changed it in Google Calendar. */
+  /** Changes an event's fields, as if someone changed it in Google Calendar: a single event, a
+   *  whole series, or one occurrence of a series. */
   changeEvent(calendarId: string, eventId: string, fields: FakeEventFields): void {
-    const event = this.#calendar(calendarId).events.get(eventId);
-    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
+    const event = this.#held(calendarId, eventId);
     Object.assign(event, fields);
     this.#touch(calendarId, event);
   }
 
-  /** Deletes an event, as if someone deleted it in Google Calendar. */
+  /** Deletes an event, as if someone deleted it in Google Calendar: a single event, a whole series
+   *  with its changed occurrences, or one occurrence of a series. */
   removeEvent(calendarId: string, eventId: string): void {
-    const event = this.#calendar(calendarId).events.get(eventId);
-    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
-    event.status = "cancelled";
-    this.#touch(calendarId, event);
+    for (const event of this.#withOccurrences(calendarId, this.#held(calendarId, eventId))) {
+      event.status = "cancelled";
+      this.#touch(calendarId, event);
+    }
   }
 
-  /** Moves an event to another calendar, keeping its id, as if someone moved it in Google
-   *  Calendar, where a calendar shared with them can be in another account. */
-  moveEvent(calendarId: string, eventId: string, destinationId: string): void {
-    const event = this.#calendar(calendarId).events.get(eventId);
-    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
-    const moved: FakeEvent = { ...event, start: { ...event.start }, end: { ...event.end } };
-    this.#calendar(destinationId).events.set(eventId, moved);
-    this.#touch(destinationId, moved);
-    event.status = "cancelled";
-    this.#touch(calendarId, event);
+  /** Moves an event, or a whole series with its changed occurrences, to another calendar, keeping
+   *  its id, as if someone moved it in Google Calendar, where a calendar shared with them can be in
+   *  another account. */
+  moveEvent(calendarId: string, eventId: string, destinationId: string): FakeEvent {
+    const event = this.#held(calendarId, eventId);
+    const destination = this.#calendar(destinationId);
+    let moved: FakeEvent | undefined;
+    for (const each of this.#withOccurrences(calendarId, event)) {
+      const copy: FakeEvent = { ...each, start: { ...each.start }, end: { ...each.end } };
+      destination.events.set(each.id, copy);
+      this.#touch(destinationId, copy);
+      each.status = "cancelled";
+      this.#touch(calendarId, each);
+      if (each === event) moved = copy;
+    }
+    return moved ?? event;
   }
 
   /** Stops accepting a calendar's sync tokens given so far, as Google sometimes does, so the next
@@ -150,6 +186,39 @@ export class FakeGoogle {
     const calendar = this.calendars.get(calendarId);
     if (!calendar) throw new Error(`There's no calendar ${calendarId}`);
     return calendar;
+  }
+
+  #held(calendarId: string, eventId: string): FakeEvent {
+    const calendar = this.#calendar(calendarId);
+    const event = calendar.events.get(eventId) ?? this.#occurrenceOf(calendar, eventId);
+    if (!event) throw new Error(`Calendar ${calendarId} has no event ${eventId}`);
+    calendar.events.set(eventId, event);
+    return event;
+  }
+
+  #occurrenceOf(calendar: FakeCalendar, eventId: string): FakeEvent | null {
+    const split = eventId.lastIndexOf("_");
+    const series = calendar.events.get(eventId.slice(0, split));
+    if (split < 0 || !series?.recurrence || series.status === "cancelled") return null;
+    const suffix = eventId.slice(split + 1);
+    const due = Date.parse(
+      suffix.replace(
+        /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?$/,
+        (_, y, m, d, h, i, s) =>
+          h === undefined ? `${y}-${m}-${d}` : `${y}-${m}-${d}T${h}:${i}:${s}Z`,
+      ),
+    );
+    if (Number.isNaN(due)) return null;
+    const found = fakeOccurrences(series, calendar.timeZone, due + 1).find(
+      (occurrence) => occurrence.suffix === suffix,
+    );
+    return found ? occurrenceMadeFrom(series, found) : null;
+  }
+
+  #withOccurrences(calendarId: string, event: FakeEvent): FakeEvent[] {
+    if (!event.recurrence) return [event];
+    const held = [...this.#calendar(calendarId).events.values()];
+    return [event, ...held.filter(({ recurringEventId }) => recurringEventId === event.id)];
   }
 
   #touch(calendarId: string, event: FakeEvent): void {
@@ -289,26 +358,26 @@ export class FakeGoogle {
       this.#touch(calendarId, event);
       return Response.json(eventAnswer(event));
     }
-    const event = calendar.events.get(eventId);
+    const event = calendar.events.get(eventId) ?? this.#occurrenceOf(calendar, eventId);
     if (!event) return notFound();
+    if (action === "instances" && request.method === "GET") {
+      if (!event.recurrence) return notFound();
+      if (event.status === "cancelled") return new Response(null, { status: 410 });
+      return this.#listInstances(calendarId, calendar, eventId, url);
+    }
     if (action === "move" && request.method === "POST") {
       if (event.status === "cancelled") return notFound();
+      if (event.recurringEventId) return invalid("Cannot change the organizer of an instance.");
       const destinationId = url.searchParams.get("destination") ?? "";
       const destination = this.calendars.get(destinationId);
       if (!destination || destination.subject !== calendar.subject) return notFound();
-      const moved: FakeEvent = { ...event, start: { ...event.start }, end: { ...event.end } };
-      destination.events.set(eventId, moved);
-      this.#touch(destinationId, moved);
-      event.status = "cancelled";
-      this.#touch(calendarId, event);
-      return Response.json(eventAnswer(moved));
+      return Response.json(eventAnswer(this.moveEvent(calendarId, eventId, destinationId)));
     }
     if (action !== undefined) return notFound();
     if (request.method === "GET") return Response.json(eventAnswer(event));
     if (event.status === "cancelled") return new Response(null, { status: 410 });
     if (request.method === "DELETE") {
-      event.status = "cancelled";
-      this.#touch(calendarId, event);
+      this.removeEvent(calendarId, eventId);
       return new Response(null, { status: 204 });
     }
     if (request.method !== "PATCH") return new Response(null, { status: 405 });
@@ -321,8 +390,31 @@ export class FakeGoogle {
     const problem = this.#eventProblem(changed);
     if (problem) return invalid(problem);
     Object.assign(event, changed);
+    calendar.events.set(eventId, event);
     this.#touch(calendarId, event);
     return Response.json(eventAnswer(event));
+  }
+
+  #listInstances(calendarId: string, calendar: FakeCalendar, seriesId: string, url: URL) {
+    const momentIn = (name: string) => {
+      const at = Date.parse(url.searchParams.get(name) ?? "");
+      return Number.isNaN(at) ? undefined : at;
+    };
+    const from = momentIn("timeMin");
+    const to = momentIn("timeMax");
+    const instances = this.instancesOf(calendarId, seriesId, {
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+    });
+    const pageSize = Math.min(Number(url.searchParams.get("maxResults") ?? "250") || 250, 2500);
+    const offset = Number(url.searchParams.get("pageToken")?.replace(/^fake-page\./, "") ?? "0");
+    const more = offset + pageSize < instances.length;
+    return Response.json({
+      kind: "calendar#events",
+      timeZone: calendar.timeZone,
+      items: instances.slice(offset, offset + pageSize).map(eventAnswer),
+      ...(more ? { nextPageToken: `fake-page.${offset + pageSize}` } : {}),
+    });
   }
 
   #listEvents(calendar: FakeCalendar, url: URL): Response {
@@ -342,7 +434,11 @@ export class FakeGoogle {
       }
     }
     const events = [...calendar.events.values()]
-      .filter((event) => (since === null ? event.status !== "cancelled" : event.version > since))
+      .filter((event) =>
+        since === null
+          ? event.status !== "cancelled" || event.recurringEventId !== undefined
+          : event.version > since,
+      )
       .sort((a, b) => a.version - b.version);
     const page = events.slice(offset, offset + pageSize);
     const more = offset + pageSize < events.length;
@@ -437,7 +533,10 @@ export async function fakeCalendarPage(request: Request): Promise<Response> {
     try {
       switch (form.get("action")) {
         case "add-event":
-          fakeGoogle.addEvent(calendarId, fakeEventFields(form));
+          fakeGoogle.addEvent(
+            calendarId,
+            fakeEventFields(form, fakeGoogle.calendars.get(calendarId)),
+          );
           break;
         case "change-title":
           fakeGoogle.changeEvent(calendarId, eventId, { summary: form.get("title") ?? "" });
@@ -470,7 +569,9 @@ ${fields}<button>${escapeHtml(label)}</button></form>`;
     const events = fakeGoogle.eventsOf(id).map((event) => {
       const [from, to] = [event.start, event.end].map((time) => time.date ?? time.dateTime);
       const summary = escapeHtml(event.summary ?? "");
-      const when = `${from} to ${to}`;
+      const repeats = event.recurrence ? `, repeating ${event.recurrence.join(" ")}` : "";
+      const one = event.recurringEventId ? ", one occurrence changed in its series" : "";
+      const when = `${from} to ${to}${repeats}${one}`;
       const title = `<input name="title" aria-label="New title of ${summary}" value="${summary}">`;
       return `<li><strong>${escapeHtml(event.summary ?? "(No title)")}</strong>, ${escapeHtml(when)}
 ${form("change-title", title, "Change title", id, event.id)}
@@ -484,7 +585,8 @@ ${form(
   "add-event",
   `<input name="title" aria-label="Title" placeholder="Title" required>
 <input name="starts" aria-label="Starts" placeholder="2026-11-20 or 2026-11-20T19:00:00Z" required>
-<input name="ends" aria-label="Ends" placeholder="2026-11-21 or 2026-11-20T20:00:00Z" required>`,
+<input name="ends" aria-label="Ends" placeholder="2026-11-21 or 2026-11-20T20:00:00Z" required>
+<input name="repeats" aria-label="Repeats" placeholder="Repeats, as FREQ=WEEKLY;BYDAY=TU">`,
   "Add event",
   id,
 )}
@@ -497,7 +599,7 @@ ${form("drop-sync-tokens", "", "Drop sync tokens", id)}
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Fake Google Calendar</title></head>
 <body style="font-family: sans-serif; padding: 24px">
 <h1>Fake Google Calendar</h1>
-<p>Stands in for Google Calendar while developing Foyer. All-day events end the day after their last day, as in Google.</p>
+<p>Stands in for Google Calendar while developing Foyer. All-day events end the day after their last day, as in Google. A repeating event repeats by an iCalendar rule, as FREQ=WEEKLY;BYDAY=TU or FREQ=DAILY;COUNT=5; changing its title or deleting it changes the whole series.</p>
 ${calendars.join("") || "<p>No calendars yet.</p>"}
 </body>
 </html>`;
@@ -506,13 +608,20 @@ ${calendars.join("") || "<p>No calendars yet.</p>"}
   });
 }
 
-function fakeEventFields(form: URLSearchParams): FakeEventFields {
+function fakeEventFields(form: URLSearchParams, calendar?: FakeCalendar): FakeEventFields {
+  const repeats =
+    form
+      .get("repeats")
+      ?.trim()
+      .replace(/^RRULE:/i, "") ?? "";
+  const zone = repeats && calendar ? { timeZone: calendar.timeZone } : {};
   const time = (value: string): FakeEventTime =>
-    /^\d{4}-\d{2}-\d{2}$/.test(value) ? { date: value } : { dateTime: value };
+    /^\d{4}-\d{2}-\d{2}$/.test(value) ? { date: value } : { dateTime: value, ...zone };
   return {
     summary: form.get("title") ?? "",
     start: time(form.get("starts") ?? ""),
     end: time(form.get("ends") ?? ""),
+    ...(repeats ? { recurrence: [`RRULE:${repeats}`] } : {}),
   };
 }
 
@@ -540,6 +649,30 @@ function applyFields(event: FakeEvent, body: Record<string, unknown>): void {
     for (const [key, value] of Object.entries(merged)) if (value === null) delete merged[key];
     event[end] = merged as FakeEventTime;
   }
+}
+
+const day = 24 * 60 * 60_000;
+
+function occurrenceMadeFrom(series: FakeEvent, occurrence: FakeOccurrence): FakeEvent {
+  return {
+    id: `${series.id}_${occurrence.suffix}`,
+    status: "confirmed",
+    etag: `"${series.version}-${occurrence.suffix}"`,
+    ...(series.summary === undefined ? {} : { summary: series.summary }),
+    ...(series.description === undefined ? {} : { description: series.description }),
+    start: occurrence.start,
+    end: occurrence.end,
+    created: series.created,
+    updated: series.updated,
+    recurringEventId: series.id,
+    originalStartTime: { ...occurrence.start },
+    version: series.version,
+  };
+}
+
+function momentOf(time: FakeEventTime): number | undefined {
+  const at = Date.parse(time.dateTime ?? time.date ?? "");
+  return Number.isNaN(at) ? undefined : at;
 }
 
 function notFound(): Response {

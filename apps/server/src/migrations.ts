@@ -300,6 +300,16 @@ export const householdMigrations: readonly Migration[] = [
   INSERT INTO household_jobs (name) VALUES ('place calendar stickers')`,
   `ALTER TABLE items ADD COLUMN time TEXT;
   INSERT OR IGNORE INTO household_jobs (name) VALUES ('place calendar stickers')`,
+  `ALTER TABLE items ADD COLUMN series_id TEXT;
+  CREATE INDEX items_by_series ON items (series_id) WHERE series_id IS NOT NULL;
+  CREATE TABLE google_series (
+    google_calendar_id TEXT NOT NULL,
+    google_event_id TEXT NOT NULL,
+    series_id TEXT NOT NULL UNIQUE,
+    made_until INTEGER,
+    PRIMARY KEY (google_calendar_id, google_event_id)
+  );
+  UPDATE space_calendars SET sync_token = NULL`,
 ];
 
 /** Work on the household's data that needs today's code rather than the code of the migration

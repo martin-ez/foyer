@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useHousehold } from "../shell/household";
 import { Checkbox } from "../tasks/checkbox";
-import { EventNesting } from "../tasks/task-nesting";
+import { EventNesting, repeats } from "../tasks/task-nesting";
 import {
   describeEventTime,
   draftOf,
@@ -72,6 +72,7 @@ export function EventsPanel({
         {upcoming.map((event) => {
           const time = timeOf(event);
           const from = event.createdBy === "" ? ", added in Google Calendar" : "";
+          const repeating = repeats(event) ? ", repeats" : "";
           return (
             <Pressable
               key={event.id}
@@ -84,6 +85,7 @@ export function EventsPanel({
               <Text style={styles.line}>
                 {time ? describeEventTime(time) : ""} · {spaceName(event.spaceId)}
                 {from}
+                {repeating}
               </Text>
             </Pressable>
           );
@@ -101,7 +103,8 @@ export function spacesWithCalendar(spaces: readonly Space[]): Space[] {
 type EventEdits = { title?: string; description?: string; time?: EventTimeDraft };
 
 /** A new event's fields, or an event's, to save, with ways to put the event under a task, move it
- *  to another of `spaces` and delete it. */
+ *  to another of `spaces` and delete it. An occurrence of a repeating series changes on its own,
+ *  and moves only with its series, in Google Calendar. */
 export function EventEditor({
   event,
   spaces,
@@ -155,6 +158,12 @@ export function EventEditor({
     >
       <ScrollView contentContainerStyle={styles.form}>
         {event?.createdBy === "" ? <Text style={styles.line}>Added in Google Calendar</Text> : null}
+        {event && repeats(event) ? (
+          <Text style={styles.line}>
+            Repeats. Changes here are to this day only: the whole series is changed in Google
+            Calendar.
+          </Text>
+        ) : null}
         <TextInput
           style={styles.input}
           value={title}
@@ -241,7 +250,12 @@ export function EventEditor({
         {event ? (
           <EventNesting event={event} state={state} sync={sync} onOpenTask={onOpenTask} />
         ) : null}
-        {event && others.length > 0 ? (
+        {event && repeats(event) ? (
+          <Text style={styles.line}>
+            A repeating event moves with its series, in Google Calendar.
+          </Text>
+        ) : null}
+        {event && !repeats(event) && others.length > 0 ? (
           <>
             <Text style={styles.line}>Move to</Text>
             <View style={styles.row}>

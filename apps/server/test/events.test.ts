@@ -701,20 +701,6 @@ describe("reading changes made in Google", () => {
     expect(events.has(dinner)).toBe(false);
     expect([...events.values()].map(({ title }) => title)).toEqual(["Dentist"]);
   });
-
-  it("leaves out repeating events, and the occurrences changed in their series", async () => {
-    const { device } = await member(alex);
-
-    const bins = addInGoogle(alexsAccount, "Personal", {
-      summary: "Bins",
-      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=TU"],
-    });
-    const moved = addInGoogle(alexsAccount, "Personal", { summary: "Bins, a day late" });
-    Object.assign(moved, { recurringEventId: bins.id });
-    await readAgain();
-
-    expect(await eventsOf(device)).toEqual(new Map());
-  });
 });
 
 describe("events moved in Google from one of Foyer's calendars to another", () => {

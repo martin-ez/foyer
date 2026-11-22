@@ -46,6 +46,10 @@ message Item {
   // A task's time of day, as an ISO 8601 local time such as "19:00", with no time zone, or empty
   // when it has none. Only a task with a date has one.
   string time = 16;
+  // The Google Calendar series an event is an occurrence of: a UUID version 7 the household makes,
+  // the same on all its occurrences, and empty for every other item. Only the household sets it.
+  // An occurrence changes on its own, and moves only with its series, in Google Calendar.
+  string series_id = 17;
 }
 
 // Where a repeating task's next date comes from when it's ticked.
@@ -141,6 +145,8 @@ message ItemSetRepeat {
 // moves a task's sticker to the new space's page in the same push. The move made last wins. An item
 // under another must be taken out first. Events go only to a space with a Google calendar.
 message ItemMove {
+  // Refused for an occurrence of a repeating event, or an item with one under it: its series moves
+  // in Google Calendar.
   string item_id = 1;
   // A space the member sees, as they must see the item's space now.
   string space_id = 2;
@@ -158,6 +164,7 @@ message ItemDelete {
 message ItemSetParent {
   string item_id = 1;
   // A task or note the member sees, other than the item or anything under it, or empty for the top
-  // of the item's space.
+  // of the item's space. Refused in another space when it would move an occurrence of a repeating
+  // event there.
   string parent_id = 2;
 }

@@ -25,6 +25,8 @@ import {
   eventNeedsCalendar,
   eventsCanMoveTo,
   eventTimeIn,
+  holdsOccurrence,
+  occurrenceMovesWithSeries,
   redateEvents,
 } from "./events";
 import { type MovedUp, type Placer, stickMovedUp } from "./moved-up";
@@ -83,7 +85,8 @@ export function createItem(
 }
 
 /** Adds an item to the household's storage, as change `seq` made by `setter`, which every field it
- *  sets keeps. An event's date is the day it starts in its space's calendar's time zone. */
+ *  sets keeps. An event's date is the day it starts in its space's calendar's time zone, and an
+ *  occurrence of a repeating event has its series' id. */
 export function insertItem(
   sql: SqlStorage,
   item: {
@@ -98,6 +101,7 @@ export function insertItem(
     createdAt: number;
     setter: Setter;
     seq: number;
+    seriesId?: string | null;
   },
 ): void {
   const { at, changeId } = item.setter;
@@ -105,8 +109,9 @@ export function insertItem(
   sql.exec(
     `INSERT INTO items (id, kind, space_id, title, description, date, created_by, created_at, seq,
        space_at, space_change_id, title_at, title_change_id, description_at, description_change_id,
-       date_at, date_change_id, starts_on, ends_on, starts_at, ends_at, time_at, time_change_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       date_at, date_change_id, starts_on, ends_on, starts_at, ends_at, time_at, time_change_id,
+       series_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     item.itemId,
     item.kind,
     item.spaceId,
@@ -123,6 +128,7 @@ export function insertItem(
     time?.endsAt ?? null,
     time ? at : 0,
     time ? changeId : "",
+    item.seriesId ?? null,
   );
   if (time) redateEvents(sql, [item.itemId], item.setter, item.seq);
 }
@@ -310,6 +316,9 @@ export function moveItem(
     return { refused: "An item under another moves with it. Take it out first." };
   }
   const moving = [move.itemId, ...itemsUnder(sql, move.itemId)];
+  if (found.item.space_id !== move.spaceId && holdsOccurrence(sql, moving)) {
+    return { refused: occurrenceMovesWithSeries };
+  }
   if (!eventsCanMoveTo(sql, moving, move.spaceId)) return { refused: eventNeedsCalendar };
 
   const key: RowKey = { kind: "item", id: move.itemId };
