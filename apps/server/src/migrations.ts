@@ -1,4 +1,5 @@
 import { newId } from "@foyer/shared";
+import { isLocalBackend } from "./local";
 
 /** A change to the household's storage: SQL statements, or a function for a change that SQL alone
  *  can't make, such as giving new rows their ids. A function must not call code that may change
@@ -341,7 +342,8 @@ export function runJobs(
 }
 
 /** Runs, in order, each migration the storage hasn't run yet, in its own transaction. A migration
- *  that fails is undone and stops the rest. Storage that ran newer migrations is left as it is. */
+ *  that fails is undone and stops the rest, with an error that names it by its number. Storage
+ *  that ran newer migrations is left as it is. */
 export function migrate(storage: DurableObjectStorage, migrations: readonly Migration[]): void {
   const { sql } = storage;
   sql.exec(
@@ -352,14 +354,33 @@ export function migrate(storage: DurableObjectStorage, migrations: readonly Migr
       .number ?? 0;
 
   migrations.slice(lastRun).forEach((migration, index) => {
-    storage.transactionSync(() => {
-      if (typeof migration === "string") sql.exec(migration);
-      else migration(sql);
-      sql.exec(
-        "INSERT INTO migrations (number, ran_at) VALUES (?, ?)",
-        lastRun + index + 1,
-        Date.now(),
-      );
-    });
+    const number = lastRun + index + 1;
+    try {
+      storage.transactionSync(() => {
+        if (typeof migration === "string") sql.exec(migration);
+        else migration(sql);
+        sql.exec("INSERT INTO migrations (number, ran_at) VALUES (?, ?)", number, Date.now());
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const failed = `Storage change ${number} in apps/server/src/migrations.ts failed`;
+      throw new Error(`${failed}: ${reason}`, { cause: error });
+    }
   });
+}
+
+const startingLocallyAfresh =
+  "If a branch's storage change ran here and merging main moved it later in that list, start the " +
+  "local household afresh: stop the local backend, delete apps/server/.wrangler/state, which " +
+  "loses everything stored locally, and start it again.";
+
+/** Runs the household's migrations, as `migrate` does. On a local backend, the error for one that
+ *  fails also says how to start the local household afresh. */
+export function migrateHousehold(storage: DurableObjectStorage): void {
+  try {
+    migrate(storage, householdMigrations);
+  } catch (error) {
+    if (!isLocalBackend() || !(error instanceof Error)) throw error;
+    throw new Error(`${error.message}\n${startingLocallyAfresh}`, { cause: error.cause });
+  }
 }
