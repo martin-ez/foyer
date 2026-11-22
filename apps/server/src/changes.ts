@@ -33,9 +33,9 @@ import {
  *  with no effect would have changed, which only the device that pushed them receives. */
 export type PushOutcome = { results: ChangeResult[]; changed: RowKey[]; unchanged: RowKey[] };
 
-/** Applies a member's changes in order, each on its own and remembered by its id, so that sending
- *  it again has no effect, unless it failed unexpectedly. Queues the events they change for Google,
- *  then keeps the calendar stickers of the items they changed on their days. */
+/** Applies a member's changes in order, each action's all or none, remembering each by its id so
+ *  that sending it again has no effect. Queues the events they change for Google, then keeps the
+ *  calendar stickers of the items they changed on their days. */
 export function applyPush(
   storage: DurableObjectStorage,
   memberId: string,
@@ -43,28 +43,15 @@ export function applyPush(
   now: number,
 ): PushOutcome {
   const outcome: PushOutcome = { results: [], changed: [], unchanged: [] };
-  for (const change of push.changes) {
-    const before = rememberedOutcome(storage.sql, change.changeId);
-    if (before) {
-      outcome.results.push(resultOf(change.changeId, before));
-      continue;
-    }
-    try {
-      const applied = storage.transactionSync(() => {
-        const applied = apply(storage.sql, memberId, change, now);
-        remember(storage.sql, change.changeId, memberId, applied, now);
-        if ("seq" in applied) queueEventWrites(storage.sql, applied.changed);
-        return applied;
-      });
+  for (const action of actionsOf(push.changes)) {
+    const outcomes = applyAction(storage, memberId, action, now);
+    for (const [index, change] of action.entries()) {
+      const applied = outcomes[index] ?? { refused: unexpected };
       outcome.results.push(resultOf(change.changeId, applied));
       if ("seq" in applied) {
         outcome.changed.push(...applied.changed);
         outcome.unchanged.push(...applied.unchanged);
       }
-    } catch (error) {
-      console.error(`Applying change ${change.changeId} failed: ${error}`);
-      const refused = "Something went wrong while saving this change.";
-      outcome.results.push(resultOf(change.changeId, { refused }));
     }
   }
   try {
@@ -82,6 +69,82 @@ export function applyPush(
 }
 
 type Outcome = { seq: number } | { refused: string };
+
+const unexpected = "Something went wrong while saving this change.";
+
+/** Splits a push into actions: the changes one after another that share an action id, or a change
+ *  on its own. */
+function actionsOf(changes: Change[]): Change[][] {
+  const actions: Change[][] = [];
+  for (const change of changes) {
+    const last = actions.at(-1);
+    if (change.actionId !== "" && last?.[0]?.actionId === change.actionId) last.push(change);
+    else actions.push([change]);
+  }
+  return actions;
+}
+
+/** Thrown to undo what an action applied when one of its changes is refused. */
+class ActionRefused extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+  }
+}
+
+/** Applies an action's changes in order, in one transaction. If one is refused, none is applied,
+ *  and each is remembered as refused with its reason. A change sent before is answered as it was
+ *  the first time. If something fails unexpectedly, none is applied or remembered. */
+function applyAction(
+  storage: DurableObjectStorage,
+  memberId: string,
+  changes: Change[],
+  now: number,
+): Applied[] {
+  const actionId = changes[0]?.actionId ?? "";
+  const problem =
+    actionId === "" || isId(actionId) ? null : "An action's id must be a UUID version 7.";
+  let refused: { refused: string };
+  try {
+    return storage.transactionSync(() =>
+      changes.map((change) => {
+        const before = rememberedOutcome(storage.sql, change.changeId);
+        if (before && "refused" in before) throw new ActionRefused(before.refused);
+        if (before) return again(before);
+        const applied = problem ? { refused: problem } : apply(storage.sql, memberId, change, now);
+        if ("refused" in applied) throw new ActionRefused(applied.refused);
+        remember(storage.sql, change.changeId, memberId, applied, now);
+        queueEventWrites(storage.sql, applied.changed);
+        return applied;
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof ActionRefused)) return failed(changes, error);
+    refused = { refused: error.reason };
+  }
+  try {
+    return storage.transactionSync(() =>
+      changes.map((change) => {
+        const before = rememberedOutcome(storage.sql, change.changeId);
+        if (before) return again(before);
+        remember(storage.sql, change.changeId, memberId, refused, now);
+        return refused;
+      }),
+    );
+  } catch (error) {
+    return failed(changes, error);
+  }
+}
+
+function failed(changes: Change[], error: unknown): Applied[] {
+  const ids = changes.map(({ changeId }) => changeId).join(", ");
+  console.error(`Applying changes ${ids} failed: ${error}`);
+  return changes.map(() => ({ refused: unexpected }));
+}
+
+/** What a change sent before did, answered again, now with no effect. */
+function again(before: Outcome): Applied {
+  return "seq" in before ? { ...before, changed: [], unchanged: [] } : before;
+}
 
 function resultOf(changeId: string, outcome: Outcome): ChangeResult {
   return create(ChangeResultSchema, {

@@ -433,6 +433,11 @@ export function textChange(
   return { ...madeNow(made), change };
 }
 
+/** Makes changes one action, sharing a new action id unless `actionId` says otherwise. */
+export function together(changes: ChangeInit[], actionId = newId()): ChangeInit[] {
+  return changes.map((change) => ({ ...change, actionId }));
+}
+
 function madeNow(made: Made): Made {
   return { changeId: newId(), at: timestampFromMs(Date.now()), ...made };
 }

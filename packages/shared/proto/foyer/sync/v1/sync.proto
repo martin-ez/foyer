@@ -30,7 +30,8 @@ message DeviceMessage {
 }
 
 // Changes the device made, in the order it made them. The household answers with Committed, after
-// sending the rows they changed as Updates.
+// sending the rows they changed as Updates. The changes of one action go in the same push, one
+// after another.
 message Push {
   // A UUID version 7, made by the device, which Committed repeats.
   string push_id = 1;
@@ -75,6 +76,11 @@ message Change {
     foyer.text.v1.TextBlockDelete text_block_delete = 27;
     foyer.text.v1.TextBlockMove text_block_move = 28;
   }
+  // A UUID version 7, made by the device, shared by the changes it makes together for one action,
+  // such as putting a task under another: setting its parent and moving its sticker. The household
+  // applies an action's changes all or none: if one is refused, each is refused with its reason.
+  // Empty when the change stands alone.
+  string action_id = 29;
 }
 
 // Asks for the rows the device can see that changed after its cursor. Answered with a PullReply.

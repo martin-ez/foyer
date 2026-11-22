@@ -7,7 +7,15 @@ import { theHousehold } from "../src/household";
 import { householdMigrations, migrate } from "../src/migrations";
 import { pullReplyRowLimit } from "../src/rows";
 import { backendUrl, cookieSetBy, requestBackend } from "./backend";
-import { Device, madeAt, openConnection, signIn, spaceCreate, spaceRename } from "./sync-device";
+import {
+  Device,
+  madeAt,
+  openConnection,
+  signIn,
+  spaceCreate,
+  spaceRename,
+  together,
+} from "./sync-device";
 
 const alex = "member@example.com";
 const sam = "housemate@example.com";
@@ -399,6 +407,104 @@ describe("refused changes", () => {
 
     expect(committed.results[0]?.result.case).toBe("refused");
     expect(seqOf(committed.results[1])).toBe(2);
+  });
+});
+
+describe("actions", () => {
+  async function connectWithSeq(email: string): Promise<{ device: Device; seq: number }> {
+    const device = await Device.connect((await signIn(email)).token);
+    devices.push(device);
+    return { device, seq: await device.welcome() };
+  }
+
+  it("applies an action's changes in order, each with its own number", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const create = spaceCreate({ name: "Garden" }, { at: madeAt(Date.now() - 1000) });
+
+    const committed = await device.push(
+      ...together([create, spaceRename(spaceIdOf(create), "Garden plans")]),
+    );
+
+    const [created, renamed] = committed.results.map(seqOf);
+    expect(renamed).toBe((created ?? 0) + 1);
+    expect(describeRows(await device.updates())).toEqual([
+      { space: "Garden plans", kind: SpaceKind.SHARED, ownerId: "" },
+    ]);
+  });
+
+  it("applies none of an action's changes when one is refused, refusing each with its reason", async () => {
+    const other = await connect((await signIn(sam)).token);
+    const { device, seq } = await connectWithSeq(alex);
+    await Promise.all([device.updates(), other.updates()]);
+
+    const refused = await device.push(
+      ...together([spaceCreate({ name: "Garden" }), spaceRename(newId(), "Nowhere")]),
+    );
+    const after = await device.push(spaceCreate({ name: "Shed" }));
+
+    expect(refused.results.map(refusalOf)).toEqual([
+      "There's no such space.",
+      "There's no such space.",
+    ]);
+    expect(seqOf(after.results[0])).toBe(seq + 1);
+    for (const each of [device, other]) {
+      expect(describeRows(await each.updates())).toEqual([
+        { space: "Shed", kind: SpaceKind.SHARED, ownerId: "" },
+      ]);
+    }
+  });
+
+  it("answers an action sent again as it did the first time, and changes nothing more", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const create = spaceCreate({ name: "Garden" });
+    const applied = together([create, spaceRename(spaceIdOf(create), "Garden plans")]);
+    const refused = together([spaceCreate({ name: "Shed" }), spaceRename(newId(), "Nowhere")]);
+    const first = await device.push(...applied, ...refused);
+    await device.updates();
+
+    const again = await device.push(...applied, ...refused);
+
+    expect(again.results).toEqual(first.results);
+    expect(await device.updates()).toEqual([]);
+  });
+
+  it("applies each action, and each change on its own, apart from the others in a push", async () => {
+    const device = await connect((await signIn(alex)).token);
+    const garden = spaceCreate({ name: "Garden" });
+
+    const committed = await device.push(
+      spaceRename(newId(), "Nowhere"),
+      ...together([garden, spaceRename(spaceIdOf(garden), "Garden plans")]),
+      ...together([spaceCreate({ name: "Shed" }), spaceRename(newId(), "Nowhere")]),
+      spaceCreate({ name: "Attic" }),
+    );
+
+    expect(committed.results.map(({ result }) => result.case)).toEqual([
+      "refused",
+      "seq",
+      "seq",
+      "refused",
+      "refused",
+      "seq",
+    ]);
+    expect(describeRows(await device.updates()).map((row) => row.space)).toEqual([
+      "Garden plans",
+      "Attic",
+    ]);
+  });
+
+  it("refuses an action whose id isn't a UUID version 7", async () => {
+    const device = await connect((await signIn(alex)).token);
+
+    const committed = await device.push(
+      ...together([spaceCreate({ name: "Garden" }), spaceCreate({ name: "Shed" })], "action-1"),
+    );
+
+    expect(committed.results.map(refusalOf)).toEqual([
+      "An action's id must be a UUID version 7.",
+      "An action's id must be a UUID version 7.",
+    ]);
+    expect(await device.updates()).toEqual([]);
   });
 });
 
