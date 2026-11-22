@@ -1,4 +1,4 @@
-import { calendarName } from "@foyer/shared";
+import { calendarName, newId } from "@foyer/shared";
 import { isOnAllowlist } from "./allowlist";
 import {
   EventSync,
@@ -17,6 +17,7 @@ import {
   renameCalendar,
   revokeAccess,
 } from "./google-calendar";
+import { deleteItemForHousehold } from "./items";
 import { nextSeq, type RowKey } from "./rows";
 
 /** What became of connecting Google Calendar: connected, or refused because the person chose
@@ -37,6 +38,10 @@ const minute = 60_000;
 
 /** The longest the household waits before trying Google again after a failure. */
 export const longestRetryDelay = 60 * minute;
+
+/** How many series the household makes occurrences for in one run, at a call to Google or two each,
+ *  so that a run stays within the free plan's 50 calls. The next run does the rest at once. */
+export const seriesPerRun = 10;
 
 type SpaceToMake = { id: string; name: string; time_zone: string };
 
@@ -184,9 +189,9 @@ export class Calendars {
     this.#wake(Date.now());
   }
 
-  /** Makes and renames calendars, writes waiting event changes and reads the calendars due, one run
-   *  at a time. Access Google refuses pauses its spaces, and failing to make, rename or read a
-   *  calendar waits twice as long each time, up to `longestRetryDelay`. */
+  /** Makes and renames calendars, writes waiting event changes, reads the calendars due and makes
+   *  the occurrences of series due, one run at a time. Access Google refuses pauses its spaces, and
+   *  any other failure waits twice as long each time, up to `longestRetryDelay`. */
   work(): Promise<void> {
     const run = this.#running.then(() => this.#work());
     this.#running = run.catch(() => {});
@@ -217,6 +222,11 @@ export class Calendars {
       if (typeof outcome === "object") this.#accessStopped(outcome.accessStopped);
       if (outcome === "failed") failed = true;
     }
+    for (const { series, calendar } of this.#events.seriesDue().slice(0, seriesPerRun)) {
+      const outcome = await this.#events.makeOccurrences(series, calendar);
+      if (typeof outcome === "object") this.#accessStopped(outcome.accessStopped);
+      if (outcome === "failed") failed = true;
+    }
     if (failed) {
       this.#nextAttemptAt = Date.now() + this.#retryDelay;
       this.#retryDelay = Math.min(this.#retryDelay * 2, longestRetryDelay);
@@ -229,7 +239,9 @@ export class Calendars {
   #wakeForNextWork(): void {
     const times = [this.#events.nextWriteAt()];
     if (this.#nextAttemptAt > Date.now()) times.push(this.#nextAttemptAt);
-    else if (this.#hasCalendarWork()) times.push(Date.now());
+    else if (this.#hasCalendarWork() || this.#events.seriesDue().length > 0) {
+      times.push(Date.now());
+    }
     const interval = this.#devicesConnected() ? readIntervalWhileConnected : readIntervalWhileAway;
     for (const calendar of this.#calendarsDueToReadAt(Number.POSITIVE_INFINITY)) {
       times.push(Math.max((calendar.read_at ?? 0) + interval, this.#nextAttemptAt));
@@ -384,14 +396,22 @@ export class Calendars {
 
   #calendarLost(spaceId: string): void {
     const { sql } = this.#storage;
-    this.#storage.transactionSync(() => {
+    const changed = this.#storage.transactionSync(() => {
       const [calendar] = sql
         .exec<{ google_calendar_id: string }>(
           "SELECT google_calendar_id FROM space_calendars WHERE space_id = ? AND lost_at IS NULL",
           spaceId,
         )
         .toArray();
-      if (!calendar) return;
+      if (!calendar) return [];
+      const occurrences = sql
+        .exec<{ id: string }>(
+          `SELECT items.id FROM items JOIN google_events ON google_events.item_id = items.id
+           WHERE google_events.google_calendar_id = ? AND items.series_id IS NOT NULL
+           ORDER BY items.id`,
+          calendar.google_calendar_id,
+        )
+        .toArray();
       console.error(`The calendar of space ${spaceId} is no longer in Google, so it's made again.`);
       sql.exec(
         `UPDATE space_calendars SET lost_at = ?, sync_token = NULL, read_at = NULL
@@ -407,6 +427,15 @@ export class Calendars {
         "DELETE FROM google_event_removals WHERE google_calendar_id = ?",
         calendar.google_calendar_id,
       );
+      sql.exec(
+        "DELETE FROM google_series WHERE google_calendar_id = ?",
+        calendar.google_calendar_id,
+      );
+      const setter = { at: Date.now(), changeId: newId() };
+      const deleted = occurrences.flatMap(({ id }) => {
+        sql.exec("DELETE FROM google_event_writes WHERE item_id = ?", id);
+        return deleteItemForHousehold(sql, id, setter);
+      });
       const events = sql
         .exec<{ id: string }>("SELECT id FROM items WHERE space_id = ? AND kind = 'event'", spaceId)
         .toArray();
@@ -418,7 +447,9 @@ export class Calendars {
           id,
         );
       }
+      return deleted;
     });
+    this.#changed(changed);
     this.#nextAttemptAt = 0;
     this.#wake(Date.now());
   }

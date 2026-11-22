@@ -44,9 +44,18 @@ export function eventFieldsOf(event: GoogleEvent): EventFields | null {
   return { title, description, time };
 }
 
-/** Whether an event belongs to a repeating series: the series itself, or one of its occurrences. */
-export function isRepeating(event: GoogleEvent): boolean {
-  return (event.recurrence?.length ?? 0) > 0 || Boolean(event.recurringEventId);
+/** Whether an event is a repeating series, rather than a single event or an occurrence. */
+export function isSeries(event: GoogleEvent): boolean {
+  return (event.recurrence?.length ?? 0) > 0;
+}
+
+/** The moments, in milliseconds since 1970, between which a series' occurrences are events in
+ *  Foyer at a moment `now`: from the start of last month to 18 months ahead, both at midnight UTC.
+ *  It moves forward a day at a time. */
+export function occurrenceWindow(now: number): { from: number; to: number } {
+  const today = new Date(now);
+  const [year, month, day] = [today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()];
+  return { from: Date.UTC(year, month - 1, 1), to: Date.UTC(year, month + 18, day) };
 }
 
 /** When Google last changed an event, in milliseconds since 1970, or null if it doesn't say. */

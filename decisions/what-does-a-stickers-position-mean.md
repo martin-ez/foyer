@@ -1,5 +1,5 @@
 # What does a sticker's position mean?
-Decided in #10, #27 and #28
+Decided in #10, #27, #28 and #60
 
 **Applies when:** placing, moving or laying out stickers on any page.
 
@@ -11,7 +11,7 @@ Decided in #10, #27 and #28
 
 Each sticker has a fixed spot on its page, the same for everyone. New stickers are placed automatically and can be moved within their day. Placing new stickers around the ink already on a day isn't built yet: #148.
 
-- **Which calendar pages:** a dated task or event has a sticker on each calendar page that shows its day: its month's, its week's and its day's, each with its own spot. An event's day is the one it starts on in its calendar's time zone (`how-are-dates-and-times-stored.md`); one over several days has its stickers on its first day. Repeating events wait for #60.
+- **Which calendar pages:** a dated task or event has a sticker on each calendar page that shows its day: its month's, its week's and its day's, each with its own spot. An event's day is the one it starts on in its calendar's time zone (`how-are-dates-and-times-stored.md`); one over several days has its stickers on its first day. Each occurrence of a repeating event is an event of its own, with stickers on its own day (`where-do-calendar-events-live.md`).
 - **Its day:** each sticker on a calendar page stores the day it's on as `occurrence` (`what-is-a-sticker.md`), so a repeating task can have stickers on the days it was ticked as well as on its next date.
 - **Adding from a day:** tapping an empty spot in a day offers a new task, a new event, or one of the member's open tasks without a date. A new one asks for its space, starting on the last space they picked from the calendar, which each device keeps for itself, unsynced. Events offer only spaces with a Google calendar. The sticker goes where they tapped, inside the day, and the item takes that day as its date.
 - **Placing automatically,** for now: a new sticker goes in the next free spot of its day's box, at its left edge, below the lowest sticker on that day. When the box is full, it goes on the lowest one, a little lower, like a pile. Every sticker on a calendar page has the same size, small enough for a few to fit in a month's day.

@@ -1,6 +1,11 @@
 import type { ItemSetParent } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { type Applied, isLater, type Setter } from "./changes";
-import { eventNeedsCalendar, eventsCanMoveTo } from "./events";
+import {
+  eventNeedsCalendar,
+  eventsCanMoveTo,
+  holdsOccurrence,
+  occurrenceMovesWithSeries,
+} from "./events";
 import { findItem, itemFor, itemsUnder, moveIntoSpace } from "./items";
 import { nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
@@ -41,6 +46,7 @@ export function setItemParent(
     return { refused: "An item can't go under itself, or under an item that's under it." };
   }
   const moving = [change.itemId, ...itemsUnder(sql, change.itemId)];
+  if (movesSpace && holdsOccurrence(sql, moving)) return { refused: occurrenceMovesWithSeries };
   if (movesSpace && parentSpace !== null && !eventsCanMoveTo(sql, moving, parentSpace)) {
     return { refused: eventNeedsCalendar };
   }

@@ -20,12 +20,20 @@ export const eventNestingMembers: Readonly<Record<string, string>> = {
   phone: "nesting.phone@example.com",
 };
 
+/** Members only the check of repeating events signs in as, one for each viewport, since a series
+ *  adds an event on each of its days. */
+export const repeatingEventMembers: Readonly<Record<string, string>> = {
+  ipad: "series.ipad@example.com",
+  phone: "series.phone@example.com",
+};
+
 /** Everyone the checks' backend lets in, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`. */
 export const checksHouseholdMembers = [
   member,
   housemate,
   ...Object.values(googleCalendarMembers),
   ...Object.values(eventNestingMembers),
+  ...Object.values(repeatingEventMembers),
 ];
 
 /** Signs in to the checks' backend without Google, as `email`, which returns to the web app. */

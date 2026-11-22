@@ -1,4 +1,4 @@
-import { newId, sameEventTime } from "@foyer/shared";
+import { eventDate, newId, sameEventTime } from "@foyer/shared";
 import { settleCalendarStickers } from "./calendar-stickers";
 import { isLater, type Setter } from "./changes";
 import { redateEvents, storedEventTime, writeEventTime } from "./events";
@@ -10,6 +10,7 @@ import {
   type GoogleEventFields,
   insertEvent,
   listEvents,
+  listInstances,
   moveEvent,
   patchEvent,
   readEvent,
@@ -18,7 +19,8 @@ import {
   type EventFields,
   eventFieldsOf,
   googleFieldsOf,
-  isRepeating,
+  isSeries,
+  occurrenceWindow,
   updatedAt,
 } from "./google-events";
 import { deleteItemForHousehold, insertItem, moveItemForHousehold } from "./items";
@@ -59,6 +61,16 @@ export type SpaceCalendar = {
   lost_at: number | null;
 };
 
+/** A repeating series in a space's Google calendar, whose occurrences are events in Foyer: its
+ *  Google ids, the id its occurrences share in Foyer, and the moment, in milliseconds since 1970,
+ *  until which they've been made, or null when they're to be listed again. */
+export type Series = {
+  google_calendar_id: string;
+  google_event_id: string;
+  series_id: string;
+  made_until: number | null;
+};
+
 type Link = {
   item_id: string;
   google_calendar_id: string;
@@ -72,8 +84,22 @@ type Destination =
   | { nowhere: true }
   | { stopped: SyncOutcome };
 
+type GoogleIds = Pick<Link, "google_calendar_id" | "google_event_id">;
+
+type Occurrence = {
+  item_id: string;
+  google_event_id: string;
+  date: string | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  starts_at: number | null;
+  ends_at: number | null;
+  waiting: number;
+};
+
 type StoredEvent = {
   space_id: string;
+  series_id: string | null;
   title: string;
   description: string;
   starts_on: string | null;
@@ -261,6 +287,13 @@ export class EventSync {
       }
       const fields = fieldsOfStored(event);
       if (!fields) return "done";
+      if (event.series_id !== null) {
+        if (!link || link.etag === null) {
+          this.#deleteInFoyer(itemId);
+          return "done";
+        }
+        if (link.google_calendar_id !== target.google_calendar_id) return "done";
+      }
 
       if (link && link.google_calendar_id !== target.google_calendar_id) {
         const source = this.#calendarById(link.google_calendar_id);
@@ -279,7 +312,7 @@ export class EventSync {
         if ("ok" in moved) {
           this.#keepLink({ ...link, google_calendar_id: target.google_calendar_id }, moved.ok);
         } else if ("gone" in moved) {
-          const destination = await this.#destinationOf(link);
+          const destination = await this.#destinationOf(link, "event");
           if ("stopped" in destination) return destination.stopped;
           if ("calendar" in destination) {
             this.#follow(link, destination.calendar, destination.event);
@@ -368,11 +401,13 @@ export class EventSync {
         return "waiting";
       }
       if (!("ok" in calendar)) return outcomeOf(target.member_id, calendar);
-      const destination = await this.#destinationOf(link);
-      if ("stopped" in destination) return destination.stopped;
-      if ("calendar" in destination) {
-        this.#follow(link, destination.calendar, destination.event);
-        continue;
+      if (event.series_id === null) {
+        const destination = await this.#destinationOf(link, "event");
+        if ("stopped" in destination) return destination.stopped;
+        if ("calendar" in destination) {
+          this.#follow(link, destination.calendar, destination.event);
+          continue;
+        }
       }
       this.#deleteInFoyer(itemId);
       return "done";
@@ -423,12 +458,21 @@ export class EventSync {
   }
 
   async #take(calendar: SpaceCalendar, event: GoogleEvent): Promise<SyncOutcome> {
-    if (isRepeating(event)) return "done";
+    const series = this.#seriesAt(calendar.google_calendar_id, event.id);
+    if (series && event.status === "cancelled") return this.#seriesLeft(series);
+    if (series) {
+      this.#listAgain(series);
+      return "done";
+    }
+    if (isSeries(event) && event.status !== "cancelled") return this.#addSeries(calendar, event);
     const [link] = this.#links(
       "google_calendar_id = ? AND google_event_id = ?",
       calendar.google_calendar_id,
       event.id,
     );
+    if (event.recurringEventId !== undefined) {
+      return this.#takeOccurrence(calendar, event, link ?? null);
+    }
     if (event.status === "cancelled") return link ? this.#leave(link) : "done";
     if (link) {
       this.#settleWithGoogle(link.item_id, event, { queueIfDifferent: true });
@@ -452,41 +496,43 @@ export class EventSync {
   }
 
   #add(calendar: SpaceCalendar, event: GoogleEvent): void {
+    const changed = this.#storage.transactionSync(() => this.#insert(calendar, event, null));
+    this.#changed(changed);
+  }
+
+  #insert(calendar: SpaceCalendar, event: GoogleEvent, seriesId: string | null): RowKey[] {
     const { sql } = this.#storage;
     const fields = eventFieldsOf(event);
-    if (!fields) return;
+    if (!fields) return [];
     const at = updatedAt(event) ?? Date.now();
     const created = Date.parse(event.created ?? "");
     const itemId = newId();
     const setter = { at, changeId: newId() };
-    const changed = this.#storage.transactionSync(() => {
-      const seq = nextSeq(sql);
-      insertItem(sql, {
-        itemId,
-        kind: "event",
-        spaceId: calendar.space_id,
-        title: fields.title,
-        description: fields.description,
-        date: null,
-        time: fields.time,
-        createdBy: null,
-        createdAt: Number.isNaN(created) ? at : created,
-        setter,
-        seq,
-      });
-      sql.exec(
-        `INSERT INTO google_events (item_id, google_calendar_id, google_event_id, etag, fields)
-         VALUES (?, ?, ?, ?, ?)`,
-        itemId,
-        calendar.google_calendar_id,
-        event.id,
-        event.etag ?? null,
-        JSON.stringify(fields),
-      );
-      const stickers = settleCalendarStickers(sql, [itemId], setter, null);
-      return [{ kind: "item", id: itemId }, ...stickers] satisfies RowKey[];
+    insertItem(sql, {
+      itemId,
+      kind: "event",
+      spaceId: calendar.space_id,
+      title: fields.title,
+      description: fields.description,
+      date: null,
+      time: fields.time,
+      createdBy: null,
+      createdAt: Number.isNaN(created) ? at : created,
+      setter,
+      seq: nextSeq(sql),
+      seriesId,
     });
-    this.#changed(changed);
+    sql.exec(
+      `INSERT INTO google_events (item_id, google_calendar_id, google_event_id, etag, fields)
+       VALUES (?, ?, ?, ?, ?)`,
+      itemId,
+      calendar.google_calendar_id,
+      event.id,
+      event.etag ?? null,
+      JSON.stringify(fields),
+    );
+    const stickers = settleCalendarStickers(sql, [itemId], setter, null);
+    return [{ kind: "item", id: itemId }, ...stickers];
   }
 
   #settleWithGoogle(
@@ -577,7 +623,7 @@ export class EventSync {
       this.#deleteInFoyer(link.item_id);
       return "done";
     }
-    const destination = await this.#destinationOf(link);
+    const destination = await this.#destinationOf(link, "event");
     if ("stopped" in destination) return destination.stopped;
     if ("calendar" in destination) {
       this.#follow(link, destination.calendar, destination.event);
@@ -587,26 +633,28 @@ export class EventSync {
     return "done";
   }
 
-  async #destinationOf(link: Link): Promise<Destination> {
+  async #destinationOf(left: GoogleIds, kind: "event" | "series"): Promise<Destination> {
+    const known = kind === "event" ? "google_events" : "google_series";
     const others = this.#storage.sql
       .exec<SpaceCalendar>(
         `SELECT space_id, member_id, google_calendar_id, time_zone, sync_token, read_at, lost_at
          FROM space_calendars
          WHERE google_calendar_id != ? AND lost_at IS NULL
            AND google_calendar_id NOT IN
-             (SELECT google_calendar_id FROM google_events WHERE google_event_id = ?)
+             (SELECT google_calendar_id FROM ${known} WHERE google_event_id = ?)
          ORDER BY created_at, space_id`,
-        link.google_calendar_id,
-        link.google_event_id,
+        left.google_calendar_id,
+        left.google_event_id,
       )
       .toArray()
       .filter(({ member_id }) => this.#isConnected(member_id));
     for (const calendar of others) {
       const found = await this.#withAccess(calendar.member_id, (token) =>
-        readEvent(token, calendar.google_calendar_id, link.google_event_id),
+        readEvent(token, calendar.google_calendar_id, left.google_event_id),
       );
       if ("ok" in found) {
-        if (found.ok.status !== "cancelled" && !isRepeating(found.ok)) {
+        const isKind = kind === "series" ? isSeries(found.ok) : isSingle(found.ok);
+        if (found.ok.status !== "cancelled" && isKind) {
           return { calendar, event: found.ok };
         }
       } else if (!("gone" in found)) {
@@ -616,7 +664,7 @@ export class EventSync {
     return { nowhere: true };
   }
 
-  async #hasLeft(link: Link): Promise<boolean | { stopped: SyncOutcome }> {
+  async #hasLeft(link: GoogleIds): Promise<boolean | { stopped: SyncOutcome }> {
     const calendar = this.#calendarById(link.google_calendar_id);
     const canAsk =
       calendar !== null && calendar.lost_at === null && this.#isConnected(calendar.member_id);
@@ -657,13 +705,272 @@ export class EventSync {
   }
 
   async #dropMissing(calendarId: string, seen: ReadonlySet<string>): Promise<SyncOutcome> {
-    const linked = this.#links("google_calendar_id = ? AND etag IS NOT NULL", calendarId);
+    const linked = this.#links(
+      `google_calendar_id = ? AND etag IS NOT NULL
+       AND item_id NOT IN (SELECT id FROM items WHERE series_id IS NOT NULL)`,
+      calendarId,
+    );
     for (const link of linked) {
       if (seen.has(link.google_event_id)) continue;
       const left = await this.#leave(link);
       if (left !== "done") return left;
     }
+    for (const series of this.#seriesWhere("google_calendar_id = ?", calendarId)) {
+      if (seen.has(series.google_event_id)) continue;
+      const left = await this.#seriesLeft(series);
+      if (left !== "done") return left;
+    }
     return "done";
+  }
+
+  /** The series whose occurrences are due to be made, or listed again, in calendars whose holder is
+   *  connected, those to list again first. */
+  seriesDue(now = Date.now()): { series: Series; calendar: SpaceCalendar }[] {
+    const { to } = occurrenceWindow(now);
+    const due = this.#seriesWhere("made_until IS NULL OR made_until < ?", to);
+    return due.flatMap((series) => {
+      const calendar = this.#calendarById(series.google_calendar_id);
+      const readable =
+        calendar !== null && calendar.lost_at === null && this.#isConnected(calendar.member_id);
+      return readable ? [{ series, calendar }] : [];
+    });
+  }
+
+  /** Makes a series' occurrences in `occurrenceWindow`, or those beyond the ones made, changing
+   *  those Foyer has to match. Listed again, one Google no longer lists becomes another it lists on
+   *  the same day, keeping its id, or is deleted. */
+  async makeOccurrences(series: Series, calendar: SpaceCalendar): Promise<SyncOutcome> {
+    const window = occurrenceWindow(Date.now());
+    const again = series.made_until === null;
+    const from = again ? window.from : Math.max(series.made_until ?? 0, window.from);
+    const instances: GoogleEvent[] = [];
+    let pageToken: string | undefined;
+    while (from < window.to) {
+      const page = await this.#withAccess(calendar.member_id, (token) =>
+        listInstances(token, calendar.google_calendar_id, series.google_event_id, {
+          timeMin: from,
+          timeMax: window.to,
+          ...(pageToken ? { pageToken } : {}),
+        }),
+      );
+      if ("gone" in page) return this.#seriesLeft(series);
+      if ("invalid" in page) {
+        console.error(`Google refused to list series ${series.series_id}: ${page.invalid}`);
+        this.#storage.sql.exec(
+          "UPDATE google_series SET made_until = ? WHERE series_id = ?",
+          window.to,
+          series.series_id,
+        );
+        return "done";
+      }
+      if (!("ok" in page)) return outcomeOf(calendar.member_id, page);
+      instances.push(...page.ok.events.filter(({ status }) => status !== "cancelled"));
+      pageToken = page.ok.nextPageToken;
+      if (!pageToken) break;
+    }
+    const current = this.#seriesAt(series.google_calendar_id, series.google_event_id);
+    if (current?.series_id !== series.series_id) return "done";
+    this.#takeOccurrences(calendar, series, instances, again ? { from, to: window.to } : null);
+    return "done";
+  }
+
+  #takeOccurrences(
+    calendar: SpaceCalendar,
+    series: Series,
+    instances: readonly GoogleEvent[],
+    listedAgain: { from: number; to: number } | null,
+  ): void {
+    const { sql } = this.#storage;
+    const removing = new Set(
+      sql
+        .exec<{ google_event_id: string }>(
+          "SELECT google_event_id FROM google_event_removals WHERE google_calendar_id = ?",
+          calendar.google_calendar_id,
+        )
+        .toArray()
+        .map(({ google_event_id }) => google_event_id),
+    );
+    const made = new Map(
+      sql
+        .exec<Occurrence>(
+          `SELECT google_events.item_id, google_events.google_event_id, items.date, items.starts_on,
+             items.ends_on, items.starts_at, items.ends_at,
+             EXISTS (SELECT 1 FROM google_event_writes WHERE item_id = items.id) AS waiting
+           FROM google_events JOIN items ON items.id = google_events.item_id
+           WHERE items.series_id = ?`,
+          series.series_id,
+        )
+        .toArray()
+        .map((occurrence) => [occurrence.google_event_id, occurrence]),
+    );
+    const listed: GoogleEvent[] = [];
+    for (const instance of instances) {
+      const occurrence = made.get(instance.id);
+      if (occurrence) {
+        this.#settleWithGoogle(occurrence.item_id, instance, { queueIfDifferent: true });
+        made.delete(instance.id);
+      } else if (!removing.has(instance.id)) {
+        listed.push(instance);
+      }
+    }
+    const gone = listedAgain
+      ? [...made.values()].filter(
+          (occurrence) => !occurrence.waiting && happensBetween(occurrence, listedAgain),
+        )
+      : [];
+    const relinked: { itemId: string; instance: GoogleEvent }[] = [];
+    const changed = this.#storage.transactionSync(() => {
+      const keys: RowKey[] = [];
+      for (const instance of listed) {
+        const fields = eventFieldsOf(instance);
+        const day = fields && eventDate(fields.time, calendar.time_zone);
+        const sameDay = gone.findIndex((occurrence) => occurrence.date === day);
+        const [replaced] = sameDay >= 0 ? gone.splice(sameDay, 1) : [];
+        if (replaced) {
+          sql.exec(
+            "UPDATE google_events SET google_event_id = ? WHERE item_id = ?",
+            instance.id,
+            replaced.item_id,
+          );
+          relinked.push({ itemId: replaced.item_id, instance });
+          continue;
+        }
+        keys.push(...this.#insert(calendar, instance, series.series_id));
+      }
+      const setter = { at: Date.now(), changeId: newId() };
+      for (const { item_id } of gone) {
+        sql.exec("DELETE FROM google_events WHERE item_id = ?", item_id);
+        keys.push(...deleteItemForHousehold(sql, item_id, setter));
+      }
+      sql.exec(
+        "UPDATE google_series SET made_until = ? WHERE series_id = ?",
+        occurrenceWindow(Date.now()).to,
+        series.series_id,
+      );
+      return keys;
+    });
+    this.#changed(changed);
+    for (const { itemId, instance } of relinked) {
+      this.#settleWithGoogle(itemId, instance, { queueIfDifferent: true });
+    }
+  }
+
+  async #takeOccurrence(
+    calendar: SpaceCalendar,
+    event: GoogleEvent,
+    link: Link | null,
+  ): Promise<SyncOutcome> {
+    if (event.status === "cancelled") {
+      if (link) this.#deleteInFoyer(link.item_id);
+      return "done";
+    }
+    if (link) {
+      this.#settleWithGoogle(link.item_id, event, { queueIfDifferent: true });
+      return "done";
+    }
+    const series = this.#seriesAt(calendar.google_calendar_id, event.recurringEventId ?? "");
+    if (series) this.#listAgain(series);
+    return "done";
+  }
+
+  async #addSeries(calendar: SpaceCalendar, event: GoogleEvent): Promise<SyncOutcome> {
+    const elsewhere = this.#seriesWhere(
+      "google_event_id = ? AND google_calendar_id != ?",
+      event.id,
+      calendar.google_calendar_id,
+    );
+    for (const known of elsewhere) {
+      const left = await this.#hasLeft(known);
+      if (typeof left === "object") return left.stopped;
+      if (!left) continue;
+      this.#followSeries(known, calendar);
+      return "done";
+    }
+    this.#storage.sql.exec(
+      `INSERT INTO google_series (google_calendar_id, google_event_id, series_id, made_until)
+       VALUES (?, ?, ?, NULL)`,
+      calendar.google_calendar_id,
+      event.id,
+      newId(),
+    );
+    return "done";
+  }
+
+  async #seriesLeft(series: Series): Promise<SyncOutcome> {
+    const destination = await this.#destinationOf(series, "series");
+    if ("stopped" in destination) return destination.stopped;
+    if ("calendar" in destination) {
+      this.#followSeries(series, destination.calendar);
+      return "done";
+    }
+    const { sql } = this.#storage;
+    const changed = this.#storage.transactionSync(() => {
+      const occurrences = this.#occurrencesOf(series.series_id);
+      const setter = { at: Date.now(), changeId: newId() };
+      sql.exec("DELETE FROM google_series WHERE series_id = ?", series.series_id);
+      return occurrences.flatMap((itemId) => {
+        sql.exec("DELETE FROM google_events WHERE item_id = ?", itemId);
+        sql.exec("DELETE FROM google_event_writes WHERE item_id = ?", itemId);
+        return deleteItemForHousehold(sql, itemId, setter);
+      });
+    });
+    this.#changed(changed);
+    return "done";
+  }
+
+  #followSeries(series: Series, to: SpaceCalendar): void {
+    const { sql } = this.#storage;
+    const changed = this.#storage.transactionSync(() => {
+      sql.exec(
+        `UPDATE google_series SET google_calendar_id = ?, made_until = NULL
+         WHERE series_id = ?`,
+        to.google_calendar_id,
+        series.series_id,
+      );
+      const setter: Setter = { at: Date.now(), changeId: newId() };
+      return this.#occurrencesOf(series.series_id).flatMap((itemId) => {
+        sql.exec(
+          "UPDATE google_events SET google_calendar_id = ? WHERE item_id = ?",
+          to.google_calendar_id,
+          itemId,
+        );
+        return moveItemForHousehold(sql, itemId, to.space_id, setter) ?? [];
+      });
+    });
+    this.#changed(changed);
+  }
+
+  #listAgain(series: Series): void {
+    this.#storage.sql.exec(
+      "UPDATE google_series SET made_until = NULL WHERE series_id = ?",
+      series.series_id,
+    );
+  }
+
+  #occurrencesOf(seriesId: string): string[] {
+    return this.#storage.sql
+      .exec<{ id: string }>("SELECT id FROM items WHERE series_id = ? ORDER BY id", seriesId)
+      .toArray()
+      .map(({ id }) => id);
+  }
+
+  #seriesAt(calendarId: string, eventId: string): Series | null {
+    const [series] = this.#seriesWhere(
+      "google_calendar_id = ? AND google_event_id = ?",
+      calendarId,
+      eventId,
+    );
+    return series ?? null;
+  }
+
+  #seriesWhere(where: string, ...values: (string | number)[]): Series[] {
+    return this.#storage.sql
+      .exec<Series>(
+        `SELECT google_calendar_id, google_event_id, series_id, made_until FROM google_series
+         WHERE ${where} ORDER BY made_until IS NOT NULL, made_until, series_id`,
+        ...values,
+      )
+      .toArray();
   }
 
   #changeTimeZone(spaceId: string, timeZone: string): void {
@@ -738,7 +1045,8 @@ export class EventSync {
   #event(itemId: string): StoredEvent | null {
     const [event] = this.#storage.sql
       .exec<StoredEvent>(
-        `SELECT space_id, title, description, starts_on, ends_on, starts_at, ends_at, title_at,
+        `SELECT space_id, series_id, title, description, starts_on, ends_on, starts_at, ends_at,
+           title_at,
            title_change_id, description_at, description_change_id, time_at, time_change_id
          FROM items WHERE id = ? AND kind = 'event'`,
         itemId,
@@ -776,6 +1084,21 @@ export class EventSync {
         .toArray().length > 0
     );
   }
+}
+
+function isSingle(event: GoogleEvent): boolean {
+  return !isSeries(event) && event.recurringEventId === undefined;
+}
+
+const day = 24 * 60 * minute;
+
+function happensBetween(occurrence: Occurrence, between: { from: number; to: number }): boolean {
+  const time = storedEventTime(occurrence);
+  if (!time) return false;
+  const [starts, ends] = time.allDay
+    ? [Date.parse(time.startsOn), Date.parse(time.endsOn) + day]
+    : [time.startsAt, time.endsAt];
+  return ends > between.from && starts < between.to;
 }
 
 function newGoogleEventId(): string {

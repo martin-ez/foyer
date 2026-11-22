@@ -1,11 +1,11 @@
 # Can items hold other items?
-Decided in #80
+Decided in #80 and #60
 
 **Applies when:** putting an item under another, showing or listing items with items under them, ticking, moving or deleting an item that holds others, or adding a kind of item.
 
 **Answer:**
 - **What can nest:** tasks and notes can hold items, and any item can sit under one, events included. A "Birthday party" task can hold the party's event, a shopping list and a note of ideas. Items nest as deep as people like: the data is the same at any depth, and the views decide how much to show.
-- **Where children live:** an item always lives in its parent's space. Children move with their parent, and whoever sees the parent sees everything under it. Putting an item under a parent in another space moves it into that space.
+- **Where children live:** an item always lives in its parent's space. Children move with their parent, and whoever sees the parent sees everything under it. Putting an item under a parent in another space moves it into that space, which is refused when it holds an occurrence of a repeating event, as such an occurrence moves only with its series (`where-do-calendar-events-live.md`).
 - **Where children show:** each child is a sticker on its parent's body page, placed below the last one like tasks on a space's page, so people can write around them. The body page is made when the first child is added. A space's page shows only its top-level items. Lists show children indented under their parent.
 - **Ticking** a parent with open tasks under it asks first whether to tick them too. Each task ticked keeps its own completion record (`how-do-tasks-work.md`).
 - **Deleting** a parent with items under it asks first: delete them too, move them up to the parent's own parent, or move them to the top of the space.
