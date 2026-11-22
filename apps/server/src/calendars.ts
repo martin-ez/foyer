@@ -2,6 +2,7 @@ import { calendarName, newId } from "@foyer/shared";
 import { isOnAllowlist } from "./allowlist";
 import {
   EventSync,
+  type OutOfCalls,
   readIntervalWhileAway,
   readIntervalWhileConnected,
   type SpaceCalendar,
@@ -39,9 +40,9 @@ const minute = 60_000;
 /** The longest the household waits before trying Google again after a failure. */
 export const longestRetryDelay = 60 * minute;
 
-/** How many series the household makes occurrences for in one run, at a call to Google or two each,
- *  so that a run stays within the free plan's 50 calls. The next run does the rest at once. */
-export const seriesPerRun = 10;
+/** How many calls to Google one run makes at most, refreshing access included, so that it stays
+ *  within the free plan's 50 calls to other hosts. The next run does the rest at once. */
+export const callsPerRun = 40;
 
 type SpaceToMake = { id: string; name: string; time_zone: string };
 
@@ -54,7 +55,7 @@ type HeldCalendar = {
   name: string;
 };
 
-type Done = "done" | "failed" | "access-stopped";
+type Done = "done" | "failed" | "access-stopped" | "postponed";
 
 /** Keeps members' Google connections, a Google calendar for each space except the Inbox in its
  *  holder's account, and those calendars' events in step with Foyer's. The household's alarm runs
@@ -67,7 +68,8 @@ export class Calendars {
   readonly #events: EventSync;
   #retryDelay = minute;
   #nextAttemptAt = 0;
-  #readNow = false;
+  readonly #toReadNow = new Set<string>();
+  #callsLeft = callsPerRun;
   #running: Promise<void> = Promise.resolve();
 
   constructor(
@@ -141,7 +143,7 @@ export class Calendars {
       return [connectionKey(memberId), ...this.#touchHeldSpaces(memberId, seq)];
     });
     this.#changed(changed);
-    this.#readNow = true;
+    this.readSoon();
     this.soon();
     return "connected";
   }
@@ -184,14 +186,15 @@ export class Calendars {
 
   /** Reads every calendar's changes from Google now, as when a device connects. */
   readSoon(): void {
-    if (this.#calendarsDueToReadAt(Number.POSITIVE_INFINITY).length === 0) return;
-    this.#readNow = true;
+    const calendars = this.#readableCalendars();
+    if (calendars.length === 0) return;
+    for (const { space_id } of calendars) this.#toReadNow.add(space_id);
     this.#wake(Date.now());
   }
 
-  /** Makes and renames calendars, writes waiting event changes, reads the calendars due and makes
-   *  the occurrences of series due, one run at a time. Access Google refuses pauses its spaces, and
-   *  any other failure waits twice as long each time, up to `longestRetryDelay`. */
+  /** Makes and renames calendars, then writes, reads and makes occurrences, waiting longest first,
+   *  in runs of at most `callsPerRun` calls to Google, the next starting at once. Refused access
+   *  pauses its spaces; other failures wait twice as long each time, up to `longestRetryDelay`. */
   work(): Promise<void> {
     const run = this.#running.then(() => this.#work());
     this.#running = run.catch(() => {});
@@ -207,22 +210,28 @@ export class Calendars {
   }
 
   async #workNow(): Promise<void> {
+    this.#callsLeft = callsPerRun;
     let failed = false;
     if (Date.now() >= this.#nextAttemptAt) {
       for (const memberId of this.#connectedMembers()) {
+        if (this.#callsLeft <= 0) break;
         if ((await this.#workFor(memberId)) === "failed") failed = true;
       }
     }
-    for (const memberId of await this.#events.writeDue()) this.#accessStopped(memberId);
+    if (this.#callsLeft > 0) {
+      for (const memberId of await this.#events.writeDue()) this.#accessStopped(memberId);
+    }
     if (Date.now() < this.#nextAttemptAt) return;
-    const due = this.#calendarsDueToReadAt(this.#readNow ? Number.POSITIVE_INFINITY : Date.now());
-    this.#readNow = false;
-    for (const calendar of due) {
+    for (const calendar of this.#calendarsDue()) {
+      if (this.#callsLeft <= 0) break;
       const outcome = await this.#events.read(calendar);
+      if (outcome === "postponed") break;
+      this.#toReadNow.delete(calendar.space_id);
       if (typeof outcome === "object") this.#accessStopped(outcome.accessStopped);
       if (outcome === "failed") failed = true;
     }
-    for (const { series, calendar } of this.#events.seriesDue().slice(0, seriesPerRun)) {
+    for (const { series, calendar } of this.#events.seriesDue()) {
+      if (this.#callsLeft <= 0) break;
       const outcome = await this.#events.makeOccurrences(series, calendar);
       if (typeof outcome === "object") this.#accessStopped(outcome.accessStopped);
       if (outcome === "failed") failed = true;
@@ -242,9 +251,8 @@ export class Calendars {
     else if (this.#hasCalendarWork() || this.#events.seriesDue().length > 0) {
       times.push(Date.now());
     }
-    const interval = this.#devicesConnected() ? readIntervalWhileConnected : readIntervalWhileAway;
-    for (const calendar of this.#calendarsDueToReadAt(Number.POSITIVE_INFINITY)) {
-      times.push(Math.max((calendar.read_at ?? 0) + interval, this.#nextAttemptAt));
+    for (const calendar of this.#readableCalendars()) {
+      times.push(Math.max(this.#readDueAt(calendar), this.#nextAttemptAt));
     }
     const next = times.filter((time): time is number => time !== null);
     if (next.length > 0) this.#wake(Math.max(Math.min(...next), Date.now()));
@@ -295,7 +303,7 @@ export class Calendars {
   async #withAccess<T>(
     memberId: string,
     call: (accessToken: string) => Promise<CalendarAnswer<T>>,
-  ): Promise<CalendarAnswer<T>> {
+  ): Promise<CalendarAnswer<T> | OutOfCalls> {
     const [held] = this.#storage.sql
       .exec<{ access_token: string | null; access_token_expires_at: number | null }>(
         "SELECT access_token, access_token_expires_at FROM google_connections WHERE member_id = ?",
@@ -309,15 +317,23 @@ export class Calendars {
       if (!("ok" in refreshed)) return refreshed;
       accessToken = refreshed.ok;
     }
-    const answer = await call(accessToken);
+    const token = accessToken;
+    const answer = await this.#ask(() => call(token));
     if (!("unauthorized" in answer)) return answer;
     const refreshed = await this.#refresh(memberId);
     if (!("ok" in refreshed)) return refreshed;
-    const again = await call(refreshed.ok);
+    const newToken = refreshed.ok;
+    const again = await this.#ask(() => call(newToken));
     return "unauthorized" in again ? { failed: "Google didn't accept a new access token" } : again;
   }
 
-  async #refresh(memberId: string): Promise<CalendarAnswer<string>> {
+  #ask<T>(asking: () => Promise<T>): Promise<T | OutOfCalls> {
+    if (this.#callsLeft <= 0) return Promise.resolve({ outOfCalls: true });
+    this.#callsLeft -= 1;
+    return asking();
+  }
+
+  async #refresh(memberId: string): Promise<CalendarAnswer<string> | OutOfCalls> {
     const { sql } = this.#storage;
     const client = calendarClient();
     const [connection] = sql
@@ -327,7 +343,7 @@ export class Calendars {
       )
       .toArray();
     if (!client || !connection) return { failed: "The member isn't connected to Google" };
-    const refreshed = await refreshAccess(client, connection.refresh_token);
+    const refreshed = await this.#ask(() => refreshAccess(client, connection.refresh_token));
     if (!("ok" in refreshed)) return refreshed;
     sql.exec(
       `UPDATE google_connections SET access_token = ?, access_token_expires_at = ?
@@ -528,8 +544,17 @@ export class Calendars {
       .toArray();
   }
 
-  #calendarsDueToReadAt(time: number): SpaceCalendar[] {
+  #calendarsDue(): SpaceCalendar[] {
+    return this.#readableCalendars().filter((calendar) => this.#readDueAt(calendar) <= Date.now());
+  }
+
+  #readDueAt(calendar: SpaceCalendar): number {
+    if (calendar.read_at === null || this.#toReadNow.has(calendar.space_id)) return 0;
     const interval = this.#devicesConnected() ? readIntervalWhileConnected : readIntervalWhileAway;
+    return calendar.read_at + interval;
+  }
+
+  #readableCalendars(): SpaceCalendar[] {
     return this.#storage.sql
       .exec<SpaceCalendar>(
         `SELECT space_calendars.space_id, space_calendars.member_id,
@@ -539,10 +564,10 @@ export class Calendars {
            ON google_connections.member_id = space_calendars.member_id
            AND google_connections.state = 'connected'
          WHERE space_calendars.lost_at IS NULL
-         ORDER BY space_calendars.created_at, space_calendars.space_id`,
+         ORDER BY space_calendars.read_at IS NOT NULL, space_calendars.read_at,
+           space_calendars.created_at, space_calendars.space_id`,
       )
-      .toArray()
-      .filter(({ read_at }) => read_at === null || read_at + interval <= time);
+      .toArray();
   }
 
   #calendarsToRename(memberId: string): HeldCalendar[] {
@@ -578,6 +603,7 @@ function connectionKey(memberId: string): RowKey {
 }
 
 function failure(what: string, answer: { failed: string } | { gone: true } | object): Done {
+  if ("outOfCalls" in answer) return "postponed";
   const reason = "failed" in answer ? answer.failed : "Google no longer has it";
   console.error(`${what} failed: ${reason}`);
   return "failed";
