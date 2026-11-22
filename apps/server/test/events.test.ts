@@ -13,6 +13,7 @@ import {
   RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { callsPerRun } from "../src/calendars";
 import { type FakeEvent, type FakeEventFields, fakeGoogle } from "../src/fake-google";
 import { theHousehold } from "../src/household";
 import { householdMigrations, migrate } from "../src/migrations";
@@ -1099,6 +1100,129 @@ describe("a calendar deleted in Google", () => {
     expect(fakeGoogle.eventsOf(calendarOf(alexsAccount, "Personal"))).toEqual([
       expect.objectContaining({ summary: "Dinner with Sam" }),
     ]);
+  });
+});
+
+describe("a backlog of work for Google", () => {
+  const laterThanTheRealClock = Date.parse("2036-11-15T12:00:00Z");
+  const calendarNames = ["Personal", "Garden", "Kitchen", "Car", "School"];
+
+  async function memberWithFiveCalendars(): Promise<Member> {
+    vi.useFakeTimers({ toFake: ["Date"], now: laterThanTheRealClock });
+    const alexs = await member(alex);
+    vi.setSystemTime(Date.now() + 1000);
+    await alexs.device.push(...calendarNames.slice(1).map((name) => spaceCreate({ name })));
+    await work();
+    return alexs;
+  }
+
+  async function pushEvents(
+    device: Device,
+    count: number,
+  ): Promise<{ id: string; title: string }[]> {
+    const personal = await spaceNamed(device, "Personal");
+    const titles = Array.from({ length: count }, (_, each) => `Event ${each}`);
+    const creates = titles.map((title) => eventCreate(personal.id, title));
+    await device.push(...creates);
+    return creates.map((create, each) => ({ id: idOf(create), title: titles[each] ?? "" }));
+  }
+
+  function addOneInEachCalendar(): void {
+    for (const name of calendarNames) {
+      addInGoogle(alexsAccount, name, { summary: `Added in ${name}` });
+    }
+  }
+
+  function writtenToPersonal(): Set<string> {
+    const summaries = googleEvents(alexsAccount, "Personal").map(({ summary }) => summary ?? "");
+    return new Set(summaries.filter((summary) => summary.startsWith("Event ")));
+  }
+
+  async function readIntoFoyer(device: Device): Promise<string[]> {
+    const titles = [...(await eventsOf(device)).values()].map(({ title }) => title);
+    return titles.filter((title) => title.startsWith("Added in "));
+  }
+
+  function countCallsToGoogle(): () => number {
+    let count = 0;
+    const answer = fakeGoogle.answer.bind(fakeGoogle);
+    vi.spyOn(fakeGoogle, "answer").mockImplementation((request) => {
+      count += 1;
+      return answer(request);
+    });
+    return () => count;
+  }
+
+  async function alarm(): Promise<number | null> {
+    return runInDurableObject(theHousehold(), (_, state) => state.storage.getAlarm());
+  }
+
+  it("makes at most the calls one run may, writing the changes waiting longest first", async () => {
+    const { device } = await memberWithFiveCalendars();
+    const titles = (await pushEvents(device, callsPerRun + 5)).map(({ title }) => title);
+    addOneInEachCalendar();
+    vi.setSystemTime(Date.now() + minute);
+    const calls = countCallsToGoogle();
+
+    await work();
+    const firstRunAt = Date.now();
+    const inFirstRun = calls();
+    const writtenInFirstRun = writtenToPersonal();
+    await vi.waitFor(async () => expect(await alarm()).toBe(firstRunAt));
+    await work();
+    const inSecondRun = calls() - inFirstRun;
+    await work();
+    const inThirdRun = calls() - inFirstRun - inSecondRun;
+
+    expect(inFirstRun).toBe(callsPerRun);
+    expect(inSecondRun).toBeLessThanOrEqual(callsPerRun);
+    expect(inThirdRun).toBe(0);
+    expect(writtenInFirstRun).toEqual(new Set(titles.slice(0, callsPerRun)));
+    expect(writtenToPersonal()).toEqual(new Set(titles));
+    expect((await readIntoFoyer(device)).sort()).toEqual(
+      calendarNames.map((name) => `Added in ${name}`).sort(),
+    );
+  });
+
+  it("removes from Google the events deleted in Foyer within the same calls, oldest first", async () => {
+    const { device } = await memberWithFiveCalendars();
+    const events = await pushEvents(device, callsPerRun + 5);
+    await work();
+    await work();
+    await device.push(...events.map(({ id }) => itemDelete(id)));
+    const calls = countCallsToGoogle();
+
+    await work();
+    const inFirstRun = calls();
+    const leftAfterFirstRun = writtenToPersonal();
+    await work();
+
+    expect(inFirstRun).toBe(callsPerRun);
+    expect(leftAfterFirstRun).toEqual(new Set(events.slice(callsPerRun).map(({ title }) => title)));
+    expect(writtenToPersonal()).toEqual(new Set());
+  });
+
+  it("reads in the next run the calendars a run didn't reach, those read longest ago first", async () => {
+    const { token, device } = await memberWithFiveCalendars();
+    await pushEvents(device, callsPerRun - 1);
+    addOneInEachCalendar();
+    const another = await Device.connect(token);
+    devices.push(another);
+    await another.welcome();
+    const calls = countCallsToGoogle();
+
+    await work();
+    const inFirstRun = calls();
+    const readInFirstRun = await readIntoFoyer(device);
+    await work();
+    const inSecondRun = calls() - inFirstRun;
+
+    expect(inFirstRun).toBe(callsPerRun);
+    expect(inSecondRun).toBeLessThanOrEqual(callsPerRun);
+    expect(readInFirstRun).toEqual(["Added in Personal"]);
+    expect((await readIntoFoyer(device)).sort()).toEqual(
+      calendarNames.map((name) => `Added in ${name}`).sort(),
+    );
   });
 });
 
