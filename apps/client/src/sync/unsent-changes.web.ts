@@ -32,8 +32,6 @@ function database(): Promise<IDBDatabase | null> {
   return opened;
 }
 
-/** Runs `work` in a transaction on the store, after everything asked of it before, and resolves
- *  once the transaction is done. Resolves with `fallback` when the browser keeps nothing. */
 function inStore<T>(
   mode: IDBTransactionMode,
   fallback: T,

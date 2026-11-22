@@ -8,8 +8,7 @@ test.beforeEach(() => {
   test.setTimeout(bundleBuildTimeout + 90_000);
 });
 
-/** How long the app may take to connect again, waiting longer after each failed attempt. */
-const reconnectTimeout = 40_000;
+const timeToConnectAgain = 40_000;
 
 async function connectionToTheHousehold(page: Page) {
   let online = true;
@@ -39,9 +38,7 @@ async function addTaskOffline(page: Page): Promise<string> {
   return title;
 }
 
-/** The same member in another browser, so on another device that keeps nothing of this one's, on
- *  the newest page of the space `name`. */
-async function memberInAnotherBrowser(browser: Browser, name: string): Promise<Page> {
+async function sameMemberInAnotherBrowser(browser: Browser, name: string): Promise<Page> {
   const context = await browser.newContext(test.info().project.use);
   const page = await context.newPage();
   await openApp(page);
@@ -65,9 +62,9 @@ test("sends a change made offline once the page is reloaded and connects again",
   });
   await saveScreenshot(page, testInfo, "unsent-after-reload");
   connection.comeBack();
-  await expect(page.getByText("Up to date")).toBeVisible({ timeout: reconnectTimeout });
+  await expect(page.getByText("Up to date")).toBeVisible({ timeout: timeToConnectAgain });
   await expect(page.getByText(/not saved yet/)).toBeHidden();
-  const other = await memberInAnotherBrowser(browser, space);
+  const other = await sameMemberInAnotherBrowser(browser, space);
   await expectOnAnotherDevice(stickerOf(other, title)).toBeVisible();
   await other.context().close();
 });
@@ -92,7 +89,7 @@ test("never sends a member's unsent changes for another member signed in on the 
   await signIn(shared, member);
   await expect(shared.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
   await expect(shared.getByText(/not saved yet/)).toBeHidden();
-  const other = await memberInAnotherBrowser(browser, space);
+  const other = await sameMemberInAnotherBrowser(browser, space);
   await expectOnAnotherDevice(stickerOf(other, title)).toBeVisible();
   await other.context().close();
 });
