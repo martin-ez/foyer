@@ -150,6 +150,53 @@ test("moves, resizes, splits and joins text", async ({ page }, testInfo) => {
   await expect(textGroupNamed(page, "Groceries")).toBeHidden();
 });
 
+test("styles and nests lines with the bar and the keyboard, and deletes text", async ({
+  page,
+}, testInfo) => {
+  const day = await openDay(page, weeksNoOtherCheckUses(testInfo, 3));
+  const sheet = openPage(page, day);
+  await page.getByRole("button", { name: "Add text" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("button", { name: "Add text" })).toBeVisible();
+  await addTextAt(page, sheet, 0.1, 0.1);
+
+  await page.keyboard.type("Call plumber");
+  for (let times = 0; times < "plumber".length; times += 1) {
+    await page.keyboard.press("Shift+ArrowLeft");
+  }
+  await page.getByRole("button", { name: "Bold" }).click();
+  await expect(page.getByRole("textbox", { name: "Text" })).toHaveValue("Call **plumber**");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("- Bread");
+  await page.getByRole("button", { name: "Indent" }).click();
+  await page.getByRole("button", { name: "Outdent" }).click();
+  await page.keyboard.type(" fresh");
+  for (let times = 0; times < "fresh".length; times += 1) {
+    await page.keyboard.press("Shift+ArrowLeft");
+  }
+  await page.getByRole("button", { name: "Italic" }).click();
+  const bread = page.getByRole("textbox", { name: "Bulleted item" });
+  await expect(bread).toHaveValue("Bread *fresh*");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("textbox", { name: "Text" }).last()).toBeFocused();
+  await page.keyboard.press("Backspace");
+  await expect(bread).toBeFocused();
+  await expect(page.getByRole("textbox")).toHaveCount(2);
+  await done(page);
+
+  const written = textGroupNamed(page, "Call plumber\n• Bread fresh");
+  await expect(written).toBeVisible();
+  await saveScreenshot(page, testInfo, "text-styled");
+  await written.click();
+  await page.getByRole("button", { name: "Delete text" }).click();
+  await expect(written).toBeHidden();
+  await expect(page.getByRole("button", { name: "Add text" })).toBeVisible();
+  await expect(page.getByText(/not saved yet|Couldn't save/)).toBeHidden();
+});
+
 test("writes on a task's body page, which the member's other devices show", async ({
   page,
 }, testInfo) => {

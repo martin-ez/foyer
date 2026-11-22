@@ -189,6 +189,23 @@ describe("text groups", () => {
     ]);
   });
 
+  it("refuses a group or a block with an id that was used before, even once deleted", async () => {
+    const device = await connect(alex);
+    const { groupId, blockId } = await newText(device, day, dayPage);
+    await device.push(textChange({ case: "textGroupDelete", value: { groupId } }));
+    const { groupId: other } = await newText(device, day);
+
+    const committed = await device.push(
+      textGroupCreate({ pageId: day, groupId }),
+      textBlockCreate({ groupId: other, blockId }),
+    );
+
+    expect(committed.results.map(resultOf)).toEqual([
+      { refused: "A text group with this id already exists." },
+      { refused: "A text block with this id already exists." },
+    ]);
+  });
+
   it("keeps the move and the width made last, each on its own", async () => {
     const alexDevice = await connect(alex);
     const samDevice = await connect(sam);
@@ -347,6 +364,23 @@ describe("text blocks", () => {
       { id: idOf(second), groupId },
     ]);
     expect(groupsIn(rows).map(({ id }) => id)).toEqual([groupId]);
+  });
+
+  it("ignores resizing a deleted group and moving a block to one", async () => {
+    const device = await connect(alex);
+    const { blockId } = await newText(device, day, dayPage);
+    const { groupId: deleted } = await newText(device, day);
+    await device.push(textChange({ case: "textGroupDelete", value: { groupId: deleted } }));
+
+    const committed = await device.push(
+      textChange({ case: "textGroupResize", value: { groupId: deleted, width: 100 } }),
+      textChange({ case: "textBlockMove", value: { blockId, groupId: deleted, order: "k" } }),
+    );
+
+    expect(committed.results.map(resultOf)).toEqual([{ committed: true }, { committed: true }]);
+    const rows = await rowsCaughtUpBy(device);
+    expect(groupsIn(rows).map(({ id }) => id)).not.toContain(deleted);
+    expect(blocksIn(rows).find(({ id }) => id === blockId)?.groupId).not.toBe(deleted);
   });
 
   it("refuses moving a block to a group on another page", async () => {

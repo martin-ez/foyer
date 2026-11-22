@@ -1,4 +1,5 @@
 import {
+  mergeRuns,
   orderBetween,
   plainTextOf,
   readBlockMarkdown,
@@ -197,5 +198,13 @@ describe("textBlockProblem", () => {
 describe("plainTextOf", () => {
   it("joins a block's runs without their styles", () => {
     expect(plainTextOf([plain("Get "), bold("oat"), plain(" milk")])).toBe("Get oat milk");
+  });
+});
+
+describe("mergeRuns", () => {
+  it("joins neighbouring runs in the same style and drops empty ones", () => {
+    expect(
+      mergeRuns([bold("a"), bold("b"), plain(""), plain("c"), italic("d"), plain("e")]),
+    ).toEqual([bold("ab"), plain("c"), italic("d"), plain("e")]);
   });
 });

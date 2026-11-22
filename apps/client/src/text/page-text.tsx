@@ -229,9 +229,10 @@ function BlockInput({
           selection.current = nativeEvent.selection;
           editing.select(block.id, nativeEvent.selection);
         }}
-        onKeyPress={({ nativeEvent }) => {
+        onKeyPress={(event) => {
           const { start, end } = selection.current;
-          if (nativeEvent.key === "Backspace" && start === 0 && end === 0) {
+          if (event.nativeEvent.key === "Backspace" && start === 0 && end === 0) {
+            event.preventDefault();
             editing.backspaceAtStart(block.id);
           }
         }}

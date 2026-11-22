@@ -192,7 +192,10 @@ function useLaidOutText(
   useEffect(() => {
     const before = drawn.current;
     drawn.current = laidOut;
-    if (before !== laidOut) for (const group of before) disposeGroup(group);
+    if (before === laidOut) return;
+    setTimeout(() => {
+      for (const group of before) disposeGroup(group);
+    }, drawnPicturesLinger);
   }, [laidOut]);
   useEffect(() => {
     mounted.current = true;
@@ -202,10 +205,12 @@ function useLaidOutText(
         if (mounted.current) return;
         for (const group of drawn.current) disposeGroup(group);
         drawn.current = [];
-      }, 0);
+      }, drawnPicturesLinger);
     };
   }, []);
   return laidOut;
 }
+
+const drawnPicturesLinger = 1000;
 
 const styles = StyleSheet.create({ fill: { flex: 1 } });
