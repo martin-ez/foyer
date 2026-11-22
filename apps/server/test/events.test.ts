@@ -1116,11 +1116,15 @@ describe("a backlog of work for Google", () => {
     return alexs;
   }
 
-  async function pushEvents(device: Device, count: number): Promise<string[]> {
+  async function pushEvents(
+    device: Device,
+    count: number,
+  ): Promise<{ id: string; title: string }[]> {
     const personal = await spaceNamed(device, "Personal");
     const titles = Array.from({ length: count }, (_, each) => `Event ${each}`);
-    await device.push(...titles.map((title) => eventCreate(personal.id, title)));
-    return titles;
+    const creates = titles.map((title) => eventCreate(personal.id, title));
+    await device.push(...creates);
+    return creates.map((create, each) => ({ id: idOf(create), title: titles[each] ?? "" }));
   }
 
   function addOneInEachCalendar(): void {
@@ -1155,7 +1159,7 @@ describe("a backlog of work for Google", () => {
 
   it("makes at most the calls one run may, writing the changes waiting longest first", async () => {
     const { device } = await memberWithFiveCalendars();
-    const titles = await pushEvents(device, callsPerRun + 5);
+    const titles = (await pushEvents(device, callsPerRun + 5)).map(({ title }) => title);
     addOneInEachCalendar();
     vi.setSystemTime(Date.now() + minute);
     const calls = countCallsToGoogle();
@@ -1178,6 +1182,24 @@ describe("a backlog of work for Google", () => {
     expect((await readIntoFoyer(device)).sort()).toEqual(
       calendarNames.map((name) => `Added in ${name}`).sort(),
     );
+  });
+
+  it("removes from Google the events deleted in Foyer within the same calls, oldest first", async () => {
+    const { device } = await memberWithFiveCalendars();
+    const events = await pushEvents(device, callsPerRun + 5);
+    await work();
+    await work();
+    await device.push(...events.map(({ id }) => itemDelete(id)));
+    const calls = countCallsToGoogle();
+
+    await work();
+    const inFirstRun = calls();
+    const leftAfterFirstRun = writtenToPersonal();
+    await work();
+
+    expect(inFirstRun).toBe(callsPerRun);
+    expect(leftAfterFirstRun).toEqual(new Set(events.slice(callsPerRun).map(({ title }) => title)));
+    expect(writtenToPersonal()).toEqual(new Set());
   });
 
   it("reads in the next run the calendars a run didn't reach, those read longest ago first", async () => {
