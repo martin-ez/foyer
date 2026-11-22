@@ -97,6 +97,17 @@ test("never sends a member's unsent changes for another member signed in on the 
   await other.context().close();
 });
 
+test("keeps nothing once the household has saved the changes", async ({ page }) => {
+  const connection = await connectionToTheHousehold(page);
+  await openSpaceOfItsOwn(page);
+  await connection.goOffline();
+
+  await page.reload();
+
+  await expect(page.getByText(/^Offline/)).toBeVisible({ timeout: bundleBuildTimeout });
+  await expect(page.getByText(/not saved yet/)).toBeHidden();
+});
+
 test("forgets a member's unsent changes when they sign out", async ({ page }) => {
   const connection = await connectionToTheHousehold(page);
   const space = await openSpaceOfItsOwn(page);

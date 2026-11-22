@@ -911,6 +911,36 @@ describe("keeping unsent changes between launches", () => {
     expect(unsent.kept).toEqual([]);
   });
 
+  it("sends a change made before it started once, though it's kept too", async () => {
+    sync.renameSpace(home.id, "Our home");
+
+    await startedUpToDate();
+
+    expect(
+      household()
+        .lastPush()
+        .changes.map(({ changeId }) => changeId),
+    ).toEqual(keptIds());
+  });
+
+  it("forgets a kept change it can't read, and sends the others", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+    const readable = keptIds();
+    unsent.kept.unshift({ changeId: newId(), encoded: new Uint8Array([255]), describe: "" });
+
+    launch();
+    await startedUpToDate();
+
+    expect(
+      household()
+        .lastPush()
+        .changes.map(({ changeId }) => changeId),
+    ).toEqual(readable);
+    expect(keptIds()).toEqual(readable);
+  });
+
   it("starts with nothing kept when what was kept can't be read", async () => {
     unsent.load = () => Promise.reject(new Error("The browser keeps nothing"));
 
