@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { format } from "node:util";
 import type { ReactNode } from "react";
 import {
   AlphaType,
@@ -17,8 +18,8 @@ const failuresDir = path.join(goldenImagesDir, "failures");
 const updateCommand = "pnpm update-golden-images";
 
 /** Draws `element` on a canvas of the given size, on the CPU as the app's Skia would, and checks
- *  it pixel by pixel against `test/golden-images/<name>.png`. With `UPDATE_GOLDEN_IMAGES` set, it
- *  saves the drawing as that golden image instead. */
+ *  it pixel by pixel against `test/golden-images/<name>.png`, or saves it there with
+ *  `UPDATE_GOLDEN_IMAGES` set. A drawing that throws or logs an error fails instead. */
 export async function expectToMatchGoldenImage(
   name: string,
   element: ReactNode,
@@ -30,7 +31,7 @@ export async function expectToMatchGoldenImage(
   await rm(actualPath, { force: true });
   await rm(diffPath, { force: true });
 
-  const actual = await drawOffscreen(makeOffscreenSurface(size.width, size.height), element);
+  const actual = await drawOrFail(name, element, size);
   if (process.env.UPDATE_GOLDEN_IMAGES) {
     await mkdir(goldenImagesDir, { recursive: true });
     await writeFile(goldenPath, await actual.encodeToBytes());
@@ -60,6 +61,31 @@ export async function expectToMatchGoldenImage(
       (diff ? ` and the pixels that changed are red in ${relative(diffPath)}` : "") +
       `. If the change is intended, run \`${updateCommand}\` and commit the new golden image.`,
   );
+}
+
+async function drawOrFail(
+  name: string,
+  element: ReactNode,
+  size: { width: number; height: number },
+) {
+  const errors: string[] = [];
+  const logError = console.error;
+  console.error = (...args: unknown[]) => errors.push(format(...args));
+  let image: SkImage | null = null;
+  try {
+    image = await drawOffscreen(makeOffscreenSurface(size.width, size.height), element);
+  } catch (error) {
+    errors.push(format(error));
+  } finally {
+    console.error = logError;
+  }
+  if (!image || errors.length > 0) {
+    expect.fail(
+      `${name} couldn't be drawn, so it wasn't compared with its golden image or saved as one:\n\n` +
+        errors.join("\n\n"),
+    );
+  }
+  return image;
 }
 
 async function readGoldenImage(goldenPath: string) {
