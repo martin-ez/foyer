@@ -914,7 +914,8 @@ describe("events moved in Google from one of Foyer's calendars to another", () =
     await device.push(party);
 
     const googleId = moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
-    await device.push(itemSetParent(dinner, idOf(party), { at: madeAt(Date.now() + 1000) }));
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 1000 });
+    await device.push(itemSetParent(dinner, idOf(party)));
     await readAgain();
     await work();
 
@@ -935,7 +936,8 @@ describe("events moved in Google from one of Foyer's calendars to another", () =
     const dinner = await addInPersonal(device, "Dinner");
 
     const googleId = moveInGoogle("Dinner", [alexsAccount, "Personal"], [alexsAccount, "Work"]);
-    await device.push(itemMove(dinner, home, { at: madeAt(Date.now() + 1000) }));
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 1000 });
+    await device.push(itemMove(dinner, home));
     await work();
 
     expect((await eventsOf(device)).get(dinner)?.spaceId).toBe(home);

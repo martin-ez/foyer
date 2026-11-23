@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { sessionClient } from "../backend/backend";
+import { forgetUnsentChanges } from "../sync/unsent-changes";
 import { checkSession, type Session, signOut } from "./session";
 import { forgetSessionToken } from "./session-token";
 import { problemFromSignIn, signInWithGoogle } from "./sign-in";
 
 /** Who is signed in on this device, checked with the backend when the app starts, and the ways to
- *  change it. */
+ *  change it. Signing out forgets what the device keeps for the member. */
 export function useSession() {
   const [session, setSession] = useState<Session>({ status: "checking" });
 
@@ -20,10 +21,16 @@ export function useSession() {
     check();
   }, [check]);
 
+  const memberId = session.status === "signed-in" ? session.member.id : null;
+  const forgetOnDevice = async () => {
+    await forgetSessionToken();
+    if (memberId) await forgetUnsentChanges(memberId);
+  };
+
   return {
     session,
     check,
     signIn: async () => setSession(await signInWithGoogle()),
-    signOut: async () => setSession(await signOut(sessionClient, forgetSessionToken)),
+    signOut: async () => setSession(await signOut(sessionClient, forgetOnDevice)),
   };
 }
