@@ -133,6 +133,22 @@ export const longestReconnectDelay = 30_000;
  *  a push of its own. An action is never split between pushes. */
 export const pushChangeLimit = 100;
 
+/** A change the member made that the household hasn't saved yet, encoded as it's sent, with what
+ *  it does in words for saying it couldn't be saved. */
+export type KeptChange = { changeId: string; encoded: Uint8Array; describe: string };
+
+/** Where a device keeps its member's unsent changes between launches, if anywhere. */
+export type UnsentChanges = {
+  /** The changes kept, in the order they were made. */
+  load(): Promise<KeptChange[]>;
+  /** Keeps changes after those already kept. */
+  keep(changes: KeptChange[]): void;
+  /** Forgets changes the household committed or refused. */
+  forget(changeIds: string[]): void;
+  /** Forgets every change kept for the member. */
+  forgetAll(): void;
+};
+
 type Pending = { change: Change; describe: string; pushId?: string };
 
 function nextPush(unsent: Pending[]): Pending[] {
@@ -157,6 +173,8 @@ export class HouseholdSync {
   readonly #memberId: string;
   readonly #connect: Connect;
   readonly #today: () => string;
+  readonly #unsent: UnsentChanges | undefined;
+  #restored: "not-yet" | "restoring" | "done";
   readonly #listeners = new Set<() => void>();
   readonly #members = new Map<string, { seq: bigint; member: Member }>();
   readonly #spaces = new Map<string, { seq: bigint; space: Space }>();
@@ -192,11 +210,19 @@ export class HouseholdSync {
   #keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
   /** `today` gives the device's own date, as an ISO 8601 date: by default from its clock and time
-   *  zone. */
-  constructor(options: { memberId: string; connect: Connect; today?: () => string }) {
+   *  zone. `unsent` keeps the member's unsent changes between launches: those it holds are sent
+   *  once it's started, before anything new, and it forgets them all if the session ends. */
+  constructor(options: {
+    memberId: string;
+    connect: Connect;
+    today?: () => string;
+    unsent?: UnsentChanges;
+  }) {
     this.#memberId = options.memberId;
     this.#connect = options.connect;
     this.#today = options.today ?? (() => localToday());
+    this.#unsent = options.unsent;
+    this.#restored = options.unsent ? "not-yet" : "done";
     this.#state = this.#currentState();
   }
 
@@ -204,7 +230,32 @@ export class HouseholdSync {
   start(): void {
     if (!this.#stopped) return;
     this.#stopped = false;
+    this.#restore();
     this.#open();
+  }
+
+  #restore(): void {
+    if (this.#restored !== "not-yet" || !this.#unsent) return;
+    this.#restored = "restoring";
+    const finish = (kept: KeptChange[]) => {
+      const making = new Set(this.#pending.map(({ change }) => change.changeId));
+      const restored: Pending[] = [];
+      const unreadable: string[] = [];
+      for (const { changeId, encoded, describe } of kept) {
+        if (making.has(changeId)) continue;
+        try {
+          restored.push({ change: fromBinary(ChangeSchema, encoded), describe });
+        } catch {
+          unreadable.push(changeId);
+        }
+      }
+      if (unreadable.length > 0) this.#unsent?.forget(unreadable);
+      this.#pending = [...restored, ...this.#pending];
+      this.#restored = "done";
+      this.#pushUnsent();
+      this.#changed();
+    };
+    this.#unsent.load().then(finish, () => finish([]));
   }
 
   /** Closes the connection and stops connecting again. */
@@ -870,10 +921,17 @@ export class HouseholdSync {
   #make(describe: string, ...changes: ChangeInit[]): void {
     const at = timestampFromMs(Date.now());
     const actionId = changes.length > 1 ? newId() : "";
-    for (const change of changes) {
-      const made = create(ChangeSchema, { changeId: newId(), at, actionId, change });
-      this.#pending.push({ change: made, describe });
-    }
+    const made = changes.map((change) =>
+      create(ChangeSchema, { changeId: newId(), at, actionId, change }),
+    );
+    for (const change of made) this.#pending.push({ change, describe });
+    this.#unsent?.keep(
+      made.map((change) => ({
+        changeId: change.changeId,
+        encoded: toBinary(ChangeSchema, change),
+        describe,
+      })),
+    );
     this.#pushUnsent();
     this.#changed();
   }
@@ -941,6 +999,7 @@ export class HouseholdSync {
         break;
       case "committed": {
         const reported = new Set<string>();
+        this.#unsent?.forget(message.value.results.map(({ changeId }) => changeId));
         for (const { changeId, result } of message.value.results) {
           const pending = this.#pending.find(({ change }) => change.changeId === changeId);
           this.#pending = this.#pending.filter((each) => each !== pending);
@@ -1024,6 +1083,7 @@ export class HouseholdSync {
 
   #pushUnsent(): void {
     if (this.#status !== "catching-up" && this.#status !== "up-to-date") return;
+    if (this.#restored !== "done") return;
     for (;;) {
       const unsent = nextPush(this.#pending.filter(({ pushId }) => !pushId));
       if (unsent.length === 0) return;
@@ -1044,6 +1104,7 @@ export class HouseholdSync {
     if (code === signedOutCloseCode) {
       this.#stopped = true;
       this.#status = "signed-out";
+      this.#unsent?.forgetAll();
     } else {
       this.#status = "offline";
       if (!this.#stopped) {

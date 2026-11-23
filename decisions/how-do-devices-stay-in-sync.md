@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25, #26 and #151
+Decided in #14, #21, #25, #26, #151 and #147
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -33,6 +33,9 @@ Decided in #14, #21, #25, #26 and #151
   - The same connection carries the live lane, which tells devices who is on which page and where they point (`what-does-the-live-lane-send.md`).
   - When a session ends, the household closes its connections with code 4401, and the device stops connecting until someone signs in. After any other drop, the device connects again, waiting longer after each failed attempt, up to 30 seconds. It catches up from its cursor and sends its unsaved changes again, as the same changes.
 - **What devices store:** what they receive, in memory. They catch up in full when the app starts.
+  - The web app also keeps its member's unsent changes in the browser's IndexedDB, encoded as they're sent, and nothing else. A change is kept when it's made, and forgotten once the household commits or refuses it.
+  - When the web app next opens and connects, it sends them again, as the same changes, before anything new, with each action's changes together. A change kept by two tabs is applied once, since the household answers a change sent again as it did the first time.
+  - They're kept for the member who made them, and forgotten when the member signs out or the household ends their session. Another member signing in on the same browser never sends them.
 
 Pulling a page's ink, from a cursor for each page, is built by #18.
 Keeping what the iPad receives between launches is built by #20.
@@ -45,6 +48,7 @@ Keeping what the iPad receives between launches is built by #20.
 - Connections drop in bursts with no fault on the server (#4), so every device must connect again and pull from its cursor.
 - Sending a whole day's changes in one reply took 7 ms of CPU against a 10 ms limit (#4), so replies are capped.
 - A device whose session has ended can't send changes again, so remembering changes for longer than a session lasts unused is useless.
+- A change made on a phone while offline, such as a captured task, would be lost if the tab closed before the connection came back (#147). Only unsent changes exist nowhere else: what a device received comes back when it catches up.
 - An action applied in part leaves things half done, such as a task under another with its sticker still on its space's page (#151). Refusing it whole leaves things as they were before, on every device.
 
 **Rejected:**
