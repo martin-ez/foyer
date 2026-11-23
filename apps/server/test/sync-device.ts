@@ -1,7 +1,8 @@
 import { exports } from "cloudflare:workers";
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { newId, syncPath } from "@foyer/shared";
+import { encodeSamples, newId, syncPath } from "@foyer/shared";
+import { Input, type StrokeAddSchema, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import {
   type ItemCreateSchema,
   ItemKind,
@@ -114,6 +115,21 @@ export class Device {
     const replies = [await this.pull(cursor)];
     for (let last = replies[0]; last && !last.done; last = replies.at(-1)) {
       replies.push(await this.pull(Number(last.cursor)));
+    }
+    return replies;
+  }
+
+  /** Pulls a page's ink once from a cursor. */
+  async pullInk(pageId: string, cursor: number): Promise<Message<"pullReply">> {
+    this.send({ case: "pull", value: { cursor: BigInt(cursor), pageId } });
+    return this.next("pullReply");
+  }
+
+  /** Pulls a page's ink from a cursor until it has caught up, and returns every reply. */
+  async catchUpInk(pageId: string, cursor = 0): Promise<Message<"pullReply">[]> {
+    const replies = [await this.pullInk(pageId, cursor)];
+    for (let last = replies[0]; last && !last.done; last = replies.at(-1)) {
+      replies.push(await this.pullInk(pageId, Number(last.cursor)));
     }
     return replies;
   }
@@ -400,6 +416,8 @@ export function idOf({ change }: ChangeInit): string {
     case "textBlockDelete":
     case "textBlockMove":
       return change.value.blockId ?? "";
+    case "strokeAdd":
+      return change.value.strokeId ?? "";
     default:
       throw new Error("The change names no id");
   }
@@ -438,6 +456,30 @@ export function textChange(
   made: Made = {},
 ): ChangeInit {
   return { ...madeNow(made), change };
+}
+
+/** Adds a short stroke of a Pencil's pen, drawn and made by the device now unless `stroke` and
+ *  `made` say otherwise. */
+export function strokeAdd(
+  stroke: Omit<MessageInitShape<typeof StrokeAddSchema>, "$typeName"> & { pageId: string },
+  made: Made = {},
+): ChangeInit {
+  const value = {
+    strokeId: newId(),
+    drawnAt: timestampFromMs(Date.now()),
+    input: Input.PENCIL,
+    tool: Tool.PEN,
+    colour: 0x1a1a1a,
+    size: 2,
+    samples: encodeSamples({ x: [40, 41.5], y: [60, 62.25], time: [0, 4], force: [0.4, 0.5] }),
+    ...stroke,
+  };
+  return { ...madeNow(made), change: { case: "strokeAdd", value } };
+}
+
+/** Erases strokes, made by the device now unless `made` says otherwise. */
+export function strokeErase(strokeIds: string[], made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "strokeErase", value: { strokeIds } } };
 }
 
 /** Makes changes one action, sharing a new action id unless `actionId` says otherwise. */

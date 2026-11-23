@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25, #26, #151, #147 and #107
+Decided in #14, #21, #25, #26, #151, #147, #107 and #18
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -17,6 +17,11 @@ Decided in #14, #21, #25, #26, #151, #147 and #107
   - An `at` later than the household's clock counts as the household's time, so a device whose clock runs fast can't win forever.
   - Changes the household makes itself, such as those it reads from Google Calendar, are settled the same way, with the time they were made there (`where-do-calendar-events-live.md`).
 - **What each device receives:** everything its member can see except ink, plus the ink of the pages it opens. On connecting, it catches up from its cursor. While connected, it receives every change it can see as soon as the change is committed, its own included.
+- **A page's ink:** a device pulls it on opening the page, from a cursor it keeps for that page, with `Pull {cursor, page_id}`.
+  - The reply holds the page's strokes added or erased after the cursor, erased ones as deleted rows of `ROW_KIND_STROKE`, and repeats `page_id`. A pull without `page_id` never includes ink.
+  - The device pulls again from the reply's cursor until it's done. A reply holds at most 500 strokes and 512 KB of samples, unless one change alone changed more, and never splits the strokes of one change.
+  - Pulling a page's ink makes it the page the connection follows, until the device pulls another page's ink or the connection closes. The household keeps it in memory with the connection, and sends it the page's new and erased strokes as `Updates`, as they're committed, its own included.
+  - A pull for a page the member doesn't see returns no rows and says it's done.
 - **Who receives what:** each row belongs to a space, to the household, as members do, or to one member, as their Google connection does. The household's rows go to every member, a space's rows to the members who can see the space (`who-can-see-what.md`), and a member's own rows to them alone. Members never learn of changes in spaces they can't see. Stickers belong to their page, not to their item (`what-is-a-sticker.md`).
 - **Refused changes:** the household refuses a change it can't apply, such as renaming someone else's personal space, and says why in a sentence. The device undoes the change, drops it, and says it couldn't be saved. A change that loses a conflict isn't refused: it's committed with no effect, and the device that made it receives the row as it now is.
 - **Actions:** the changes a device makes together for one action, such as putting a task under another, which sets its parent and moves its sticker, stand or fall together.
@@ -38,7 +43,7 @@ Decided in #14, #21, #25, #26, #151, #147 and #107
   - When the web app next opens and connects, it sends them again, as the same changes, before anything new, with each action's changes together. A change kept by two tabs is applied once, since the household answers a change sent again as it did the first time.
   - They're kept for the member who made them, and forgotten when the member signs out or the household ends their session. Another member signing in on the same browser never sends them.
 
-Pulling a page's ink, from a cursor for each page, is built by #18.
+The apps pulling a page's ink when they open it is built by #18 on the iPad and #19 on the web.
 Keeping what the iPad receives between launches is built by #20.
 
 **Why:**
@@ -46,6 +51,7 @@ Keeping what the iPad receives between launches is built by #20.
 - Storage holds no history. Ink is most of it: about 1.75 GB per busy household over five years (#4), against 5 GB for the whole account.
 - An edit made offline on Monday and synced on Wednesday doesn't overwrite one made on Tuesday.
 - Ink is most of the data. Everything else is small enough for every device to hold, so lists, search and capture work offline.
+- Pulling a page's ink is the same loop as pulling the household, from a cursor of its own. Following the page last pulled keeps ink apart from presence, which drops a device after a minute of silence (`what-does-the-live-lane-send.md`). A WebSocket message must stay under 1 MB, and a long stroke can take tens of kilobytes.
 - Connections drop in bursts with no fault on the server (#4), so every device must connect again and pull from its cursor.
 - Sending a whole day's changes in one reply took 7 ms of CPU against a 10 ms limit (#4), so replies are capped.
 - Applying changes costs far more CPU than sending them: on the preview, a push of 100 changes took 30 to 230 ms, and one of 10 changes 5 to 26 ms (#107). Cloudflare only tolerates going over 10 ms now and then, and a device back from a long time offline sends its pushes one after another, so pushes are small.
@@ -57,5 +63,7 @@ Keeping what the iPad receives between launches is built by #20.
 - A log of every change, replayed on catching up. It keeps history for free, but it grows forever and a new device replays everything ever done.
 - The change that arrives last wins. It needs no stored times, but a late offline edit overwrites newer ones.
 - Every device holding the whole household, ink included, which grows by gigabytes over the years.
+- Separate messages for pulling a page's ink, which are clearer to read but add a second pull loop to every device.
+- Sending a page's new ink to the devices the live lane says are on it, which ties ink to presence.
 - Applying each change of an action on its own, and having devices notice and fix what a refused change left half done. Every action would need its own repair.
 - Having the household move a task's sticker itself when it moves the task. It fixes stickers only, and not other actions made of several changes.

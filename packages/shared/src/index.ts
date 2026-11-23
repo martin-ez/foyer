@@ -47,6 +47,15 @@ export {
 } from "./event";
 export { isId, newId } from "./id";
 export {
+  decodeSamples,
+  encodeSamples,
+  type StrokeSamples,
+  samplesProblem,
+  strokeProblem,
+  strokeSampleLimit,
+  strokeSizeLimit,
+} from "./ink";
+export {
   itemDescriptionLimit,
   itemDescriptionProblem,
   itemTitleLimit,

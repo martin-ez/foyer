@@ -29,6 +29,7 @@ import {
   occurrenceMovesWithSeries,
   redateEvents,
 } from "./events";
+import { deleteInkOnPagesOf } from "./ink";
 import { type MovedUp, type Placer, stickMovedUp } from "./moved-up";
 import { joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
@@ -574,6 +575,7 @@ function deleteFound(
   for (const row of carried) bury(row.kind, row.id, owner);
   sql.exec("DELETE FROM completions WHERE item_id = ?", itemId);
   sql.exec("DELETE FROM last_ticks WHERE item_id = ?", itemId);
+  deleteInkOnPagesOf(sql, itemId);
   sql.exec("DELETE FROM pages WHERE item_id = ?", itemId);
   sql.exec("DELETE FROM items WHERE id = ?", itemId);
   bury("item", itemId, owner);

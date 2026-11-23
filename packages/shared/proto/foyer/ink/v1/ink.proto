@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package foyer.ink.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Ink is strokes drawn on a page. A stroke belongs to its page and never changes once drawn.
+// Everyone who sees the page sees its ink and can erase it. Devices receive a page's ink when they
+// open the page, by pulling it with the page's id.
+
+// A line drawn in one go, from the pen touching down to it lifting.
+message Stroke {
+  // A UUID version 7, made by the device that drew it.
+  string id = 1;
+  // The page it's on, which it never leaves.
+  string page_id = 2;
+  // When the pen touched down, by the drawing device's clock. Ink stacks with stickers and text by
+  // this time.
+  google.protobuf.Timestamp drawn_at = 3;
+  // The member who drew it.
+  string drawn_by = 4;
+  Input input = 5;
+  Tool tool = 6;
+  // An opaque sRGB colour, as 0xRRGGBB.
+  fixed32 colour = 7;
+  // The brush's width, in points. How a pen's width follows pressure belongs to the renderer.
+  float size = 8;
+  // An encoded Samples message, stored and sent as the device that drew the stroke encoded it.
+  bytes samples = 9;
+}
+
+// The points a stroke passes through, in the order they were drawn, as lists of whole numbers. Each
+// value is the difference from the one before it, the first from zero. The lists that are given
+// have the same length, from 1 to 10,000.
+message Samples {
+  // Where the pen was, in hundredths of a point from the page's top-left corner.
+  repeated sint32 x = 1;
+  repeated sint32 y = 2;
+  // Milliseconds from the pen touching down.
+  repeated sint32 time = 3;
+  // How hard the pen pressed, in thousandths of the most the device reports. Empty when the device
+  // reports no pressure, as for a finger or a mouse.
+  repeated sint32 force = 4;
+  // How far the pen leaned, in hundredths of a degree from lying flat on the screen. Empty when the
+  // device can't tell.
+  repeated sint32 altitude = 5;
+  // Which way the pen pointed, from its tip towards its other end, in hundredths of a degree from
+  // the page's right, turning towards its bottom. Empty when the device can't tell.
+  repeated sint32 azimuth = 6;
+}
+
+// What drew a stroke.
+enum Input {
+  INPUT_UNSPECIFIED = 0;
+  // An Apple Pencil.
+  INPUT_PENCIL = 1;
+  INPUT_FINGER = 2;
+  INPUT_MOUSE = 3;
+  // Any other pen, such as one on an Android tablet.
+  INPUT_STYLUS = 4;
+}
+
+// The brush a stroke was drawn with.
+enum Tool {
+  TOOL_UNSPECIFIED = 0;
+  // A pen whose width follows how hard it pressed.
+  TOOL_PEN = 1;
+  // A line of even width.
+  TOOL_MONOLINE = 2;
+}
+
+// Adds a stroke someone drew, as Stroke describes, to a page.
+message StrokeAdd {
+  // A new UUID version 7, made by the device.
+  string stroke_id = 1;
+  // A page that has been created, which the member sees.
+  string page_id = 2;
+  google.protobuf.Timestamp drawn_at = 3;
+  Input input = 4;
+  Tool tool = 5;
+  fixed32 colour = 6;
+  // A positive number of points, at most 100.
+  float size = 7;
+  bytes samples = 8;
+}
+
+// Erases whole strokes on pages the member sees, such as every stroke one pass of the eraser
+// crossed. Erasing a stroke again has no effect.
+message StrokeErase {
+  repeated string stroke_ids = 1;
+}
