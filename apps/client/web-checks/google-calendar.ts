@@ -16,3 +16,10 @@ export async function connectAtFakeGoogle(page: Page, choice: RegExp) {
   await page.getByRole("link", { name: choice }).click();
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
 }
+
+/** Reloads the app, so the household reads Google as the device connects again, instead of within
+ *  the minute it otherwise waits, and waits until the device is up to date. */
+export async function readGoogleNow(page: Page) {
+  await page.reload();
+  await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
+}

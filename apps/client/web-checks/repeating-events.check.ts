@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import { describeWeekday, isInColumn, openWeek } from "./calendar-pages";
-import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
+import { connectAtFakeGoogle, memberOfItsOwn, readGoogleNow } from "./google-calendar";
 import { describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { repeatingEventMembers, signIn } from "./sign-in";
@@ -58,6 +59,7 @@ test("lists each series added in Google once, shows each occurrence on its day, 
     await expect(calendar).toContainText(`repeating RRULE:${rule}`);
   }
 
+  await readGoogleNow(page);
   await page.getByRole("tab", { name: "Calendar" }).click();
   const weeks = 2;
   await openWeek(page, weeks);
@@ -65,7 +67,7 @@ test("lists each series added in Google once, shows each occurrence on its day, 
   const week = page.getByLabel(await describeWeekInBrowser(page, weeks), { exact: true });
   const onItsDay = week.getByRole("button", { name: `Event: ${title}`, exact: true });
   const walks = week.getByRole("button", { name: `Event: ${daily}`, exact: true });
-  await expect(onItsDay).toBeVisible({ timeout: 90_000 });
+  await expectOnAnotherDevice(onItsDay).toBeVisible();
   expect(await isInColumn(page, onItsDay, wednesday)).toBe(true);
   await expect(walks).toHaveCount(5);
   await saveScreenshot(page, testInfo, "repeating-event-on-its-day");
