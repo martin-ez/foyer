@@ -3,8 +3,6 @@ import { Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 /** The width a monoline is drawn at, and a pen without pressure, in points. */
 export const defaultInkSize = 1.4;
 
-/** How much a pen's point grows from no pressure to the most the Pencil reports, as PencilKit's
- *  pen does on an iPad. */
 const penGrowth = 0.37;
 
 /** How wide a stroke is drawn at a sample, in points: a monoline's size, or a pen's size at no

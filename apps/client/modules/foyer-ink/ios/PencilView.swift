@@ -22,7 +22,7 @@ class PencilView: ExpoView, PKCanvasViewDelegate {
   var mouseDraws = false { didSet { applyMouse() } }
 
   private let canvas = PKCanvasView()
-  private let pencilTouches = PencilTouchRecognizer()
+  private let pencilTouches = PencilTouchObserver()
   private weak var scroll: UIScrollView?
   private weak var sheet: UIView?
   private var link: CADisplayLink?
@@ -88,7 +88,7 @@ class PencilView: ExpoView, PKCanvasViewDelegate {
     nil
   }
 
-  private func pencilTouched(_ phase: PencilTouchRecognizer.Phase, _ touch: UITouch) {
+  private func pencilTouched(_ phase: PencilTouchObserver.Phase, _ touch: UITouch) {
     let at = touch.location(in: self)
     switch phase {
     case .began:
@@ -111,8 +111,6 @@ class PencilView: ExpoView, PKCanvasViewDelegate {
     }
   }
 
-  /// Ends the touches React Native is following, as when a native gesture takes over, so that the
-  /// Pencil never also taps or drags what's on the page.
   private func cancelReactNativeTouches() {
     guard let touchHandler = NSClassFromString("RCTSurfaceTouchHandler") else { return }
     for view in ancestors {
@@ -163,8 +161,6 @@ class PencilView: ExpoView, PKCanvasViewDelegate {
 
   // MARK: Where PencilKit draws
 
-  /// The part of the page the screen shows: where, in the page's points, and how many screen
-  /// points one page point takes.
   private struct Viewport {
     var origin: CGPoint
     var screen: CGSize
@@ -187,8 +183,6 @@ class PencilView: ExpoView, PKCanvasViewDelegate {
     return Viewport(origin: shown.origin, screen: scroll.bounds.size, zoom: scroll.bounds.width / shown.width)
   }
 
-  /// Covers what the screen shows with PencilKit, drawing at the screen's resolution in the page's
-  /// points.
   private func place(at viewport: Viewport) {
     canvas.setZoomScale(viewport.zoom, animated: false)
     canvas.contentSize = CGSize(width: bounds.width * viewport.zoom, height: bounds.height * viewport.zoom)
@@ -307,9 +301,7 @@ class PencilView: ExpoView, PKCanvasViewDelegate {
   }
 }
 
-/// Follows the Pencil's touches on the page without ever taking them from anything else: it stays
-/// undecided until they end.
-private class PencilTouchRecognizer: UIGestureRecognizer {
+private class PencilTouchObserver: UIGestureRecognizer {
   enum Phase { case began, moved, ended }
 
   var onTouch: (Phase, UITouch) -> Void = { _, _ in }
