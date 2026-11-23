@@ -1,18 +1,7 @@
-# Opens the app from Expo's development server, with nothing kept from earlier runs, and signs in
-# without Google as you@example.com. The launch arguments keep the development build's menu closed.
+# Opens the app afresh and signs in without Google as you@example.com.
 appId: io.github.martin-ez.foyer
 ---
-- clearKeychain
-- launchApp:
-    clearState: true
-    arguments:
-      --initialUrl: http://localhost:8081
-      -EXDevMenuIsOnboardingFinished: true
-      -EXDevMenuShowsAtLaunch: false
-      -EXDevMenuShowFloatingActionButton: false
-- extendedWaitUntil:
-    visible: Sign in without Google
-    timeout: 120000
+- runFlow: open.yaml
 - tapOn: Sign in without Google
 - extendedWaitUntil:
     visible: Up to date

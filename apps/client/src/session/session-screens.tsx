@@ -53,6 +53,7 @@ function SignInWithoutGoogle({ onSignIn }: { onSignIn: (email: string) => void }
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
+        selectTextOnFocus
         style={styles.email}
       />
       <Button title="Sign in without Google" onPress={() => onSignIn(email.trim())} />
