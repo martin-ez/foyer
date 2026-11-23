@@ -60,8 +60,9 @@ function deleteEach(store: IDBObjectStore, request: IDBRequest<IDBValidKey[]>): 
   };
 }
 
-/** The member's unsent changes, kept in the browser's IndexedDB between launches of the web app.
- *  If the browser keeps nothing, as some private windows do, nothing is kept. */
+/** The member's unsent changes, kept in the browser's IndexedDB between launches of the web app,
+ *  committed at once, so that closing the tab right after a change still keeps it. If the browser
+ *  keeps nothing, as some private windows do, nothing is kept. */
 export function unsentChangesOf(memberId: string): UnsentChanges | undefined {
   return {
     load: () =>
@@ -77,6 +78,7 @@ export function unsentChangesOf(memberId: string): UnsentChanges | undefined {
     keep: (changes) => {
       inStore("readwrite", undefined, (store) => {
         for (const change of changes) store.add({ ...change, memberId } satisfies StoredChange);
+        store.transaction.commit();
         return () => undefined;
       });
     },
