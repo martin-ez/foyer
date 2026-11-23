@@ -1,7 +1,7 @@
 import { reset, runInDurableObject } from "cloudflare:test";
 import { env, withEnv } from "cloudflare:workers";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, itemPageId } from "@foyer/shared";
+import { a4Portrait, itemPageId, signedOutCloseCode } from "@foyer/shared";
 import {
   type GoogleConnection,
   GoogleConnectionState,
@@ -41,6 +41,7 @@ const devices: Device[] = [];
 afterEach(async () => {
   for (const device of devices.splice(0)) device.close();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   fakeGoogle.reset();
   await reset();
 });
@@ -62,12 +63,18 @@ async function connected(email: string, timeZone = "Europe/Madrid"): Promise<Mem
   return joined;
 }
 
-/** Runs the household's work for Google with `email` taken out of the allowlist. */
-async function workWithout(email: string, allowlist = [alex, sam, robin]): Promise<void> {
-  const remaining = JSON.stringify(allowlist.filter((each) => each !== email));
+function allowlistWithout(email: string): string {
+  return JSON.stringify([alex, sam, robin].filter((each) => each !== email));
+}
+
+async function workWithout(email: string): Promise<void> {
   await runInDurableObject(theHousehold(), (household) =>
-    withEnv({ ...env, HOUSEHOLD_MEMBERS: remaining }, () => household.alarm()),
+    withEnv({ ...env, HOUSEHOLD_MEMBERS: allowlistWithout(email) }, () => household.alarm()),
   );
+}
+
+async function alarm(): Promise<number | null> {
+  return runInDurableObject(theHousehold(), (_, state) => state.storage.getAlarm());
 }
 
 async function seenBy(device: Device) {
@@ -211,25 +218,29 @@ describe("a member who leaves the allowlist", () => {
   });
 
   it("leaves a shared space they held without a calendar until the next member connects", async () => {
-    const alexs = await connected(alex);
+    const alexs = await connected(alex, "Europe/Madrid");
     const sams = await member(sam);
     const garden = await createShared(alexs.device, "Garden");
-    const bulbs = await addEvent(alexs.device, garden, "Plant the bulbs");
+    const film = await addEvent(alexs.device, garden, "Late film", "2026-11-21T02:30:00Z");
 
     await workWithout(alex);
-    const waiting = (await seenBy(sams.device)).spaces.get(garden);
-    await connectGoogle(sams.token);
+    const waiting = await seenBy(sams.device);
+    await connectGoogle(sams.token, { timeZone: "America/Santo_Domingo" });
     await workWithout(alex);
     await workWithout(alex);
 
-    expect(waiting).toMatchObject({ calendarMemberId: "", calendarState: CalendarState.NONE });
+    expect(waiting.spaces.get(garden)).toMatchObject({
+      calendarMemberId: "",
+      calendarState: CalendarState.NONE,
+    });
+    expect(waiting.items.get(film)?.date).toBe("2026-11-21");
     const seenBySam = await seenBy(sams.device);
     expect(seenBySam.spaces.get(garden)).toMatchObject({
       calendarMemberId: sams.memberId,
       calendarState: CalendarState.SYNCING,
     });
-    expect(seenBySam.items.get(bulbs)?.spaceId).toBe(garden);
-    expect(titlesInGoogle(samsAccount, "Garden")).toEqual(["Plant the bulbs"]);
+    expect(seenBySam.items.get(film)).toMatchObject({ spaceId: garden, date: "2026-11-20" });
+    expect(titlesInGoogle(samsAccount, "Garden")).toEqual(["Late film"]);
   });
 
   it("has an archived shared space they held taken over only once it's restored", async () => {
@@ -253,6 +264,23 @@ describe("a member who leaves the allowlist", () => {
       calendarState: CalendarState.SYNCING,
     });
     expect(calendarOf(samsAccount, "Garden")).toBeDefined();
+  });
+
+  it("is noticed as soon as anyone signs in", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2036-11-15T12:00:00Z") });
+    await connected(alex);
+    const before = await alarm();
+
+    await runInDurableObject(theHousehold(), (household) =>
+      withEnv({ ...env, HOUSEHOLD_MEMBERS: allowlistWithout(alex) }, () =>
+        household.joinWithoutGoogle(sam),
+      ),
+    );
+
+    const signedInAt = Date.now();
+
+    expect(before).toBeGreaterThan(signedInAt);
+    await vi.waitFor(async () => expect(await alarm()).toBe(signedInAt));
   });
 
   it.each([
@@ -289,6 +317,6 @@ describe("taking an email off the allowlist locally", () => {
     expect(removed.status).toBe(204);
     expect(fakeGoogle.hasAccess(robinsAccount)).toBe(false);
     await expect(signIn(robin)).rejects.toThrow();
-    expect((await robins.device.closed).code).toBeGreaterThan(0);
+    expect((await robins.device.closed).code).toBe(signedOutCloseCode);
   });
 });

@@ -1,6 +1,6 @@
 import { withEnv } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hasLeftAllowlist, isOnAllowlist } from "../src/allowlist";
+import { hasLeftAllowlist, isOnAllowlist, removeFromAllowlistLocally } from "../src/allowlist";
 
 function isOnAllowlistWith(members: string | undefined, email: string): boolean {
   return withEnv({ HOUSEHOLD_MEMBERS: members }, () => isOnAllowlist(email)) as boolean;
@@ -77,5 +77,26 @@ describe("who has left the allowlist", () => {
 
     expect(hasLeftAllowlistWith(members, "robin@example.com")).toBe(false);
     expect(log).not.toHaveBeenCalled();
+  });
+});
+
+describe("taking an email off the allowlist locally", () => {
+  it("has its member leave, and refuses them, until the backend restarts", () => {
+    const members = '["leaving@example.com", "alex@example.com"]';
+
+    withEnv({ DEV_SIGN_IN: "1" }, () => removeFromAllowlistLocally(" Leaving@Example.com "));
+
+    expect(isOnAllowlistWith(members, "leaving@example.com")).toBe(false);
+    expect(hasLeftAllowlistWith(members, "leaving@example.com")).toBe(true);
+    expect(isOnAllowlistWith(members, "alex@example.com")).toBe(true);
+  });
+
+  it("does nothing on a deployed backend", () => {
+    const members = '["deployed@example.com"]';
+
+    withEnv({ DEV_SIGN_IN: "" }, () => removeFromAllowlistLocally("deployed@example.com"));
+
+    expect(isOnAllowlistWith(members, "deployed@example.com")).toBe(true);
+    expect(hasLeftAllowlistWith(members, "deployed@example.com")).toBe(false);
   });
 });
