@@ -12,7 +12,7 @@ import {
   RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { seriesPerRun } from "../src/calendars";
+import { callsPerRun } from "../src/calendars";
 import { type FakeEvent, type FakeEventFields, fakeGoogle } from "../src/fake-google";
 import { connectGoogle, work } from "./calendar-helpers";
 import {
@@ -119,14 +119,16 @@ async function later(by = minute): Promise<void> {
   await work();
 }
 
-function countInstanceListings(): () => number {
-  let count = 0;
+function countCalls(): () => { all: number; listings: number } {
+  let all = 0;
+  let listings = 0;
   const answer = fakeGoogle.answer.bind(fakeGoogle);
   vi.spyOn(fakeGoogle, "answer").mockImplementation((request) => {
-    if (new URL(request.url).pathname.endsWith("/instances")) count += 1;
+    all += 1;
+    if (new URL(request.url).pathname.endsWith("/instances")) listings += 1;
     return answer(request);
   });
-  return () => count;
+  return () => ({ all, listings });
 }
 
 function keepTheAlarmFromRunningOnItsOwn(): void {
@@ -211,16 +213,16 @@ describe("occurrences of a series read from Google", () => {
     });
     await later();
     const before = await occurrences(device, "Run");
-    const listings = countInstanceListings();
+    const calls = countCalls();
 
     await later(6 * 60 * minute);
-    const sameDay = listings();
+    const sameDay = calls().listings;
     await later(day);
     const after = await occurrences(device, "Run");
 
     expect(before.at(-1)?.date).toBe("2028-05-14");
     expect(sameDay).toBe(0);
-    expect(listings()).toBe(1);
+    expect(calls().listings).toBe(1);
     expect(after.at(-1)?.date).toBe("2028-05-21");
     expect(after.slice(0, -1).map(({ id }) => id)).toEqual(before.map(({ id }) => id));
   });
@@ -247,25 +249,27 @@ describe("occurrences of a series read from Google", () => {
     expect((await occurrences(again, "Choir practice")).at(0)?.date).toBe("2027-01-05");
   });
 
-  it("are made for at most a few series in one run, and for the rest in the next", async () => {
+  it("are made for as many series as one run's calls to Google allow, and for the rest in the next", async () => {
     keepTheAlarmFromRunningOnItsOwn();
     const device = await member(alex);
-    for (let each = 0; each <= seriesPerRun; each += 1) {
+    const count = callsPerRun + 5;
+    for (let each = 0; each < count; each += 1) {
       addSeries("Personal", "2036-11-18", {
         summary: `Series ${each}`,
         recurrence: ["RRULE:FREQ=WEEKLY;COUNT=2"],
       });
     }
-    const listings = countInstanceListings();
+    const calls = countCalls();
 
     await later();
-    const inOneRun = listings();
+    const inOneRun = calls();
     await work();
 
-    expect(inOneRun).toBe(seriesPerRun);
-    expect(listings()).toBe(seriesPerRun + 1);
+    expect(inOneRun.all).toBe(callsPerRun);
+    expect(inOneRun.listings).toBeLessThan(count);
+    expect(calls().listings).toBe(count);
     const { items } = await held(device);
-    expect(items.size).toBe(2 * (seriesPerRun + 1));
+    expect(items.size).toBe(2 * count);
   });
 });
 

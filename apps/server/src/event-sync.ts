@@ -40,15 +40,18 @@ export const readIntervalWhileAway = 15 * minute;
 const untilWoken = Number.MAX_SAFE_INTEGER;
 
 /** What became of writing to or reading from Google: done, waiting for the calendar's holder or
- *  for the calendar to be made again, failed for a reason that may pass, or stopped because Google
- *  no longer accepts the holder's access. */
-export type SyncOutcome = "done" | "waiting" | "failed" | { accessStopped: string };
+ *  for the calendar to be made again, failed for a reason that may pass, postponed to the next run
+ *  as this one is out of calls, or stopped because Google no longer accepts the holder's access. */
+export type SyncOutcome = "done" | "waiting" | "failed" | "postponed" | { accessStopped: string };
 
-/** Calls Google with a member's access, refreshing it when needed. */
+/** The answer instead of Google's when the run has made all the calls to Google it may. */
+export type OutOfCalls = { outOfCalls: true };
+
+/** Calls Google with a member's access, refreshing it when needed, or answers `OutOfCalls`. */
 export type WithAccess = <T>(
   memberId: string,
   call: (accessToken: string) => Promise<CalendarAnswer<T>>,
-) => Promise<CalendarAnswer<T>>;
+) => Promise<CalendarAnswer<T> | OutOfCalls>;
 
 /** A space's Google calendar, as the household reads it. */
 export type SpaceCalendar = {
@@ -169,28 +172,29 @@ export class EventSync {
     this.#calendarLost = calendarLost;
   }
 
-  /** Writes to Google each event change whose time to try has come. One that fails waits twice as
-   *  long each time, up to `longestWriteDelay`. Returns the members whose access Google no longer
-   *  accepts. */
+  /** Writes to Google, then removes from it, each event whose time to try has come, waiting longest
+   *  first, until the run is out of calls. One that fails waits twice as long each time, up to
+   *  `longestWriteDelay`. Returns the members whose access Google no longer accepts. */
   async writeDue(): Promise<string[]> {
     const { sql } = this.#storage;
     const stopped: string[] = [];
     const due = sql
       .exec<{ item_id: string; version: number; tries: number }>(
         `SELECT item_id, version, tries FROM google_event_writes WHERE next_attempt_at <= ?
-         ORDER BY item_id`,
+         ORDER BY rowid`,
         Date.now(),
       )
       .toArray();
     for (const write of due) {
       const outcome = await this.#write(write.item_id);
+      if (outcome === "postponed") return stopped;
       if (typeof outcome === "object") stopped.push(outcome.accessStopped);
       this.#settleWrite("google_event_writes", "item_id = ?", [write.item_id], write, outcome);
     }
     const removals = sql
       .exec<{ google_calendar_id: string; google_event_id: string; tries: number }>(
         `SELECT google_calendar_id, google_event_id, tries FROM google_event_removals
-         WHERE next_attempt_at <= ? ORDER BY google_calendar_id, google_event_id`,
+         WHERE next_attempt_at <= ? ORDER BY rowid`,
         Date.now(),
       )
       .toArray();
@@ -199,6 +203,7 @@ export class EventSync {
         removal.google_calendar_id,
         removal.google_event_id,
       );
+      if (outcome === "postponed") return stopped;
       if (typeof outcome === "object") stopped.push(outcome.accessStopped);
       const where = "google_calendar_id = ? AND google_event_id = ?";
       const keys = [removal.google_calendar_id, removal.google_event_id];
@@ -1136,6 +1141,7 @@ function sameFields(a: EventFields, b: EventFields): boolean {
 }
 
 function outcomeOf(memberId: string, answer: object): SyncOutcome {
+  if ("outOfCalls" in answer) return "postponed";
   if ("revoked" in answer) return { accessStopped: memberId };
   const reason = "failed" in answer ? answer.failed : JSON.stringify(answer);
   console.error(`Syncing events with Google failed: ${reason}`);
