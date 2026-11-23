@@ -43,7 +43,7 @@ Decided in #14, #21, #25, #26, #151, #147, #107 and #18
   - When the web app next opens and connects, it sends them again, as the same changes, before anything new, with each action's changes together. A change kept by two tabs is applied once, since the household answers a change sent again as it did the first time.
   - They're kept for the member who made them, and forgotten when the member signs out or the household ends their session. Another member signing in on the same browser never sends them.
 
-The apps pulling a page's ink when they open it is built by #18 on the iPad and #19 on the web.
+The web app pulling a page's ink when it opens is built by #19.
 Keeping what the iPad receives between launches is built by #20.
 
 **Why:**

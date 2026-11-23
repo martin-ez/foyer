@@ -28,6 +28,7 @@ export function PageSheet({
   onPoint,
   onTap,
   children,
+  ink,
 }: {
   size: PageSize;
   /** What's printed on the page, such as a calendar's grid. */
@@ -44,6 +45,10 @@ export function PageSheet({
   /** Views above the page, laid out in its own points. Only those that ask for the pointer, such
    *  as stickers, take it. */
   children?: ReactNode;
+  /** Skia elements drawn on the page above its text, in its own points, such as its ink. */
+  ink?: ReactNode;
+  /** The Apple Pencil's view, which the web app doesn't have. */
+  pencil?: ReactNode;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   const keepHost = useCallback((view: unknown) => setHost(view as HTMLElement | null), []);
@@ -100,6 +105,7 @@ export function PageSheet({
       <Canvas style={styles.fill}>
         <DeskDrawing page={size} ruling={ruling} camera={camera}>
           {drawn}
+          {ink}
         </DeskDrawing>
       </Canvas>
       <View

@@ -7,6 +7,9 @@ import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalSt
 import { StyleSheet, View } from "react-native";
 import { Skia } from "react-native-skia";
 import { timeOf } from "../calendar/events";
+import { InkDrawing } from "../ink/ink-drawing";
+import { usePageInk } from "../ink/page-ink";
+import { InkBar, PagePencil } from "../ink/page-pencil";
 import { useHousehold } from "../shell/household";
 import { archivedSpaceOf } from "../sync/household-sync";
 import { useLivePage } from "../sync/use-live-page";
@@ -45,8 +48,8 @@ type PageViewProps = {
 };
 
 /** A page as everyone on it sees it: what's printed on it, its text, its stickers, which can be
- *  moved, ticked and tapped, and where others on it are pointing, with a day page's events at their
- *  times here. It's drawn, and this device is on the page, only while its screen is in front. */
+ *  moved, ticked and tapped, its ink, which the Apple Pencil writes and erases on the iPad, and
+ *  where others are pointing. It's drawn, and this device is on the page, only while in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <ShownPage {...props} /> : null;
 }
@@ -61,6 +64,7 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
   const size = sizeOf(page, state.pages);
   const text = useLaidOutText(pageId, state.textGroups, state.textBlocks);
   const editing = useTextEditing(pageId, size, state, sync);
+  const ink = usePageInk(pageId, state.strokes, sync);
   const [moving, setMoving] = useState<{ groupId: string; by: Point } | null>(null);
   const editedBlocks = editing.groupId ? blocksIn(editing.groupId, state.textBlocks) : [];
   const focusedBlock = editedBlocks.find(({ id }) => id === editing.focusedBlockId);
@@ -131,6 +135,7 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
         focusedKind={focusedBlock ? editing.typedOf(focusedBlock).kind : null}
         onSplit={split}
       />
+      <InkBar />
       <PageSheet
         key={pageId}
         size={size}
@@ -145,6 +150,10 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
         label={describePage(page, state)}
         onPoint={({ x, y }) => sync.live.point(x, y)}
         onTap={tapPage}
+        ink={<InkDrawing skia={Skia} strokes={ink.shown} />}
+        pencil={
+          <PagePencil pageId={pageId} strokes={ink.onPage} sync={sync} onErasing={ink.setErasing} />
+        }
       >
         {children}
         <PageText

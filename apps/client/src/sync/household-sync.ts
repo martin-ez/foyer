@@ -815,7 +815,7 @@ export class HouseholdSync {
       value: {
         strokeId,
         pageId,
-        drawnAt: timestampFromMs(drawnAt),
+        drawnAt: timestampFromMs(Math.round(drawnAt)),
         ...brush,
         samples: encodeSamples(samples),
       },

@@ -1,0 +1,25 @@
+appId: io.github.martin-ez.foyer
+name: Draws on the day page with the mouse, keeps it, and erases it
+---
+- runFlow: steps/open-and-sign-in.yaml
+- tapOn: Draw with the mouse
+- swipe:
+    start: 30%, 45%
+    end: 70%, 50%
+    duration: 800
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 10000
+- takeScreenshot: ink-drawn-ipad
+- runFlow: steps/open-and-sign-in.yaml
+- takeScreenshot: ink-kept-ipad
+- tapOn: Draw with the mouse
+- tapOn: Eraser
+- swipe:
+    start: 50%, 40%
+    end: 50%, 55%
+    duration: 800
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 10000
+- takeScreenshot: ink-erased-ipad

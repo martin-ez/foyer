@@ -1,5 +1,5 @@
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { timestampFromMs, timestampMs } from "@bufbuild/protobuf/wkt";
 import {
   a2Landscape,
   a4Portrait,
@@ -2871,7 +2871,7 @@ describe("ink on pages", () => {
 
   it("adds a stroke at once, with its page when nobody has put anything on it yet", () => {
     startUpToDate();
-    const drawnAt = Date.UTC(2026, 10, 23, 9, 30);
+    const drawnAt = Date.UTC(2026, 10, 23, 9, 30) + 0.375;
 
     const strokeId = sync.addStroke(day, {
       drawnAt,
@@ -2893,6 +2893,7 @@ describe("ink on pages", () => {
     const stroke = sync.getState().strokes.get(strokeId);
     expect(stroke).toMatchObject({ pageId: day, drawnBy: me, input: Input.PENCIL });
     expect(stroke && decodeSamples(stroke.samples)).toEqual(samples);
+    expect(stroke?.drawnAt && timestampMs(stroke.drawnAt)).toBe(Date.UTC(2026, 10, 23, 9, 30));
   });
 
   it("erases strokes at once, and draws them again if the household refuses", () => {

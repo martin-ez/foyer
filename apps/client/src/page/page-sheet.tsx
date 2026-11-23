@@ -27,6 +27,8 @@ export function PageSheet({
   onPoint,
   onTap,
   children,
+  ink,
+  pencil,
 }: {
   size: PageSize;
   /** What's printed on the page, such as a calendar's grid. */
@@ -43,6 +45,10 @@ export function PageSheet({
   /** Views above the page, laid out in its own points. Only those that ask for touches, such as
    *  stickers, take them. */
   children?: ReactNode;
+  /** Skia elements drawn above everything else on the page, in its own points, such as its ink. */
+  ink?: ReactNode;
+  /** A view over the whole page, laid out in its own points, that takes the Apple Pencil. */
+  pencil?: ReactNode;
 }) {
   const [view, setView] = useState<Size | null>(null);
   const onLayout = (event: LayoutChangeEvent) => {
@@ -110,6 +116,8 @@ export function PageSheet({
             <View style={[sheet, styles.above]}>
               <PageScale value={scale}>{children}</PageScale>
             </View>
+            {ink ? <Canvas style={[sheet, styles.over]}>{ink}</Canvas> : null}
+            {pencil ? <View style={[sheet, styles.over]}>{pencil}</View> : null}
           </View>
         </ScrollView>
       ) : null}
@@ -121,4 +129,5 @@ const styles = StyleSheet.create({
   desk: { flex: 1, backgroundColor: deskColour },
   paper: { boxShadow: "0 2px 8px rgba(0, 0, 0, 0.18)" },
   above: { position: "absolute", left: 0, top: 0, pointerEvents: "box-none" },
+  over: { position: "absolute", left: 0, top: 0, pointerEvents: "box-none" },
 });
