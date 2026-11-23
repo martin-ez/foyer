@@ -206,11 +206,9 @@ export class Household extends DurableObject<Env> {
 
   /** Lets a Google account in when its email is on the allowlist, as the member who signed in with
    *  it before, or as a new member with their first spaces, whom connected devices then receive.
-   *  Returns null for an account that isn't let in. Then has members who left the allowlist leave
-   *  the household's Google calendars. */
+   *  Returns null for an account that isn't let in. */
   join(account: GoogleAccount): Member | null {
     if (!isOnAllowlist(account.email)) return null;
-    this.#calendars.soon();
     const { sql } = this.ctx.storage;
     const [existing] = sql
       .exec<Member>("SELECT id, name FROM members WHERE google_subject = ?", account.subject)
@@ -291,8 +289,9 @@ export class Household extends DurableObject<Env> {
   }
 
   /** Starts a session for a member and returns its token, of which only a hash is stored. Removes
-   *  the sessions that ended unused. */
+   *  the sessions that ended unused, and soon disconnects any member who left the allowlist. */
   async startSession(memberId: string): Promise<string> {
+    this.#calendars.soon();
     const token = newSecret();
     const tokenHash = await hashSecret(token);
     const now = Date.now();

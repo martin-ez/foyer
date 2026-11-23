@@ -244,8 +244,6 @@ export class Calendars {
     if (next.length > 0) this.#wake(Math.max(Math.min(...next), Date.now()));
   }
 
-  /** Disconnects each member whose email left the allowlist, as if they had, revoking their access
-   *  first in the run, and has the remaining members take over the shared spaces they held. */
   async #letLeaversGo(): Promise<void> {
     for (const memberId of this.#leaversConnected()) {
       if (this.#callsLeft <= 0) break;
@@ -404,9 +402,6 @@ export class Calendars {
     return connection.refresh_token;
   }
 
-  /** Gives a shared space whose holder left to the remaining member who connected first: a new
-   *  calendar is made in their account, in their time zone, and the space's events are written into
-   *  it. With nobody remaining connected, the space has no calendar until the next one connects. */
   #takeOver(spaceId: string): void {
     const { sql } = this.#storage;
     const [holder] = this.#remainingHolders();
@@ -434,8 +429,6 @@ export class Calendars {
     this.#nextAttemptAt = 0;
   }
 
-  /** Dates a space's events again in its calendar's time zone, moving their stickers to their new
-   *  days, and returns what changed. */
   #redateEventsOf(spaceId: string, seq: number): RowKey[] {
     const { sql } = this.#storage;
     const events = sql
@@ -506,9 +499,6 @@ export class Calendars {
     this.#wake(Date.now());
   }
 
-  /** Forgets what the household knows of a space's calendar in Google and its events there, and has
-   *  the space's events written into whichever calendar it has next. Deletes its series'
-   *  occurrences, as Foyer doesn't make series. Returns what changed. */
   #forgetCalendar(spaceId: string): RowKey[] {
     const { sql } = this.#storage;
     const [calendar] = sql
