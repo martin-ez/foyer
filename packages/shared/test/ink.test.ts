@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 
 const degree = Math.PI / 180;
 
-/** A stroke written left to right at a steady pace, as a Pencil reports it 240 times a second. */
 function handwritten(count: number): StrokeSamples {
   const indexes = Array.from({ length: count }, (_, index) => index);
   return {
