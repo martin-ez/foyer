@@ -1,6 +1,6 @@
 import { itemPageId } from "@foyer/shared";
 import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
-import type { Space } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { CalendarState, type Space } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import type { Completion } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { currentOccurrence } from "./repeats";
@@ -108,6 +108,27 @@ export function itemsUnder(itemId: string, items: Iterable<Item>): string[] {
     }
   }
   return under;
+}
+
+/** Whether an item can move into a space with everything under it, as the household allows: an
+ *  event only into a space with a Google calendar, and an occurrence of a repeating event never,
+ *  since it moves with its series in Google Calendar. Its own space always takes it. */
+export function canMoveTo(
+  item: Item,
+  spaceId: string,
+  items: ReadonlyMap<string, Item>,
+  spaces: readonly Pick<Space, "id" | "calendarState">[],
+): boolean {
+  if (spaceId === item.spaceId) return true;
+  const moving = [item.id, ...itemsUnder(item.id, items.values())].flatMap((id) => {
+    const found = items.get(id);
+    return found ? [found] : [];
+  });
+  if (moving.some(({ seriesId }) => seriesId !== "")) return false;
+  if (!moving.some(({ kind }) => kind === ItemKind.EVENT)) return true;
+  return spaces.some(
+    ({ id, calendarState }) => id === spaceId && calendarState !== CalendarState.NONE,
+  );
 }
 
 /** The tasks under an item, at any depth, that aren't done. `done` holds the ids of the tasks that

@@ -2,7 +2,14 @@ import { expect, type Page, test } from "@playwright/test";
 import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
 import { saveScreenshot } from "./screenshot";
 import { eventNestingMembers, signIn } from "./sign-in";
-import { addTask, bundleBuildTimeout, openSpace, pageTitle, stickerOf } from "./tasks";
+import {
+  addTask,
+  bundleBuildTimeout,
+  createSpaceOfItsOwn,
+  openSpace,
+  pageTitle,
+  stickerOf,
+} from "./tasks";
 
 function titleField(page: Page) {
   return page.getByRole("textbox", { name: "Title", exact: true });
@@ -30,15 +37,19 @@ async function addEventTomorrow(page: Page, title: string, space: string) {
   await expect(eventSticker(page, title).first()).toBeVisible();
 }
 
-test("puts an event under a task, shows it on the task's page and list, and takes it out", async ({
+test("puts an event under a task, shows it on the task's page and list, offers the task only spaces with a Google calendar, and takes it out", async ({
   page,
 }, testInfo) => {
   test.setTimeout(bundleBuildTimeout + 120_000);
   await signIn(page, memberOfItsOwn(eventNestingMembers, testInfo));
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
   await connectAtFakeGoogle(page, /^Continue as /);
+  const stamp = Date.now();
   await openSpace(page, "Personal");
-  const party = await addTask(page, `Party ${Date.now()}`);
+  const party = await addTask(page, `Party ${stamp}`);
+  await stickerOf(page, party).click();
+  await expect(page.getByRole("button", { name: "Move to Inbox" })).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
   const dinner = `Dinner ${Date.now()}`;
   await addEventTomorrow(page, dinner, "Personal");
 
@@ -50,6 +61,29 @@ test("puts an event under a task, shows it on the task's page and list, and take
   await saveScreenshot(page, testInfo, "event-editor-under-task");
   await page.getByRole("button", { name: `Open “${party}”` }).click();
   await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
+  await expect(page.getByText("Move to", { exact: true })).toBeHidden();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  const garden = await createSpaceOfItsOwn(page);
+  await openSpace(page, garden);
+  const weeding = await addTask(page, `Weeding ${stamp}`);
+  await openSpace(page, "Inbox");
+  const errand = await addTask(page, `Errand ${stamp}`);
+  await openSpace(page, "Personal");
+  await stickerOf(page, party).click();
+  await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
+  await expect(page.getByRole("button", { name: `Move to ${garden}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Move to Inbox" })).toBeHidden();
+  await page.getByLabel("Put it under another task").fill(String(stamp));
+  await expect(
+    page.getByRole("button", { name: `Put under “${weeding}” in ${garden}` }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Put under “${errand}” in the Inbox` }),
+  ).toBeHidden();
+  await page.getByRole("button", { name: `Move to ${garden}` }).scrollIntoViewIfNeeded();
+  await saveScreenshot(page, testInfo, "task-holding-event-offers");
+  await page.getByLabel("Put it under another task").fill("");
   await page.getByRole("button", { name: "Close" }).click();
 
   await openSpace(page, "Personal");
