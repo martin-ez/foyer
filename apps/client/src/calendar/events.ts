@@ -16,7 +16,8 @@ export function timeOf(item: Item): EventTime | null {
 }
 
 /** The events that haven't ended by the device's clock, soonest first: an all-day event until its
- *  last day is over, in the device's time zone. Events that start together come by title. */
+ *  last day is over, in the device's time zone. Events that start together come by title. A
+ *  repeating series comes once, as its next occurrence that hasn't ended. */
 export function upcomingEvents(items: Iterable<Item>, now = new Date()): Item[] {
   const today = localToday(now);
   const upcoming: { item: Item; startsAt: number }[] = [];
@@ -26,9 +27,16 @@ export function upcomingEvents(items: Iterable<Item>, now = new Date()): Item[] 
     if (time.allDay ? time.endsOn < today : time.endsAt < now.getTime()) continue;
     upcoming.push({ item, startsAt: time.allDay ? midnightOf(time.startsOn) : time.startsAt });
   }
+  const seriesListed = new Set<string>();
   return upcoming
     .sort((a, b) => a.startsAt - b.startsAt || a.item.title.localeCompare(b.item.title))
-    .map(({ item }) => item);
+    .map(({ item }) => item)
+    .filter(({ seriesId }) => {
+      if (seriesId === "") return true;
+      if (seriesListed.has(seriesId)) return false;
+      seriesListed.add(seriesId);
+      return true;
+    });
 }
 
 /** When an event happens as people read it, in the device's time zone. */

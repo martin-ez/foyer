@@ -27,9 +27,9 @@ import {
   upcomingEvents,
 } from "./events";
 
-/** The events that haven't ended, in spaces that aren't archived, soonest first, with ways to add
- *  one and to open one to change, move or delete it: `open` is the event that's open, or "new" for
- *  a new one. Events go only in spaces that have a Google calendar. */
+/** The upcoming events in spaces that aren't archived, a series once, with ways to add one and to
+ *  open one to change, move or delete it: `open` is the event that's open, or "new" for a new one.
+ *  Events go only in spaces that have a Google calendar. */
 export function EventsPanel({
   open,
   onOpen: setOpen,
@@ -54,8 +54,8 @@ export function EventsPanel({
     );
   }
   const listed = new Set(state.spaces.map(({ id }) => id));
-  const upcoming = upcomingEvents(state.items.values()).filter(({ spaceId }) =>
-    listed.has(spaceId),
+  const upcoming = upcomingEvents(
+    [...state.items.values()].filter(({ spaceId }) => listed.has(spaceId)),
   );
   const spaceName = (spaceId: string) =>
     state.spaces.find(({ id }) => id === spaceId)?.name ?? "a space";

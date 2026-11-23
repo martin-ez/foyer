@@ -21,12 +21,14 @@ function weekdayInBrowser(page: Page, weeks: number, weekday: number): Promise<s
   );
 }
 
-test("shows each occurrence of a series added in Google on its day, and changes one on its own", async ({
+test("lists each series added in Google once, shows each occurrence on its day, and changes one on its own", async ({
   page,
 }, testInfo) => {
   test.setTimeout(bundleBuildTimeout + 120_000);
   const email = memberOfItsOwn(repeatingEventMembers, testInfo);
-  const title = `Choir ${Date.now()}`;
+  const stamp = Date.now();
+  const title = `Choir ${stamp}`;
+  const daily = `Walk ${stamp}`;
   await signIn(page, email);
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
   await connectAtFakeGoogle(page, /^Continue as /);
@@ -44,29 +46,39 @@ test("shows each occurrence of a series added in Google on its day, and changes 
     await google.goto("/auth/dev/google/calendar");
     await expect(calendar).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 30_000 });
-  await calendar.getByLabel("Title", { exact: true }).fill(title);
-  await calendar.getByLabel("Starts").fill(firstDay);
-  await calendar.getByLabel("Ends").fill(nextDay);
-  await calendar.getByLabel("Repeats").fill("FREQ=WEEKLY;COUNT=4");
-  await calendar.getByRole("button", { name: "Add event" }).click();
-  await expect(calendar).toContainText("repeating RRULE:FREQ=WEEKLY;COUNT=4");
+  for (const [name, rule] of [
+    [title, "FREQ=WEEKLY;COUNT=4"],
+    [daily, "FREQ=DAILY;COUNT=10"],
+  ] as const) {
+    await calendar.getByLabel("Title", { exact: true }).fill(name);
+    await calendar.getByLabel("Starts").fill(firstDay);
+    await calendar.getByLabel("Ends").fill(nextDay);
+    await calendar.getByLabel("Repeats").fill(rule);
+    await calendar.getByRole("button", { name: "Add event" }).click();
+    await expect(calendar).toContainText(`repeating RRULE:${rule}`);
+  }
 
   await page.getByRole("tab", { name: "Calendar" }).click();
-  const upcoming = page.getByRole("list", { name: "Upcoming events" });
-  const occurrences = upcoming.getByRole("button", { name: `Event: ${title}`, exact: true });
-  await expect(occurrences).toHaveCount(4, { timeout: 90_000 });
-  await expect(occurrences.first()).toContainText("repeats");
-  await saveScreenshot(page, testInfo, "repeating-events-upcoming");
-
   const weeks = 2;
   await openWeek(page, weeks);
   const wednesday = await describeWeekday(page, weeks, 2);
-  const onItsDay = page
-    .getByLabel(await describeWeekInBrowser(page, weeks), { exact: true })
-    .getByRole("button", { name: `Event: ${title}`, exact: true });
-  await expect(onItsDay).toBeVisible();
+  const week = page.getByLabel(await describeWeekInBrowser(page, weeks), { exact: true });
+  const onItsDay = week.getByRole("button", { name: `Event: ${title}`, exact: true });
+  const walks = week.getByRole("button", { name: `Event: ${daily}`, exact: true });
+  await expect(onItsDay).toBeVisible({ timeout: 90_000 });
   expect(await isInColumn(page, onItsDay, wednesday)).toBe(true);
+  await expect(walks).toHaveCount(5);
   await saveScreenshot(page, testInfo, "repeating-event-on-its-day");
+
+  const upcoming = page.getByRole("list", { name: "Upcoming events" });
+  const nextChoir = upcoming.getByRole("button", { name: `Event: ${title}`, exact: true });
+  const nextWalk = upcoming.getByRole("button", { name: `Event: ${daily}`, exact: true });
+  await expect(nextChoir).toHaveCount(1);
+  await expect(nextWalk).toHaveCount(1);
+  await expect(nextChoir).toContainText(await describeWeekday(page, 1, 2));
+  await expect(nextChoir).toContainText("repeats");
+  await expect(nextWalk).toContainText("repeats");
+  await saveScreenshot(page, testInfo, "repeating-events-upcoming");
 
   await onItsDay.click();
   await expect(page.getByText("Repeats. Changes here are to this day only")).toBeVisible();
@@ -85,8 +97,9 @@ test("shows each occurrence of a series added in Google on its day, and changes 
   await page.getByRole("button", { name: "Save" }).click();
   await page.getByRole("button", { name: "Close" }).click();
 
-  await expect(upcoming.getByRole("button", { name: `Event: ${title}, at Ana's` })).toHaveCount(1);
-  await expect(occurrences).toHaveCount(3);
+  await expect(week.getByRole("button", { name: `Event: ${title}, at Ana's` })).toBeVisible();
+  await expect(upcoming.getByRole("button", { name: `Event: ${title}, at Ana's` })).toHaveCount(0);
+  await expect(nextChoir).toHaveCount(1);
   await expect(async () => {
     await google.reload();
     await expect(calendar).toContainText(`${title}, at Ana's`, { timeout: 1000 });
