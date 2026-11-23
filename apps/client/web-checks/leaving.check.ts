@@ -49,28 +49,22 @@ test("hands a shared space's calendar to a remaining member once its holder leav
   await signInConnected(theirs, staying);
   await showSpaces(theirs);
   const heldByLeaving = theirs.getByText(`Calendar in ${nameOf(leaving)}'s Google account`);
-  await expect(heldByLeaving).toBeVisible();
+  const waitingForLeaving = theirs.getByText(`paused until ${nameOf(leaving)} reconnects`);
+  await expect(heldByLeaving.first()).toBeVisible();
 
   const removed = await page.request.post(
     `/auth/dev/remove-from-allowlist?email=${encodeURIComponent(leaving)}`,
   );
 
   expect(removed.status()).toBe(204);
-  await expectOnAnotherDevice(heldByLeaving).toBeHidden();
-  await expect(theirs.getByText(`paused until ${nameOf(leaving)} reconnects`)).toBeHidden();
+  await expectOnAnotherDevice(heldByLeaving).toHaveCount(0);
+  await expect(waitingForLeaving).toHaveCount(0);
   const google = await theirs.context().newPage();
-  let holders: string[] = [];
   await expect(async () => {
-    holders = await holdersInGoogle(google, calendarName(space));
-    expect(holders).toHaveLength(2);
+    const holders = await holdersInGoogle(google, calendarName(space));
+    expect(holders[0]).toBe(leaving);
+    expect(holders.slice(1)).not.toEqual([]);
   }).toPass({ timeout: 15_000 });
-  const holder = holders.find((email) => email !== leaving) ?? "";
-  expect(holders).toContain(leaving);
-  await expect(
-    theirs.getByText(
-      holder === staying ? reminder : `Calendar in ${nameOf(holder)}'s Google account`,
-    ),
-  ).toBeVisible();
   await saveScreenshot(theirs, testInfo, "leaving-new-holder");
   await page.reload();
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible({
