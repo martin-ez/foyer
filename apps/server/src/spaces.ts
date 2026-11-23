@@ -40,17 +40,26 @@ export function canSee(sql: SqlStorage, memberId: string, spaceId: string): bool
   );
 }
 
-/** The names of the spaces a member sees, which a space's new name mustn't clash with: every
- *  shared space's and their own personal spaces', leaving out `except`. Other members' personal
- *  spaces don't count, so that a refusal never reveals a private space's name. */
+/** The names of the spaces a member sees, archived ones included, which a new name mustn't clash
+ *  with: every shared space's and their own personal spaces', leaving out `except`. Others'
+ *  personal spaces don't count, so that a refusal never reveals a private space's name. */
 export function namesSeenBy(sql: SqlStorage, memberId: string, except = ""): string[] {
+  return spacesSeenBy(sql, memberId, except).map(({ name }) => name);
+}
+
+/** The names of the spaces `namesSeenBy` gives, with whether each space is archived. */
+export function spacesSeenBy(
+  sql: SqlStorage,
+  memberId: string,
+  except = "",
+): { name: string; archived: boolean }[] {
   return sql
-    .exec<{ name: string }>(
-      `SELECT name FROM spaces
+    .exec<{ name: string; archived: number }>(
+      `SELECT name, archived FROM spaces
        WHERE (kind = 'shared' OR (kind = 'personal' AND owner_id = ?)) AND id != ?`,
       memberId,
       except,
     )
     .toArray()
-    .map(({ name }) => name);
+    .map(({ name, archived }) => ({ name, archived: archived !== 0 }));
 }

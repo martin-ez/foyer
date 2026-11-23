@@ -2,6 +2,7 @@ import {
   clashingName,
   freeSpaceName,
   limitSpaceName,
+  nameClashProblem,
   spaceNameLimit,
   spaceNameProblem,
 } from "@foyer/shared";
@@ -28,6 +29,26 @@ describe("clashingName", () => {
 
   it("finds nothing when every name differs", () => {
     expect(clashingName("Home", ["Garden", "Homes"])).toBe(undefined);
+  });
+});
+
+describe("nameClashProblem", () => {
+  it("names another space that has the name, ignoring case", () => {
+    expect(nameClashProblem("home", [{ name: "Home", archived: false }])).toBe(
+      "Another space you see is called “Home”.",
+    );
+  });
+
+  it("says when the space that has it is archived, unless another that has it isn't", () => {
+    const archivedHome = { name: "Home", archived: true };
+    expect(nameClashProblem("home", [archivedHome])).toBe("An archived space is called “Home”.");
+    expect(nameClashProblem("home", [archivedHome, { name: "HOME", archived: false }])).toBe(
+      "Another space you see is called “HOME”.",
+    );
+  });
+
+  it("finds nothing when no other space has the name", () => {
+    expect(nameClashProblem("Home", [{ name: "Homes", archived: true }])).toBe(null);
   });
 });
 

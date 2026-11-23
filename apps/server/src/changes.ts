@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { clashingName, freeSpaceName, isId, newId, spaceNameProblem } from "@foyer/shared";
+import { freeSpaceName, isId, nameClashProblem, newId, spaceNameProblem } from "@foyer/shared";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import {
   type Change,
@@ -8,15 +8,16 @@ import {
   ChangeResultSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
+import { spaceIsArchived, touchesArchivedSpace } from "./archived";
 import { itemsOfRows, settleCalendarStickers } from "./calendar-stickers";
 import { tickTask, untickTask } from "./completions";
-import { queueEventWrites } from "./event-sync";
+import { queueEventWrites, wakeWaitingWrites } from "./event-sync";
 import { setEventTime } from "./events";
 import { createItem, deleteItem, moveItem, setItemField, setItemRepeat } from "./items";
 import { setItemParent } from "./nesting";
 import { createPage } from "./pages";
 import { nextSeq, type RowKey } from "./rows";
-import { namesSeenBy } from "./spaces";
+import { namesSeenBy, spacesSeenBy } from "./spaces";
 import { moveSticker, placeSticker, removeSticker } from "./stickers";
 import {
   createTextBlock,
@@ -166,12 +167,15 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
   if (!isId(change.changeId)) return { refused: "A change's id must be a UUID version 7." };
   if (!change.at) return { refused: "A change must say when it was made." };
   const setter = { at: Math.min(timestampMs(change.at), now), changeId: change.changeId };
+  if (touchesArchivedSpace(sql, memberId, change.change)) return { refused: spaceIsArchived };
 
   switch (change.change.case) {
     case "spaceCreate":
       return createSpace(sql, memberId, setter, change.change.value);
     case "spaceRename":
       return renameSpace(sql, memberId, setter, change.change.value);
+    case "spaceSetArchived":
+      return setSpaceArchived(sql, memberId, setter, change.change.value);
     case "pageCreate":
       return createPage(sql, memberId, setter, change.change.value);
     case "itemCreate":
@@ -289,8 +293,8 @@ function renameSpace(
   if (!isLater(setter, { at: space.name_at, changeId: space.name_change_id })) {
     return { seq: nextSeq(sql), changed: [], unchanged: [key] };
   }
-  const clash = clashingName(name, namesSeenBy(sql, memberId, rename.spaceId));
-  if (clash !== undefined) return { refused: `Another space you see is called “${clash}”.` };
+  const clash = nameClashProblem(name, spacesSeenBy(sql, memberId, rename.spaceId));
+  if (clash) return { refused: clash };
 
   const seq = nextSeq(sql);
   sql.exec(
@@ -301,6 +305,41 @@ function renameSpace(
     seq,
     rename.spaceId,
   );
+  return { seq, changed: [key], unchanged: [] };
+}
+
+function setSpaceArchived(
+  sql: SqlStorage,
+  memberId: string,
+  setter: Setter,
+  change: { spaceId: string; archived: boolean },
+): Applied {
+  const [space] = sql
+    .exec<{ kind: string; archived_at: number; archived_change_id: string }>(
+      `SELECT kind, archived_at, archived_change_id FROM spaces
+       WHERE id = ? AND (owner_id IS NULL OR owner_id = ?)`,
+      change.spaceId,
+      memberId,
+    )
+    .toArray();
+  if (!space) return { refused: "There's no such space." };
+  if (space.kind === "inbox") return { refused: "The Inbox can't be archived." };
+
+  const key: RowKey = { kind: "space", id: change.spaceId };
+  if (!isLater(setter, { at: space.archived_at, changeId: space.archived_change_id })) {
+    return { seq: nextSeq(sql), changed: [], unchanged: [key] };
+  }
+  const seq = nextSeq(sql);
+  sql.exec(
+    `UPDATE spaces SET archived = ?, archived_at = ?, archived_change_id = ?, seq = ?
+     WHERE id = ?`,
+    change.archived ? 1 : 0,
+    setter.at,
+    setter.changeId,
+    seq,
+    change.spaceId,
+  );
+  if (!change.archived) wakeWaitingWrites(sql);
   return { seq, changed: [key], unchanged: [] };
 }
 

@@ -13,7 +13,8 @@ const kindLabels: Record<SpaceKind, string> = {
 };
 
 /** The spaces the signed-in member `memberId` sees, with where each one's Google calendar stands,
- *  and ways to open their first page, and to create and rename them. */
+ *  and ways to open their first page, to create, rename and archive them, and to restore the
+ *  archived ones. */
 export function SpacesPanel({
   state,
   sync,
@@ -37,9 +38,32 @@ export function SpacesPanel({
             reminder={shareReminder(space, memberId)}
             problemWith={(name) => sync.nameProblem(name, space.id)}
             onRename={(name) => sync.renameSpace(space.id, name)}
+            onArchive={() => sync.archiveSpace(space.id)}
             onOpen={() => onOpen(space.id)}
           />
         ))}
+        {state.archivedSpaces.length > 0 ? (
+          <View
+            style={styles.archived}
+            accessibilityRole="list"
+            accessibilityLabel="Archived spaces"
+          >
+            <Text style={styles.subheading} accessibilityRole="header">
+              Archived spaces
+            </Text>
+            {state.archivedSpaces.map((space) => (
+              <View key={space.id} style={styles.row}>
+                <Text style={styles.grow}>{space.name}</Text>
+                <Text style={styles.line}>{kindLabels[space.kind]}</Text>
+                <Button
+                  title="Restore"
+                  accessibilityLabel={`Restore ${space.name}`}
+                  onPress={() => sync.restoreSpace(space.id)}
+                />
+              </View>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
       <NewSpace
         problemWith={(name) => sync.nameProblem(name)}
@@ -58,6 +82,7 @@ function SpaceRow({
   reminder,
   problemWith,
   onRename,
+  onArchive,
   onOpen,
 }: {
   space: Space;
@@ -65,6 +90,7 @@ function SpaceRow({
   reminder: string | null;
   problemWith: (name: string) => string | null;
   onRename: (name: string) => void;
+  onArchive: () => void;
   onOpen: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -102,11 +128,18 @@ function SpaceRow({
         <Text style={styles.line}>{kindLabels[space.kind]}</Text>
         <Button title="Open" accessibilityLabel={`Open ${name}`} onPress={onOpen} />
         {space.kind === SpaceKind.INBOX ? null : (
-          <Button
-            title="Rename"
-            accessibilityLabel={`Rename ${space.name}`}
-            onPress={() => setDraft(space.name)}
-          />
+          <>
+            <Button
+              title="Rename"
+              accessibilityLabel={`Rename ${space.name}`}
+              onPress={() => setDraft(space.name)}
+            />
+            <Button
+              title="Archive"
+              accessibilityLabel={`Archive ${space.name}`}
+              onPress={onArchive}
+            />
+          </>
         )}
       </View>
       {calendar ? <Text style={styles.line}>{calendar}</Text> : null}
@@ -164,10 +197,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   heading: { fontSize: 16, fontWeight: "600" },
+  subheading: { fontSize: 14, fontWeight: "600" },
+  archived: { gap: 4, paddingTop: 8 },
   line: { fontSize: 12, color: "#6b6459" },
   problem: { fontSize: 12, color: "#9a3b2e" },
   list: { flexGrow: 0 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 },
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+  },
   grow: { flex: 1 },
   newSpace: { gap: 4 },
   input: { borderColor: "#d8d2c4", borderWidth: 1, paddingHorizontal: 6, paddingVertical: 4 },

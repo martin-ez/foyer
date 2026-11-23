@@ -8,6 +8,7 @@ import { StyleSheet, View } from "react-native";
 import { Skia } from "react-native-skia";
 import { timeOf } from "../calendar/events";
 import { useHousehold } from "../shell/household";
+import { archivedSpaceOf } from "../sync/household-sync";
 import { useLivePage } from "../sync/use-live-page";
 import { isStickerDone } from "../tasks/task-lists";
 import { useTick } from "../tasks/ticking";
@@ -158,6 +159,10 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
           stickers={stickersOn(pageId, state.stickers.values())}
           items={state.items}
           isDone={(sticker) => isStickerDone(sticker, state.items.get(sticker.itemId), completions)}
+          isFixed={(sticker) => {
+            const item = state.items.get(sticker.itemId);
+            return item !== undefined && archivedSpaceOf(state, item) !== undefined;
+          }}
           page={size}
           placeOf={placeOf}
           reachOf={reachOf}

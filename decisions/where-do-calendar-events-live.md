@@ -1,7 +1,7 @@
 # Where do calendar events live?
-Decided in #25, #60, #13, #26, #165 and #163
+Decided in #25, #60, #13, #26, #165, #163 and #72
 
-**Applies when:** showing, creating, moving or storing events, reading repeating events, keeping them in step with Google, or asking Google for access.
+**Applies when:** showing, creating, moving or storing events, reading repeating events, keeping them in step with Google, archiving or restoring a space, or asking Google for access.
 
 **Answer:** In Google Calendar, which stays the source of truth. Every event in Foyer is a Google Calendar event: creating an event in Foyer, or turning a task into one, creates it in Google, and every change is written back. An event's body page and its sticker position live in Foyer, linked to the Google event.
 
@@ -30,6 +30,8 @@ Keeping events in step with Google, done by the household with each calendar's h
 - **Refused for good:** if Google refuses a change as invalid, rather than failing, the household takes Google's version back into Foyer as a change made then, so the two match again. An event Google refuses to create is deleted in Foyer.
 - **Paused spaces:** changes to a paused space's events save in Foyer, and are written to Google once its holder reconnects. If the same event changed in Google meanwhile, the two settle as any conflict does.
 - **Calendars deleted in Google:** Foyer makes the calendar again in the same account, and writes the space's events back into it.
+- **Archived spaces** (`who-can-see-what.md`): the household stops reading and writing an archived space's calendar, which stays in Google with its events. It doesn't make, rename or make again its calendar, or make its series' occurrences, and writes waiting for it wait. Restoring reads it again and settles any changes made in Google meanwhile, as for a paused space. An event Google reports in another of Foyer's calendars, which Foyer knew in an archived space's, is taken as moved there without asking Google, as for a paused space's; one moved into an archived space's calendar is followed there.
+- A shared space whose holder leaves the household while it's archived is taken over once it's restored, which is built by #155.
 - **Calls to Google:** one run of the household makes at most 40 calls to Google, refreshing access included, so that it stays within the free plan's 50 calls to other hosts. Calendars to make or rename go first, then the writes waiting longest, then the calendars due to be read, those read longest ago first, then series' occurrences. What's left waits for the next run, which starts at once.
 
 The household keeps beside each event its Google calendar and event ids, Google's version tag (etag) and the fields as Google last had them, and for each space's calendar Google's sync token, its time zone and when it was last read. None of it reaches devices.

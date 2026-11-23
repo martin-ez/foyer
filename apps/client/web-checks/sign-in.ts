@@ -27,6 +27,13 @@ export const repeatingEventMembers: Readonly<Record<string, string>> = {
   phone: "series.phone@example.com",
 };
 
+/** Members only the check of archived spaces' events signs in as, one for each viewport, since it
+ *  connects Google Calendar and archives their Personal space. */
+export const archivedEventMembers: Readonly<Record<string, string>> = {
+  ipad: "archive.ipad@example.com",
+  phone: "archive.phone@example.com",
+};
+
 /** Everyone the checks' backend lets in, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`. */
 export const checksHouseholdMembers = [
   member,
@@ -34,6 +41,7 @@ export const checksHouseholdMembers = [
   ...Object.values(googleCalendarMembers),
   ...Object.values(eventNestingMembers),
   ...Object.values(repeatingEventMembers),
+  ...Object.values(archivedEventMembers),
 ];
 
 /** Signs in to the checks' backend without Google, as `email`, which returns to the web app. */

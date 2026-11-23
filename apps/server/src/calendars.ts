@@ -177,9 +177,9 @@ export class Calendars {
   }
 
   /** Asks for Google's work to be done now, if there is any: after a change that may need a
-   *  calendar made or renamed, or an event written. */
+   *  calendar made or renamed, an event written, or a restored space's calendar read. */
   soon(): void {
-    if (!this.#hasWork()) return;
+    if (!this.#hasWork() && this.#calendarsDue().length === 0) return;
     this.#nextAttemptAt = 0;
     this.#wake(Date.now());
   }
@@ -519,7 +519,7 @@ export class Calendars {
          JOIN google_connections AS connection
            ON connection.member_id = ? AND connection.state = 'connected'
          LEFT JOIN space_calendars ON space_calendars.space_id = spaces.id
-         WHERE space_calendars.space_id IS NULL AND (
+         WHERE space_calendars.space_id IS NULL AND spaces.archived = 0 AND (
            (spaces.kind = 'personal' AND spaces.owner_id = connection.member_id)
            OR (spaces.kind = 'shared' AND connection.member_id = coalesce(
              (SELECT member_id FROM google_connections
@@ -538,6 +538,7 @@ export class Calendars {
         `SELECT space_calendars.space_id, spaces.name, space_calendars.time_zone
          FROM space_calendars JOIN spaces ON spaces.id = space_calendars.space_id
          WHERE space_calendars.member_id = ? AND space_calendars.lost_at IS NOT NULL
+           AND spaces.archived = 0
          ORDER BY space_calendars.lost_at, space_calendars.space_id`,
         memberId,
       )
@@ -563,6 +564,7 @@ export class Calendars {
          FROM space_calendars JOIN google_connections
            ON google_connections.member_id = space_calendars.member_id
            AND google_connections.state = 'connected'
+         JOIN spaces ON spaces.id = space_calendars.space_id AND spaces.archived = 0
          WHERE space_calendars.lost_at IS NULL
          ORDER BY space_calendars.read_at IS NOT NULL, space_calendars.read_at,
            space_calendars.created_at, space_calendars.space_id`,
@@ -576,7 +578,8 @@ export class Calendars {
         `SELECT space_calendars.space_id, space_calendars.google_calendar_id,
            space_calendars.name_in_google, spaces.name
          FROM space_calendars JOIN spaces ON spaces.id = space_calendars.space_id
-         WHERE space_calendars.member_id = ? AND space_calendars.lost_at IS NULL`,
+         WHERE space_calendars.member_id = ? AND space_calendars.lost_at IS NULL
+           AND spaces.archived = 0`,
         memberId,
       )
       .toArray()

@@ -75,6 +75,7 @@ message Change {
     foyer.text.v1.TextBlockEdit text_block_edit = 26;
     foyer.text.v1.TextBlockDelete text_block_delete = 27;
     foyer.text.v1.TextBlockMove text_block_move = 28;
+    foyer.space.v1.SpaceSetArchived space_set_archived = 30;
   }
   // A UUID version 7 the device makes, shared by the changes it makes for one action, such as
   // putting a task under another. The household applies an action all or none: if one change is

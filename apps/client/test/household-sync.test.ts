@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localToday } from "../src/page/calendar-date";
 import { stickersOn } from "../src/page/sticker-layout";
 import {
+  archivedSpaceOf,
   type Connect,
   type ConnectionEvents,
   HouseholdSync,
@@ -139,6 +140,7 @@ function spaceRow(
     name: string;
     calendarMemberId?: string;
     calendarState?: CalendarState;
+    archived?: boolean;
   },
 ): RowInit {
   const value = { id: newId(), kind: SpaceKind.SHARED, ...space };
@@ -652,6 +654,65 @@ describe("naming spaces", () => {
     const spaceId = { garden, home: home.id }[renaming ?? ""];
 
     expect(sync.nameProblem(name, spaceId)).toBe(problem);
+  });
+});
+
+describe("archiving spaces", () => {
+  const archivedNames = () => sync.getState().archivedSpaces.map(({ name }) => name);
+
+  it("archives a space at once, taking it out of the spaces, and restores it", () => {
+    startUpToDate();
+
+    sync.archiveSpace(home.id);
+    const whileArchived = { spaces: names(), archived: archivedNames() };
+    sync.restoreSpace(home.id);
+
+    expect(whileArchived).toEqual({ spaces: ["Inbox"], archived: ["Home"] });
+    expect({ spaces: names(), archived: archivedNames() }).toEqual({
+      spaces: ["Inbox", "Home"],
+      archived: [],
+    });
+    const sent = household()
+      .pushes()
+      .flatMap(({ changes }) => changes)
+      .map(({ change }) => change.case === "spaceSetArchived" && change.value);
+    expect(sent).toEqual([
+      expect.objectContaining({ spaceId: home.id, archived: true }),
+      expect.objectContaining({ spaceId: home.id, archived: false }),
+    ]);
+  });
+
+  it("keeps an archived space apart from the others, and its items, which are in it", () => {
+    const task = { id: newId(), spaceId: home.id, title: "Buy milk" };
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, { ...home, archived: true }), itemRow(3, task)]);
+
+    const state = sync.getState();
+
+    expect(names()).toEqual(["Inbox"]);
+    expect(archivedNames()).toEqual(["Home"]);
+    expect(state.items.has(task.id)).toBe(true);
+    expect(archivedSpaceOf(state, task)?.id).toBe(home.id);
+    expect(archivedSpaceOf(state, { spaceId: inbox.id })).toBe(undefined);
+  });
+
+  it("puts a space back among the others when the household refuses archiving it", () => {
+    startUpToDate();
+    sync.archiveSpace(home.id);
+    const push = household().lastPush();
+
+    household().commit(push, { [push.changes[0]?.changeId ?? ""]: "There's no such space." });
+
+    expect(names()).toEqual(["Inbox", "Home"]);
+    expect(sync.getState().problems).toEqual([
+      "Couldn't save archiving a space: There's no such space.",
+    ]);
+  });
+
+  it("says a rename to an archived space's name would be refused", () => {
+    startUpToDate([spaceRow(1, inbox), spaceRow(2, { ...home, archived: true })]);
+    const garden = sync.createSpace(SpaceKind.SHARED, "Garden");
+
+    expect(sync.nameProblem("HOME", garden)).toBe("An archived space is called “Home”.");
   });
 });
 

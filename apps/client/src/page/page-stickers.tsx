@@ -17,6 +17,7 @@ export function PageStickers({
   stickers,
   items,
   isDone,
+  isFixed = () => false,
   page,
   placeOf = (sticker) => sticker,
   reachOf = () => null,
@@ -29,6 +30,8 @@ export function PageStickers({
   items: ReadonlyMap<string, Item>;
   /** Whether the task a sticker shows is done, on its day on a calendar page. */
   isDone: (sticker: Sticker) => boolean;
+  /** Whether a sticker can only be tapped, not moved or ticked, as one in an archived space. */
+  isFixed?: (sticker: Sticker) => boolean;
   page: PageSize;
   /** Where a sticker is drawn, by default its own spot. */
   placeOf?: (sticker: Sticker) => Point;
@@ -49,6 +52,7 @@ export function PageStickers({
         sticker={sticker}
         item={items.get(sticker.itemId)}
         done={done}
+        fixed={isFixed(sticker)}
         size={stickerSize(sticker.kind, pageId)}
         page={page}
         place={placeOf(sticker)}
@@ -65,6 +69,7 @@ function StickerView({
   sticker,
   item,
   done,
+  fixed,
   size,
   page,
   place,
@@ -76,6 +81,7 @@ function StickerView({
   sticker: Sticker;
   item: Item | undefined;
   done: boolean;
+  fixed: boolean;
   size: PageSize;
   page: PageSize;
   place: Point;
@@ -88,10 +94,12 @@ function StickerView({
   const to = (by: Point) => keepOnPage({ x: place.x + by.x, y: place.y + by.y }, size, page);
   const drag = useStickerDrag(
     {
-      dragged: setDragged,
+      dragged: (by) => {
+        if (!fixed) setDragged(by);
+      },
       dropped: (by) => {
         setDragged(null);
-        onMove(to(by));
+        if (!fixed) onMove(to(by));
       },
       tapped: () => {
         setDragged(null);
@@ -121,7 +129,7 @@ function StickerView({
         {...drag}
         accessible
         accessibilityRole="button"
-        accessibilityLabel={describeSticker(sticker, item)}
+        accessibilityLabel={`${describeSticker(sticker, item)}${fixed && item ? ", archived" : ""}`}
         accessibilityState={{ disabled: item === undefined }}
         style={[
           styles.sticker,
@@ -165,6 +173,7 @@ function StickerView({
         <StickerCheckbox
           title={item.title}
           done={done}
+          fixed={fixed}
           at={{ x: at.x, y: at.y + (size.height - checkboxSize) / 2 }}
           lifted={dragged !== null}
           onTick={onTick}
@@ -179,19 +188,21 @@ const checkboxSize = 32;
 function StickerCheckbox({
   title,
   done,
+  fixed,
   at,
   lifted,
   onTick,
 }: {
   title: string;
   done: boolean;
+  fixed: boolean;
   at: Point;
   lifted: boolean;
   onTick: () => void;
 }) {
   const press = useStickerDrag(
     { dragged: () => {}, dropped: () => {}, tapped: onTick, cancelled: () => {} },
-    true,
+    !fixed,
   );
   return (
     <View
@@ -200,6 +211,7 @@ function StickerCheckbox({
       accessibilityRole="checkbox"
       accessibilityLabel={`Done: ${title}`}
       aria-checked={done}
+      aria-disabled={fixed}
       style={[styles.checkbox, { left: at.x, top: at.y }, lifted ? styles.aboveLifted : null]}
     >
       <CheckMark checked={done} />

@@ -1,5 +1,5 @@
 # What is a sticker?
-Decided in #10, #17, #130, #80, #27 and #152
+Decided in #10, #17, #130, #80, #27, #152 and #72
 
 **Applies when:** showing an item on a page, placing, moving or removing stickers, storing or syncing them, deciding what tapping or ticking something on a page does, or showing a page to someone who can't see everything on it.
 
@@ -18,7 +18,7 @@ Someone who can't see an item still sees its sticker, in the same spot and with 
   - `StickerPlace {sticker_id, page_id, x, y, kind, item_id, occurrence}`, on a page that has been created, with its top-left corner on the page and its kind its item's. `occurrence` is required on a calendar page, and must be a day the page shows; it's refused on any other page.
   - `StickerMove {sticker_id, x, y, occurrence}`, within its page. On a calendar page, `occurrence` is the day it's moved to, or empty to keep its day; it's refused on any other page. The move made last wins, by the device's clock, and brings the sticker to the top.
   - `StickerRemove {sticker_id}` peels it off. Removing an item's sticker never deletes the item. A task's sticker stays on its own space's page, or on its parent's body page when it's under another item, until the task is deleted, moved to another space or put somewhere else, because those pages are its list (`can-items-hold-other-items.md`).
-- **Who can do what:** everyone who can see a page sees all its stickers. Only someone who can see a sticker's item can place, move or remove it, so on a calendar page nobody can reschedule what they can't see.
+- **Who can do what:** everyone who can see a page sees all its stickers. Only someone who can see a sticker's item can place, move or remove it, so on a calendar page nobody can reschedule what they can't see. Nobody can while its item's space is archived (`who-can-see-what.md`).
 - **Placing automatically:** when an item joins a space, its device places the sticker in the next free spot on a page: at the left margin, below the lowest sticker on the page. Each kind of page sets its own rules on top. The devices and the household share these rules.
   - When an item is deleted with items still under it that its device didn't move, such as one added offline on another device, the household moves them up and places their stickers itself, by the same rules and in the same change, so devices never have to notice a missing sticker.
 

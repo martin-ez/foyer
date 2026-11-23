@@ -141,6 +141,7 @@ function PutUnderTask({
             (task) =>
               task.kind === ItemKind.TASK &&
               !excluded.has(task.id) &&
+              state.spaces.some(({ id }) => id === task.spaceId) &&
               canGoIn(task.spaceId) &&
               task.title.toLowerCase().includes(wanted),
           )

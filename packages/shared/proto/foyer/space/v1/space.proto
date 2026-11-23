@@ -19,6 +19,9 @@ message Space {
   // Whether the space's calendar exists and is kept in step with Google. Only the household sets
   // it.
   CalendarState calendar_state = 6;
+  // Whether the space is archived: read-only, and left out of every list and space picker, with
+  // its items, pages and stickers kept. Devices keep receiving an archived space and its items.
+  bool archived = 7;
 }
 
 // Where a space's Google calendar stands. Each space except the Inbox gets one: a personal space's
@@ -57,17 +60,25 @@ message SpaceCreate {
   // SPACE_KIND_PERSONAL or SPACE_KIND_SHARED. An Inbox can't be created.
   SpaceKind kind = 2;
   // Trimmed, then refused if blank or over 120 Unicode code points. If it clashes, ignoring case,
-  // with a shared space's or one of the creator's personal spaces', the household numbers it, as
-  // in "Groceries 2", shortening the name before the number to fit.
+  // with a shared space's or one of the creator's personal spaces', archived ones included, the
+  // household numbers it, as in "Groceries 2", shortening the name before the number to fit.
   string name = 3;
 }
 
-// Renames a personal or shared space. Only its owner can rename a personal space, and the Inbox
-// can't be renamed. The rename made last wins, by the device's clock.
+// Renames a personal or shared space. Only its owner can rename a personal space, and neither the
+// Inbox nor an archived space can be renamed. The rename made last wins, by the device's clock.
 message SpaceRename {
   string space_id = 1;
   // Trimmed, then refused if blank or over 120 Unicode code points, or if it clashes, ignoring case,
-  // with another shared space's or one of the renamer's personal spaces'. A rename that loses to
-  // one made later has no effect and isn't checked.
+  // with another shared space's or one of the renamer's personal spaces', archived ones included.
+  // A rename that loses to one made later has no effect and isn't checked.
   string name = 2;
+}
+
+// Archives a personal or shared space, or restores it; the change made last wins, by the device's
+// clock. Only its owner can archive or restore a personal space, and the Inbox can't be archived.
+// Inside an archived space, every change is refused, and its Google calendar isn't kept in step.
+message SpaceSetArchived {
+  string space_id = 1;
+  bool archived = 2;
 }

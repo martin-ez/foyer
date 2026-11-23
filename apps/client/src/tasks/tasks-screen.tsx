@@ -28,8 +28,9 @@ export function TasksScreen() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const inbox = state.spaces.find(({ kind }) => kind === SpaceKind.INBOX);
+  const shownSpace = state.spaces.some(({ id }) => id === chosen?.spaceId) ? chosen : null;
   const space =
-    chosen ??
+    shownSpace ??
     (inbox ? { spaceId: inbox.id, number: newestSpacePage(inbox.id, state.pages) } : null);
   const openItem = openTaskId === null ? undefined : state.items.get(openTaskId);
   const openTask = openItem?.kind === ItemKind.EVENT ? undefined : openItem;

@@ -13,6 +13,8 @@ import {
   View,
 } from "react-native";
 import { useHousehold } from "../shell/household";
+import { archivedSpaceOf } from "../sync/household-sync";
+import { ArchivedItem } from "../tasks/archived-item";
 import { Checkbox } from "../tasks/checkbox";
 import { EventNesting, repeats } from "../tasks/task-nesting";
 import {
@@ -25,9 +27,9 @@ import {
   upcomingEvents,
 } from "./events";
 
-/** The events that haven't ended, soonest first, with ways to add one and to open one to change,
- *  move or delete it: `open` is the event that's open, or "new" for a new one. Events go only in
- *  spaces that have a Google calendar. */
+/** The events that haven't ended, in spaces that aren't archived, soonest first, with ways to add
+ *  one and to open one to change, move or delete it: `open` is the event that's open, or "new" for
+ *  a new one. Events go only in spaces that have a Google calendar. */
 export function EventsPanel({
   open,
   onOpen: setOpen,
@@ -51,7 +53,10 @@ export function EventsPanel({
       />
     );
   }
-  const upcoming = upcomingEvents(state.items.values());
+  const listed = new Set(state.spaces.map(({ id }) => id));
+  const upcoming = upcomingEvents(state.items.values()).filter(({ spaceId }) =>
+    listed.has(spaceId),
+  );
   const spaceName = (spaceId: string) =>
     state.spaces.find(({ id }) => id === spaceId)?.name ?? "a space";
   return (
@@ -121,6 +126,8 @@ export function EventEditor({
   const { height } = useWindowDimensions();
   const [edits, setEdits] = useState<EventEdits>({});
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? "");
+  const archived = event && archivedSpaceOf(state, event);
+  if (event && archived) return <ArchivedItem item={event} space={archived} onClose={onClose} />;
   const time = event ? timeOf(event) : null;
   const title = edits.title ?? event?.title ?? "";
   const description = edits.description ?? event?.description ?? "";

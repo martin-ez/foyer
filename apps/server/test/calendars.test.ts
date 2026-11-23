@@ -15,7 +15,7 @@ import { fakeGoogle } from "../src/fake-google";
 import { theHousehold } from "../src/household";
 import { backendUrl, localBackendUrl, locationOf, requestBackend } from "./backend";
 import { calendars, connectGoogle, work } from "./calendar-helpers";
-import { Device, idOf, signIn, spaceCreate, spaceRename } from "./sync-device";
+import { Device, idOf, signIn, spaceCreate, spaceRename, spaceSetArchived } from "./sync-device";
 
 const alex = "member@example.com";
 const sam = "housemate@example.com";
@@ -350,6 +350,21 @@ describe("making calendars", () => {
     expect(await spaceNamed(device, "Shopping")).toMatchObject({
       calendarState: CalendarState.SYNCING,
     });
+  });
+
+  it("makes none for an archived space until it's restored", async () => {
+    const { token, device } = await member(alex);
+    const tripsId = await createShared(device, "Trips");
+    await device.push(spaceSetArchived(tripsId, true));
+
+    await connectGoogle(token);
+    await work();
+    const whileArchived = calendarNames(alexsAccount);
+    await device.push(spaceSetArchived(tripsId, false));
+    await work();
+
+    expect(whileArchived).toEqual(["Foyer · Personal"]);
+    expect(calendarNames(alexsAccount)).toEqual(["Foyer · Personal", "Foyer · Trips"]);
   });
 
   it("leaves a space without a calendar until someone who can hold it connects", async () => {

@@ -5,7 +5,6 @@ import {
   afterPlan,
   type CalendarPageKind,
   calendarPageOf,
-  clashingName,
   daysBetween,
   type EventTime,
   eventTimeFields,
@@ -14,6 +13,7 @@ import {
   itemPageId,
   itemTitleProblem,
   minutesOf,
+  nameClashProblem,
   newId,
   orderBetween,
   type PageSize,
@@ -82,9 +82,12 @@ export type SyncStatus = "connecting" | "catching-up" | "up-to-date" | "offline"
 export type SyncState = {
   status: SyncStatus;
   members: Member[];
-  /** The spaces the member sees: their Inbox, their personal spaces, then the shared ones, each
-   *  kind in the order they were made. */
+  /** The spaces the member sees that aren't archived, which every list and picker shows: their
+   *  Inbox, their personal spaces, then the shared ones, each kind in the order they were made. */
   spaces: Space[];
+  /** The archived spaces the member sees, in the same order. Their items, pages and stickers are
+   *  kept, read-only, until they're restored. */
+  archivedSpaces: Space[];
   /** The pages the member sees that have been created, by id. A page is created when something is
    *  first put on it, so a page that isn't here is empty. */
   pages: ReadonlyMap<string, Page>;
@@ -106,6 +109,15 @@ export type SyncState = {
   /** A sentence for each change the household refused, which the device undid. */
   problems: string[];
 };
+
+/** The archived space an item is in, or undefined when its space isn't archived. Such an item can
+ *  only be looked at until its space is restored. */
+export function archivedSpaceOf(
+  state: Pick<SyncState, "archivedSpaces">,
+  item: { spaceId: string },
+): Space | undefined {
+  return state.archivedSpaces.find(({ id }) => id === item.spaceId);
+}
 
 /** A connection to the household that a `Connect` opened. */
 export type Connection = { send(data: Uint8Array | string): void; close(): void };
@@ -246,6 +258,23 @@ export class HouseholdSync {
     });
   }
 
+  /** Archives a personal or shared space, which leaves every list and space picker, with its items
+   *  kept, read-only, until it's restored. */
+  archiveSpace(spaceId: string): void {
+    this.#make("archiving a space", {
+      case: "spaceSetArchived",
+      value: { spaceId, archived: true },
+    });
+  }
+
+  /** Restores an archived space, as it was before it was archived. */
+  restoreSpace(spaceId: string): void {
+    this.#make("restoring a space", {
+      case: "spaceSetArchived",
+      value: { spaceId, archived: false },
+    });
+  }
+
   /** Why the household would refuse this name for a new space, or for the space `renaming` if
    *  given, as far as the device knows, or null if it wouldn't: a name that's blank or too long
    *  once trimmed, or a rename to the name of another space the member sees, ignoring case. */
@@ -253,9 +282,10 @@ export class HouseholdSync {
     const trimmed = name.trim();
     const problem = spaceNameProblem(trimmed);
     if (problem || renaming === undefined) return problem;
-    const others = this.#state.spaces.filter(({ id }) => id !== renaming);
-    const clash = clashingName(trimmed, namesOf(others));
-    return clash === undefined ? null : `Another space you see is called “${clash}”.`;
+    const others = [...this.#state.spaces, ...this.#state.archivedSpaces].filter(
+      ({ id, kind }) => id !== renaming && kind !== SpaceKind.INBOX,
+    );
+    return nameClashProblem(trimmed, others);
   }
 
   /** Adds a task to a space, with its sticker in the next free spot on the space's newest page, and
@@ -1103,6 +1133,12 @@ export class HouseholdSync {
           if (space) spaces.set(spaceId, { ...space, name });
           break;
         }
+        case "spaceSetArchived": {
+          const { spaceId, archived } = change.change.value;
+          const space = spaces.get(spaceId);
+          if (space) spaces.set(spaceId, { ...space, archived });
+          break;
+        }
         case "pageCreate": {
           const { pageId, kind, spaceId, number, itemId, width, height } = change.change.value;
           if (!pages.has(pageId)) {
@@ -1298,14 +1334,16 @@ export class HouseholdSync {
           break;
       }
     }
+    const inOrder = [...spaces.values()].sort(
+      (a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.id.localeCompare(b.id),
+    );
     return {
       status: this.#status,
       members: [...this.#members.values()]
         .map(({ member }) => member)
         .sort((a, b) => a.id.localeCompare(b.id)),
-      spaces: [...spaces.values()].sort(
-        (a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.id.localeCompare(b.id),
-      ),
+      spaces: inOrder.filter(({ archived }) => !archived),
+      archivedSpaces: inOrder.filter(({ archived }) => archived),
       pages,
       items,
       stickers,

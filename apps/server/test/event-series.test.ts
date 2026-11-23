@@ -227,6 +227,27 @@ describe("occurrences of a series read from Google", () => {
     expect(after.slice(0, -1).map(({ id }) => id)).toEqual(before.map(({ id }) => id));
   });
 
+  it("aren't made further ahead while their space is archived, and are once it's restored", async () => {
+    const device = await member(alex);
+    addSeries("Personal", "2026-11-22", {
+      summary: "Run",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=SU"],
+    });
+    await later();
+    const personal = (await spaceNamed(device, "Personal")).id;
+    const archive = (archived: boolean) =>
+      device.push(change({ case: "spaceSetArchived", value: { spaceId: personal, archived } }));
+
+    await archive(true);
+    await later(7 * day);
+    const whileArchived = await occurrences(device, "Run");
+    await archive(false);
+    await later();
+
+    expect(whileArchived.at(-1)?.date).toBe("2028-05-14");
+    expect((await occurrences(device, "Run")).at(-1)?.date).toBe("2028-05-21");
+  });
+
   it("are kept once they've passed, even when the series changes", async () => {
     const device = await member(alex);
     const series = addSeries("Personal", "2026-11-24", {
