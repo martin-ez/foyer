@@ -1,4 +1,5 @@
 import { expect, type Page, type TestInfo, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import {
   dayPage,
   describeTimeInBrowser,
@@ -11,7 +12,7 @@ import {
   tapOnTimeline,
   toHour,
 } from "./calendar-pages";
-import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
+import { connectAtFakeGoogle, memberOfItsOwn, readGoogleNow } from "./google-calendar";
 import { describeDayInBrowser, describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { googleCalendarMembers, signIn } from "./sign-in";
@@ -177,10 +178,12 @@ test("adds, changes and deletes events, which reach Google Calendar and come bac
   await calendar.getByLabel("Starts").fill(tomorrow);
   await calendar.getByLabel("Ends").fill(dayFromToday(2));
   await calendar.getByRole("button", { name: "Add event" }).click();
+  await expect(calendar).toContainText(fromGoogle);
   await google.close();
 
+  await readGoogleNow(page);
   const added = page.getByRole("button", { name: `Event: ${fromGoogle}` });
-  await expect(added).toContainText("added in Google Calendar", { timeout: 90_000 });
+  await expectOnAnotherDevice(added).toContainText("added in Google Calendar");
   await saveScreenshot(page, testInfo, "events-from-google");
 
   await page.getByRole("button", { name: "Next day" }).click();

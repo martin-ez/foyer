@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
+import { expectOnAnotherDevice } from "./another-device";
 import { describeWeekday, isInColumn, openWeek } from "./calendar-pages";
-import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
+import { connectAtFakeGoogle, memberOfItsOwn, readGoogleNow } from "./google-calendar";
 import { describeWeekInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
 import { repeatingEventMembers, signIn } from "./sign-in";
@@ -51,10 +52,11 @@ test("shows each occurrence of a series added in Google on its day, and changes 
   await calendar.getByRole("button", { name: "Add event" }).click();
   await expect(calendar).toContainText("repeating RRULE:FREQ=WEEKLY;COUNT=4");
 
+  await readGoogleNow(page);
   await page.getByRole("tab", { name: "Calendar" }).click();
   const upcoming = page.getByRole("list", { name: "Upcoming events" });
   const occurrences = upcoming.getByRole("button", { name: `Event: ${title}`, exact: true });
-  await expect(occurrences).toHaveCount(4, { timeout: 90_000 });
+  await expectOnAnotherDevice(occurrences).toHaveCount(4);
   await expect(occurrences.first()).toContainText("repeats");
   await saveScreenshot(page, testInfo, "repeating-events-upcoming");
 
