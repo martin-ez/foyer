@@ -141,8 +141,20 @@ describe("adding a stroke", () => {
     expect(strokesIn(rows)).toEqual([]);
   });
 
+  it("refuses a stroke on a page that wasn't created", async () => {
+    const device = await connect(alex);
+
+    const committed = await device.push(strokeAdd({ pageId: day }));
+
+    expect(committed.results.map(resultOf)).toEqual([{ refused: "There's no such page." }]);
+  });
+
   it.each([
-    ["a page that wasn't created", strokeAdd({ pageId: day }), "There's no such page."],
+    [
+      "an id that isn't a UUID version 7",
+      strokeAdd({ pageId: day, strokeId: "stroke-1" }),
+      "A stroke's id must be a UUID version 7.",
+    ],
     [
       "samples that aren't a stroke's",
       strokeAdd({ pageId: day, samples: new Uint8Array() }),
@@ -158,9 +170,9 @@ describe("adding a stroke", () => {
       strokeAdd({ pageId: day, drawnAt: undefined }),
       "A stroke must say when it was drawn.",
     ],
-  ])("refuses a stroke on %s", async (_, stroke, refused) => {
+  ])("refuses a stroke with %s", async (_, stroke, refused) => {
     const device = await connect(alex);
-    if (!refused.includes("page")) await device.push(dayPage);
+    await device.push(dayPage);
 
     const committed = await device.push(stroke);
 
@@ -193,7 +205,7 @@ describe("adding a stroke", () => {
     expect(committed.results.map(resultOf)).toEqual([{ refused: "There's no such page." }]);
   });
 
-  it("refuses a stroke on a page of an archived space, but not on a calendar page", async () => {
+  it("refuses adding or erasing ink on a page of an archived space, but not on a calendar page", async () => {
     const device = await connect(alex);
     const space = spaceCreate({ name: "Garden" });
     const pageId = spacePageId(idOf(space), 1);
@@ -204,12 +216,21 @@ describe("adding a stroke", () => {
       number: 1,
       ...a4Portrait,
     });
-    await device.push(space, page, dayPage, spaceSetArchived(idOf(space), true));
+    const drawn = strokeAdd({ pageId });
+    const onCalendar = strokeAdd({ pageId: day });
+    await device.push(space, page, dayPage, drawn, onCalendar, spaceSetArchived(idOf(space), true));
 
-    const committed = await device.push(strokeAdd({ pageId }), strokeAdd({ pageId: day }));
+    const committed = await device.push(
+      strokeAdd({ pageId }),
+      strokeErase([idOf(drawn)]),
+      strokeAdd({ pageId: day }),
+      strokeErase([idOf(onCalendar)]),
+    );
 
     expect(committed.results.map(resultOf)).toEqual([
       { refused: "This space is archived. Restore it to change it." },
+      { refused: "This space is archived. Restore it to change it." },
+      { committed: true },
       { committed: true },
     ]);
   });
@@ -384,5 +405,20 @@ describe("erasing strokes", () => {
       { refused: "An erase must name at least one stroke." },
     ]);
     expect(strokesIn(await inkOf(alexDevice, day)).map(({ id }) => id)).toEqual([idOf(seen)]);
+  });
+
+  it("refuses an erase naming more than 1,000 strokes", async () => {
+    const device = await connect(alex);
+    const strokes = Array.from({ length: 1_001 }, () => strokeAdd({ pageId: day }));
+    await device.push(dayPage);
+    for (let start = 0; start < strokes.length; start += 10) {
+      await device.push(...strokes.slice(start, start + 10));
+    }
+
+    const committed = await device.push(strokeErase(strokes.map(idOf)));
+
+    expect(committed.results.map(resultOf)).toEqual([
+      { refused: "An erase can name at most 1,000 strokes." },
+    ]);
   });
 });
