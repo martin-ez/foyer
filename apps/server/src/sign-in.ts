@@ -29,6 +29,7 @@ export async function handleSignIn(request: Request): Promise<Response> {
   if (url.pathname === "/auth/dev/google/calendar") {
     return isDevelopment(url) ? fakeCalendarPage(request) : new Response(null, { status: 404 });
   }
+  if (url.pathname === "/auth/dev/remove-from-allowlist") return removeFromAllowlist(request, url);
   if (request.method !== "GET") return new Response(null, { status: 405 });
   switch (url.pathname) {
     case "/auth/google":
@@ -91,6 +92,13 @@ async function signInWithoutGoogle(url: URL): Promise<Response> {
   if (!isDevelopment(url)) return new Response(null, { status: 404 });
   const member = await theHousehold().joinWithoutGoogle(url.searchParams.get("email") ?? "");
   return signIn(url, appIn(url), member);
+}
+
+async function removeFromAllowlist(request: Request, url: URL): Promise<Response> {
+  if (!isDevelopment(url)) return new Response(null, { status: 404 });
+  if (request.method !== "POST") return new Response(null, { status: 405 });
+  await theHousehold().removeFromAllowlistLocally(url.searchParams.get("email") ?? "");
+  return new Response(null, { status: 204 });
 }
 
 async function signIn(

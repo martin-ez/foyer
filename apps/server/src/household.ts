@@ -7,7 +7,7 @@ import {
   HouseholdMessageSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
-import { isOnAllowlist } from "./allowlist";
+import { isOnAllowlist, removeFromAllowlistLocally } from "./allowlist";
 import { placeAllCalendarStickers } from "./calendar-stickers";
 import { Calendars, type ConnectingAnswer, type ConnectingResult } from "./calendars";
 import {
@@ -275,6 +275,13 @@ export class Household extends DurableObject<Env> {
     return this.#calendars.connect(memberId, answer);
   }
 
+  /** Takes an email off a local backend's allowlist until it restarts, and has its member leave the
+   *  household's Google calendars now. Does nothing on a deployed backend. */
+  removeFromAllowlistLocally(email: string): void {
+    removeFromAllowlistLocally(email);
+    this.#calendars.soon();
+  }
+
   /** Disconnects a member's Google account, revoking Foyer's access at Google. The spaces they hold
    *  become paused. */
   disconnectGoogle(memberId: string): Promise<void> {
@@ -282,8 +289,9 @@ export class Household extends DurableObject<Env> {
   }
 
   /** Starts a session for a member and returns its token, of which only a hash is stored. Removes
-   *  the sessions that ended unused. */
+   *  the sessions that ended unused, and soon disconnects any member who left the allowlist. */
   async startSession(memberId: string): Promise<string> {
+    this.#calendars.soon();
     const token = newSecret();
     const tokenHash = await hashSecret(token);
     const now = Date.now();

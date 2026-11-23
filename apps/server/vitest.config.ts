@@ -5,7 +5,7 @@ import { unstable_readConfig } from "wrangler";
 const wranglerConfigPath = "./wrangler.jsonc";
 
 const settingsInPlaceOfDevVars: Record<string, string> = {
-  HOUSEHOLD_MEMBERS: '["member@example.com", "housemate@example.com"]',
+  HOUSEHOLD_MEMBERS: '["member@example.com", "housemate@example.com", "flatmate@example.com"]',
   GOOGLE_CLIENT_ID: "foyer-test.apps.googleusercontent.com",
   GOOGLE_CLIENT_SECRET: "google-client-secret",
   DEV_SIGN_IN: "1",

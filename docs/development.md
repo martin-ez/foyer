@@ -38,7 +38,7 @@ The tests check pieces of code on their own. Three more checks look at the app a
     lsof -nP -iTCP:8788 -sTCP:LISTEN
     ```
 
-  - The checks' backend lets in the members listed in `apps/client/web-checks/sign-in.ts`, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`, so the checks run the same whatever a `.dev.vars` lists. The checks sign in as them without Google: most as `you@example.com`, and those that need two people, such as the live lane's, also as `housemate@example.com`. The Google Calendar checks sign in as members no other check uses, one for each viewport, so connecting Google Calendar and adding events never changes what another check sees.
+  - The checks' backend lets in the members listed in `apps/client/web-checks/sign-in.ts`, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`, so the checks run the same whatever a `.dev.vars` lists. The checks sign in as them without Google: most as `you@example.com`, and those that need two people, such as the live lane's, also as `housemate@example.com`. The Google Calendar checks sign in as members no other check uses, one for each viewport, so connecting Google Calendar and adding events never changes what another check sees. The check of a member leaving the household takes its own members off the allowlist, so they can't sign in again until the next run.
   - The checks save screenshots in `apps/client/web-checks/screenshots/`, such as `first-page-ipad.png`.
   - Arguments after `check-web` go to `playwright test`: `--grep "dragged sticker"` runs only the checks whose names match, `--project ipad` only the iPad's viewport, and `--last-failed` only the checks that failed in the last run.
   - A failed check keeps a screenshot in `apps/client/web-checks/results/`. With `--trace retain-on-failure`, it also keeps a trace there: each step the check took, what was on the page at each one, and the page's network requests and console. A check that fails only in a full run can't be traced by running it alone, so add the option to full runs. Each run empties the folder first, so read a failure's trace before running the checks again. Read a trace in a terminal with Playwright's `trace` commands, from `apps/client`:
@@ -114,6 +114,8 @@ Then comment on the pull request with the images and what was checked. Link each
 ## Signing in locally
 
 Signing in with Google needs a Google OAuth client, set in `apps/server/.dev.vars` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, as [Google sign-in](deploying.md#google-sign-in) explains. Without one, open `http://localhost:8787/auth/dev?email=you@example.com` to sign in as an email on the allowlist, which works while `.dev.vars` sets `DEV_SIGN_IN=1`. Add `&app=ipad` to return to the iPad app instead, at `foyer://signed-in`.
+
+To have a member leave the household without editing `.dev.vars` and restarting, send a POST to `http://localhost:8787/auth/dev/remove-from-allowlist?email=…`, such as with `curl -X POST`. The backend then treats that email as taken out of `HOUSEHOLD_MEMBERS` until it restarts: the member can't sign in, and the household disconnects their Google account and hands the shared spaces' calendars they held to another member at once.
 
 ## Connecting Google Calendar locally
 

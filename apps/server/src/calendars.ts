@@ -1,5 +1,6 @@
 import { calendarName, newId } from "@foyer/shared";
-import { isOnAllowlist } from "./allowlist";
+import { hasLeftAllowlist, isOnAllowlist } from "./allowlist";
+import { settleCalendarStickers } from "./calendar-stickers";
 import {
   EventSync,
   type OutOfCalls,
@@ -8,6 +9,7 @@ import {
   type SpaceCalendar,
   wakeWaitingWrites,
 } from "./event-sync";
+import { redateEvents } from "./events";
 import {
   type CalendarAnswer,
   calendarClient,
@@ -47,6 +49,8 @@ export const callsPerRun = 40;
 type SpaceToMake = { id: string; name: string; time_zone: string };
 
 type LostCalendar = { space_id: string; name: string; time_zone: string };
+
+type Holder = { member_id: string; time_zone: string };
 
 type HeldCalendar = {
   space_id: string;
@@ -151,28 +155,9 @@ export class Calendars {
   /** Forgets a member's Google access, and revokes it at Google. The spaces whose calendars are in
    *  their account become paused. Does nothing for a member who isn't connected. */
   async disconnect(memberId: string): Promise<void> {
-    const { sql } = this.#storage;
-    const [connection] = sql
-      .exec<{ refresh_token: string }>(
-        "SELECT refresh_token FROM google_connections WHERE member_id = ?",
-        memberId,
-      )
-      .toArray();
-    if (!connection) return;
-    const changed = this.#storage.transactionSync(() => {
-      sql.exec("DELETE FROM google_connections WHERE member_id = ?", memberId);
-      const seq = nextSeq(sql);
-      sql.exec(
-        `INSERT OR REPLACE INTO tombstones (kind, id, visible_to, seq)
-         VALUES ('google_connection', ?, ?, ?)`,
-        memberId,
-        memberId,
-        seq,
-      );
-      return [connectionKey(memberId), ...this.#touchHeldSpaces(memberId, seq)];
-    });
-    this.#changed(changed);
-    const revoked = await revokeAccess(connection.refresh_token);
+    const refreshToken = this.#forgetConnection(memberId);
+    if (refreshToken === null) return;
+    const revoked = await revokeAccess(refreshToken);
     if ("failed" in revoked) console.error(`Revoking Google access failed: ${revoked.failed}`);
   }
 
@@ -211,6 +196,7 @@ export class Calendars {
 
   async #workNow(): Promise<void> {
     this.#callsLeft = callsPerRun;
+    await this.#letLeaversGo();
     let failed = false;
     if (Date.now() >= this.#nextAttemptAt) {
       for (const memberId of this.#connectedMembers()) {
@@ -256,6 +242,17 @@ export class Calendars {
     }
     const next = times.filter((time): time is number => time !== null);
     if (next.length > 0) this.#wake(Math.max(Math.min(...next), Date.now()));
+  }
+
+  async #letLeaversGo(): Promise<void> {
+    for (const memberId of this.#leaversConnected()) {
+      if (this.#callsLeft <= 0) break;
+      const refreshToken = this.#forgetConnection(memberId);
+      if (refreshToken === null) continue;
+      const revoked = await this.#ask(() => revokeAccess(refreshToken));
+      if ("failed" in revoked) console.error(`Revoking Google access failed: ${revoked.failed}`);
+    }
+    for (const spaceId of this.#spacesToTakeOver()) this.#takeOver(spaceId);
   }
 
   async #workFor(memberId: string): Promise<Done> {
@@ -380,6 +377,72 @@ export class Calendars {
     return "access-stopped";
   }
 
+  #forgetConnection(memberId: string): string | null {
+    const { sql } = this.#storage;
+    const [connection] = sql
+      .exec<{ refresh_token: string }>(
+        "SELECT refresh_token FROM google_connections WHERE member_id = ?",
+        memberId,
+      )
+      .toArray();
+    if (!connection) return null;
+    const changed = this.#storage.transactionSync(() => {
+      sql.exec("DELETE FROM google_connections WHERE member_id = ?", memberId);
+      const seq = nextSeq(sql);
+      sql.exec(
+        `INSERT OR REPLACE INTO tombstones (kind, id, visible_to, seq)
+         VALUES ('google_connection', ?, ?, ?)`,
+        memberId,
+        memberId,
+        seq,
+      );
+      return [connectionKey(memberId), ...this.#touchHeldSpaces(memberId, seq)];
+    });
+    this.#changed(changed);
+    return connection.refresh_token;
+  }
+
+  #takeOver(spaceId: string): void {
+    const { sql } = this.#storage;
+    const [holder] = this.#remainingHolders();
+    const changed = this.#storage.transactionSync(() => {
+      const deleted = this.#forgetCalendar(spaceId);
+      if (holder) {
+        sql.exec(
+          `UPDATE space_calendars SET member_id = ?, time_zone = ?, lost_at = ?, sync_token = NULL,
+             read_at = NULL
+           WHERE space_id = ?`,
+          holder.member_id,
+          holder.time_zone,
+          Date.now(),
+          spaceId,
+        );
+      } else {
+        sql.exec("DELETE FROM space_calendars WHERE space_id = ?", spaceId);
+      }
+      const seq = nextSeq(sql);
+      sql.exec("UPDATE spaces SET seq = ? WHERE id = ?", seq, spaceId);
+      const redated = holder ? this.#redateEventsOf(spaceId, seq) : [];
+      return [{ kind: "space", id: spaceId } satisfies RowKey, ...deleted, ...redated];
+    });
+    this.#changed(changed);
+    this.#nextAttemptAt = 0;
+  }
+
+  #redateEventsOf(spaceId: string, seq: number): RowKey[] {
+    const { sql } = this.#storage;
+    const events = sql
+      .exec<{ id: string }>("SELECT id FROM items WHERE space_id = ? AND kind = 'event'", spaceId)
+      .toArray()
+      .map(({ id }) => id);
+    const setter = { at: Date.now(), changeId: newId() };
+    const redated = redateEvents(sql, events, setter, seq);
+    return [
+      ...redated.map((id): RowKey => ({ kind: "item", id })),
+      ...settleCalendarStickers(sql, redated, setter, null),
+    ];
+  }
+
   #keepCalendar(
     memberId: string,
     spaceId: string,
@@ -391,7 +454,7 @@ export class Calendars {
     const kept = this.#storage.transactionSync(() => {
       if (sql.exec("SELECT 1 FROM space_calendars WHERE space_id = ?", spaceId).toArray().length) {
         console.error(`Space ${spaceId} already had a calendar, so ${calendarId} isn't used.`);
-        return false;
+        return null;
       }
       sql.exec(
         `INSERT INTO space_calendars (space_id, member_id, google_calendar_id, name_in_google,
@@ -404,30 +467,24 @@ export class Calendars {
         Date.now(),
         timeZone,
       );
-      sql.exec("UPDATE spaces SET seq = ? WHERE id = ?", nextSeq(sql), spaceId);
-      return true;
+      const seq = nextSeq(sql);
+      sql.exec("UPDATE spaces SET seq = ? WHERE id = ?", seq, spaceId);
+      wakeWaitingWrites(sql);
+      return [
+        { kind: "space", id: spaceId } satisfies RowKey,
+        ...this.#redateEventsOf(spaceId, seq),
+      ];
     });
-    if (kept) this.#changed([{ kind: "space", id: spaceId }]);
+    if (kept) this.#changed(kept);
   }
 
   #calendarLost(spaceId: string): void {
     const { sql } = this.#storage;
     const changed = this.#storage.transactionSync(() => {
       const [calendar] = sql
-        .exec<{ google_calendar_id: string }>(
-          "SELECT google_calendar_id FROM space_calendars WHERE space_id = ? AND lost_at IS NULL",
-          spaceId,
-        )
+        .exec("SELECT 1 FROM space_calendars WHERE space_id = ? AND lost_at IS NULL", spaceId)
         .toArray();
       if (!calendar) return [];
-      const occurrences = sql
-        .exec<{ id: string }>(
-          `SELECT items.id FROM items JOIN google_events ON google_events.item_id = items.id
-           WHERE google_events.google_calendar_id = ? AND items.series_id IS NOT NULL
-           ORDER BY items.id`,
-          calendar.google_calendar_id,
-        )
-        .toArray();
       console.error(`The calendar of space ${spaceId} is no longer in Google, so it's made again.`);
       sql.exec(
         `UPDATE space_calendars SET lost_at = ?, sync_token = NULL, read_at = NULL
@@ -435,39 +492,50 @@ export class Calendars {
         Date.now(),
         spaceId,
       );
-      sql.exec(
-        "DELETE FROM google_events WHERE google_calendar_id = ?",
-        calendar.google_calendar_id,
-      );
-      sql.exec(
-        "DELETE FROM google_event_removals WHERE google_calendar_id = ?",
-        calendar.google_calendar_id,
-      );
-      sql.exec(
-        "DELETE FROM google_series WHERE google_calendar_id = ?",
-        calendar.google_calendar_id,
-      );
-      const setter = { at: Date.now(), changeId: newId() };
-      const deleted = occurrences.flatMap(({ id }) => {
-        sql.exec("DELETE FROM google_event_writes WHERE item_id = ?", id);
-        return deleteItemForHousehold(sql, id, setter);
-      });
-      const events = sql
-        .exec<{ id: string }>("SELECT id FROM items WHERE space_id = ? AND kind = 'event'", spaceId)
-        .toArray();
-      for (const { id } of events) {
-        sql.exec(
-          `INSERT INTO google_event_writes (item_id, version, tries, next_attempt_at)
-           VALUES (?, 1, 0, 0)
-           ON CONFLICT (item_id) DO UPDATE SET version = version + 1, tries = 0, next_attempt_at = 0`,
-          id,
-        );
-      }
-      return deleted;
+      return this.#forgetCalendar(spaceId);
     });
     this.#changed(changed);
     this.#nextAttemptAt = 0;
     this.#wake(Date.now());
+  }
+
+  #forgetCalendar(spaceId: string): RowKey[] {
+    const { sql } = this.#storage;
+    const [calendar] = sql
+      .exec<{ google_calendar_id: string }>(
+        "SELECT google_calendar_id FROM space_calendars WHERE space_id = ?",
+        spaceId,
+      )
+      .toArray();
+    if (!calendar) return [];
+    const occurrences = sql
+      .exec<{ id: string }>(
+        `SELECT items.id FROM items JOIN google_events ON google_events.item_id = items.id
+         WHERE google_events.google_calendar_id = ? AND items.series_id IS NOT NULL
+         ORDER BY items.id`,
+        calendar.google_calendar_id,
+      )
+      .toArray();
+    for (const table of ["google_events", "google_event_removals", "google_series"]) {
+      sql.exec(`DELETE FROM ${table} WHERE google_calendar_id = ?`, calendar.google_calendar_id);
+    }
+    const setter = { at: Date.now(), changeId: newId() };
+    const deleted = occurrences.flatMap(({ id }) => {
+      sql.exec("DELETE FROM google_event_writes WHERE item_id = ?", id);
+      return deleteItemForHousehold(sql, id, setter);
+    });
+    const events = sql
+      .exec<{ id: string }>("SELECT id FROM items WHERE space_id = ? AND kind = 'event'", spaceId)
+      .toArray();
+    for (const { id } of events) {
+      sql.exec(
+        `INSERT INTO google_event_writes (item_id, version, tries, next_attempt_at)
+         VALUES (?, 1, 0, 0)
+         ON CONFLICT (item_id) DO UPDATE SET version = version + 1, tries = 0, next_attempt_at = 0`,
+        id,
+      );
+    }
+    return deleted;
   }
 
   #remakeCalendar(spaceId: string, calendarId: string, name: string): void {
@@ -499,6 +567,51 @@ export class Calendars {
       memberId,
     );
     return held.map(({ space_id }) => ({ kind: "space", id: space_id }));
+  }
+
+  #leavers(): Set<string> {
+    const members = this.#storage.sql
+      .exec<{ id: string; email: string }>("SELECT id, email FROM members")
+      .toArray();
+    return new Set(members.filter(({ email }) => hasLeftAllowlist(email)).map(({ id }) => id));
+  }
+
+  #leaversConnected(): string[] {
+    const leavers = this.#leavers();
+    if (leavers.size === 0) return [];
+    return this.#storage.sql
+      .exec<{ member_id: string }>(
+        "SELECT member_id FROM google_connections ORDER BY connected_at, member_id",
+      )
+      .toArray()
+      .map(({ member_id }) => member_id)
+      .filter((memberId) => leavers.has(memberId));
+  }
+
+  #spacesToTakeOver(): string[] {
+    const leavers = this.#leavers();
+    if (leavers.size === 0) return [];
+    return this.#storage.sql
+      .exec<{ space_id: string; member_id: string }>(
+        `SELECT space_calendars.space_id, space_calendars.member_id
+         FROM space_calendars JOIN spaces ON spaces.id = space_calendars.space_id
+         WHERE spaces.kind = 'shared' AND spaces.archived = 0
+         ORDER BY spaces.created_at, spaces.id`,
+      )
+      .toArray()
+      .filter(({ member_id }) => leavers.has(member_id))
+      .map(({ space_id }) => space_id);
+  }
+
+  #remainingHolders(): Holder[] {
+    const leavers = this.#leavers();
+    return this.#storage.sql
+      .exec<Holder>(
+        `SELECT member_id, time_zone FROM google_connections WHERE state = 'connected'
+         ORDER BY connected_at, member_id`,
+      )
+      .toArray()
+      .filter(({ member_id }) => !leavers.has(member_id));
   }
 
   #connectedMembers(): string[] {
@@ -592,6 +705,7 @@ export class Calendars {
   }
 
   #hasCalendarWork(): boolean {
+    if (this.#leaversConnected().length > 0 || this.#spacesToTakeOver().length > 0) return true;
     return this.#connectedMembers().some(
       (memberId) =>
         this.#calendarsToMake(memberId).length > 0 ||

@@ -34,6 +34,17 @@ export const archivedEventMembers: Readonly<Record<string, string>> = {
   phone: "archive.phone@example.com",
 };
 
+/** Members only the check of a member leaving the household signs in as, one for each viewport:
+ *  those who leave, and are refused from then on, and those who stay. */
+export const leavingMembers: Readonly<Record<string, string>> = {
+  ipad: "leaving.ipad@example.com",
+  phone: "leaving.phone@example.com",
+};
+export const stayingMembers: Readonly<Record<string, string>> = {
+  ipad: "staying.ipad@example.com",
+  phone: "staying.phone@example.com",
+};
+
 /** Everyone the checks' backend lets in, in place of `HOUSEHOLD_MEMBERS` in `.dev.vars`. */
 export const checksHouseholdMembers = [
   member,
@@ -42,6 +53,8 @@ export const checksHouseholdMembers = [
   ...Object.values(eventNestingMembers),
   ...Object.values(repeatingEventMembers),
   ...Object.values(archivedEventMembers),
+  ...Object.values(leavingMembers),
+  ...Object.values(stayingMembers),
 ];
 
 /** Signs in to the checks' backend without Google, as `email`, which returns to the web app. */
