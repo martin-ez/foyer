@@ -269,11 +269,12 @@ describe("a member who leaves the allowlist", () => {
   it("is noticed as soon as anyone signs in", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2036-11-15T12:00:00Z") });
     await connected(alex);
+    const sams = await member(sam);
     const before = await alarm();
 
     await runInDurableObject(theHousehold(), (household) =>
       withEnv({ ...env, HOUSEHOLD_MEMBERS: allowlistWithout(alex) }, () =>
-        household.joinWithoutGoogle(sam),
+        household.startSession(sams.memberId),
       ),
     );
 
