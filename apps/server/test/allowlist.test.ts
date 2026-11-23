@@ -1,9 +1,13 @@
 import { withEnv } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isOnAllowlist } from "../src/allowlist";
+import { hasLeftAllowlist, isOnAllowlist } from "../src/allowlist";
 
 function isOnAllowlistWith(members: string | undefined, email: string): boolean {
   return withEnv({ HOUSEHOLD_MEMBERS: members }, () => isOnAllowlist(email)) as boolean;
+}
+
+function hasLeftAllowlistWith(members: string | undefined, email: string): boolean {
+  return withEnv({ HOUSEHOLD_MEMBERS: members }, () => hasLeftAllowlist(email)) as boolean;
 }
 
 afterEach(() => {
@@ -51,5 +55,27 @@ describe("lets nobody in, and logs why without the list's contents, when the all
     expect(isOnAllowlistWith(members, "alex@example.com")).toBe(false);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("HOUSEHOLD_MEMBERS"));
     expect(log).not.toHaveBeenCalledWith(expect.stringContaining("alex"));
+  });
+});
+
+describe("who has left the allowlist", () => {
+  it("is every email not on the list, compared ignoring case and surrounding spaces", () => {
+    const members = '[" Alex@Example.com "]';
+
+    expect(hasLeftAllowlistWith(members, "robin@example.com")).toBe(true);
+    expect(hasLeftAllowlistWith(members, " ALEX@example.COM")).toBe(false);
+  });
+
+  it.each([
+    ["is missing", undefined],
+    ["is empty text", ""],
+    ["isn't JSON", "alex@example.com"],
+    ["holds text that isn't an email", '["alex"]'],
+    ["is an empty list", "[]"],
+  ])("is nobody when the allowlist %s, without logging", (_, members) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(hasLeftAllowlistWith(members, "robin@example.com")).toBe(false);
+    expect(log).not.toHaveBeenCalled();
   });
 });

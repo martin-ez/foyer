@@ -7,7 +7,7 @@ import {
   HouseholdMessageSchema,
   type Push,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
-import { isOnAllowlist } from "./allowlist";
+import { isOnAllowlist, removeFromAllowlistLocally } from "./allowlist";
 import { placeAllCalendarStickers } from "./calendar-stickers";
 import { Calendars, type ConnectingAnswer, type ConnectingResult } from "./calendars";
 import {
@@ -206,9 +206,11 @@ export class Household extends DurableObject<Env> {
 
   /** Lets a Google account in when its email is on the allowlist, as the member who signed in with
    *  it before, or as a new member with their first spaces, whom connected devices then receive.
-   *  Returns null for an account that isn't let in. */
+   *  Returns null for an account that isn't let in. Then has members who left the allowlist leave
+   *  the household's Google calendars. */
   join(account: GoogleAccount): Member | null {
     if (!isOnAllowlist(account.email)) return null;
+    this.#calendars.soon();
     const { sql } = this.ctx.storage;
     const [existing] = sql
       .exec<Member>("SELECT id, name FROM members WHERE google_subject = ?", account.subject)
@@ -273,6 +275,13 @@ export class Household extends DurableObject<Env> {
    *  receives their connection, and every member who sees a space they hold its new state. */
   connectGoogle(memberId: string, answer: ConnectingAnswer): Promise<ConnectingResult> {
     return this.#calendars.connect(memberId, answer);
+  }
+
+  /** Takes an email off a local backend's allowlist until it restarts, and has its member leave the
+   *  household's Google calendars now. Does nothing on a deployed backend. */
+  removeFromAllowlistLocally(email: string): void {
+    removeFromAllowlistLocally(email);
+    this.#calendars.soon();
   }
 
   /** Disconnects a member's Google account, revoking Foyer's access at Google. The spaces they hold

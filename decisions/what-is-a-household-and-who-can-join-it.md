@@ -1,5 +1,5 @@
 # What is a household, and who can join it?
-Decided in #54
+Decided in #54 and #155
 
 **Applies when:** addressing the household's storage, adding an environment, deciding who may sign in, or storing or showing anything about the people in a household.
 
@@ -9,7 +9,7 @@ Decided in #54
   - It's set on the household's Worker, in the previews' base configuration, and locally in `apps/server/.dev.vars`, never in the repository.
   - Changing it takes effect at once, with no deploy.
   - A missing or malformed list lets nobody in.
-  - Removing an email stops that person signing in. Their member record and everything they made stay.
+  - Removing an email stops that person signing in. Their member record and everything they made stay. The household disconnects their Google account and hands the shared spaces' calendars they held to a remaining member (`where-do-calendar-events-live.md`).
 - **A member is a person who has signed in at least once.** Members are stored in the household's SQLite storage, in `members`:
   - `id`: Foyer's own id for the person. Everything else refers to members by it.
   - `email`: the Google address they signed in with, which must be on the allowlist.
