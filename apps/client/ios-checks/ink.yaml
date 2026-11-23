@@ -3,6 +3,14 @@ name: Draws on the day page with the mouse, keeps it, and erases it
 ---
 - runFlow: steps/open-and-sign-in.yaml
 - tapOn: Draw with the mouse
+- tapOn: Even line
+- assertVisible:
+    text: Even line
+    selected: true
+- tapOn: Blue ink
+- assertVisible:
+    text: Blue ink
+    selected: true
 - swipe:
     start: 30%, 45%
     end: 70%, 50%

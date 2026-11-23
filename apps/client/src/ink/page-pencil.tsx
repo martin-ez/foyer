@@ -1,4 +1,3 @@
-import { type StrokeSamples, strokeSampleLimit } from "@foyer/shared";
 import { Input, type Stroke, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
@@ -14,6 +13,7 @@ import type { HouseholdSync } from "../sync/household-sync";
 import { eraserReach, strokesCrossed } from "./eraser";
 import { defaultInkSize } from "./ink-width";
 import { inkColours, type PencilChoice, usePencilChoice } from "./pencil-choice";
+import { samplesInPieces } from "./stroke-pieces";
 
 /** The Apple Pencil's view over a page. It adds what the pen writes, and erases the strokes the
  *  eraser passes over, hiding them with `onErasing` until it lifts. */
@@ -37,7 +37,7 @@ export function PagePencil({
   const pass = useRef<{ erased: Set<string>; at: Point } | null>(null);
 
   const add = ({ nativeEvent: drawn }: { nativeEvent: StrokeDrawn }) => {
-    for (const samples of piecesOf(drawn)) {
+    for (const samples of samplesInPieces(drawn)) {
       sync.addStroke(pageId, {
         drawnAt: drawn.drawnAt,
         input: drawn.input === "pencil" ? Input.PENCIL : Input.FINGER,
@@ -133,25 +133,6 @@ export function InkBar() {
       ) : null}
     </View>
   );
-}
-
-function piecesOf(drawn: StrokeDrawn): StrokeSamples[] {
-  const pieces: StrokeSamples[] = [];
-  for (let start = 0; start < drawn.x.length; start += strokeSampleLimit - 1) {
-    const end = Math.min(drawn.x.length, start + strokeSampleLimit);
-    const piece = (values: number[]) => values.slice(start, end);
-    const pressed = drawn.force.length > 0;
-    pieces.push({
-      x: piece(drawn.x),
-      y: piece(drawn.y),
-      time: piece(drawn.time),
-      ...(pressed ? { force: piece(drawn.force) } : {}),
-      ...(drawn.altitude.length > 0 ? { altitude: piece(drawn.altitude) } : {}),
-      ...(drawn.azimuth.length > 0 ? { azimuth: piece(drawn.azimuth) } : {}),
-    });
-    if (end === drawn.x.length) break;
-  }
-  return pieces;
 }
 
 const styles = StyleSheet.create({

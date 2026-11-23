@@ -2859,6 +2859,30 @@ describe("ink on pages", () => {
     expect(household().inkPulls()).toEqual([{ pageId: day, cursor: 5 }]);
   });
 
+  it("doesn't pull a page's ink again while following it", () => {
+    startUpToDate();
+    sync.followInk(day);
+    household().inkReply(day, [strokeRow(3, first)], 3);
+
+    sync.followInk(day);
+
+    expect(household().inkPulls()).toEqual([{ pageId: day, cursor: 0 }]);
+  });
+
+  it("keeps a late reply for a page it no longer follows, without pulling it further", () => {
+    startUpToDate();
+    sync.followInk(day);
+    sync.followInk(nextDay);
+
+    household().inkReply(day, [strokeRow(3, first)], 3, false);
+
+    expect(strokeIds()).toEqual([first]);
+    expect(household().inkPulls()).toEqual([
+      { pageId: day, cursor: 0 },
+      { pageId: nextDay, cursor: 0 },
+    ]);
+  });
+
   it("keeps the strokes the household adds and erases on the page it follows", () => {
     startUpToDate();
     sync.followInk(day);

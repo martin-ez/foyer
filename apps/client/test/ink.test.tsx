@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { encodeSamples, type StrokeSamples } from "@foyer/shared";
+import { encodeSamples, type StrokeSamples, strokeSampleLimit } from "@foyer/shared";
 import { Input, StrokeSchema, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import type { Skia } from "react-native-skia";
 import { getSkiaExports } from "react-native-skia/lib/commonjs/headless";
@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { strokesCrossed } from "../src/ink/eraser";
 import { InkDrawing, inDrawingOrder } from "../src/ink/ink-drawing";
 import { inkWidth, pencilKitSizeFor } from "../src/ink/ink-width";
+import { samplesInPieces } from "../src/ink/stroke-pieces";
 import { expectToMatchGoldenImage } from "./golden-image";
 
 let nextId = 0;
@@ -115,5 +116,40 @@ describe("InkDrawing", () => {
         height: 100,
       },
     );
+  });
+});
+
+describe("samplesInPieces", () => {
+  const drawn = (count: number, pressed: boolean) => {
+    const values = Array.from({ length: count }, (_, index) => index);
+    return {
+      x: values,
+      y: values,
+      time: values,
+      force: pressed ? values.map((value) => value / count) : [],
+      altitude: [],
+      azimuth: [],
+    };
+  };
+
+  it("keeps a stroke of up to 10,000 samples whole, leaving out what wasn't reported", () => {
+    const [piece, ...more] = samplesInPieces(drawn(strokeSampleLimit, false));
+
+    expect(more).toEqual([]);
+    expect(piece?.x).toHaveLength(strokeSampleLimit);
+    expect(piece).not.toHaveProperty("force");
+    expect(piece).not.toHaveProperty("altitude");
+  });
+
+  it("splits a longer stroke into pieces that each start where the one before ended", () => {
+    const pieces = samplesInPieces(drawn(2 * strokeSampleLimit, true));
+
+    expect(pieces.map(({ x }) => x.length)).toEqual([strokeSampleLimit, strokeSampleLimit, 2]);
+    expect(pieces.map(({ x }) => x[0])).toEqual([
+      0,
+      strokeSampleLimit - 1,
+      2 * strokeSampleLimit - 2,
+    ]);
+    expect(pieces.every(({ force, x }) => force?.length === x.length)).toBe(true);
   });
 });

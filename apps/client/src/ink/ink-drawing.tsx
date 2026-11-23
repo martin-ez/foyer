@@ -22,7 +22,6 @@ export function inDrawingOrder(strokes: readonly Stroke[]): Stroke[] {
   return [...strokes].sort((a, b) => drawnAt(a) - drawnAt(b) || a.id.localeCompare(b.id));
 }
 
-/** A stroke's colour as a CSS colour. */
-export function colourOf(stroke: Stroke): string {
+function colourOf(stroke: Stroke): string {
   return `#${stroke.colour.toString(16).padStart(6, "0")}`;
 }
