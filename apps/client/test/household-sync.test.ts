@@ -961,6 +961,19 @@ describe("keeping unsent changes between launches", () => {
     expect(household().pushes()).toHaveLength(1);
   });
 
+  it("says it's up to date only once the changes kept from before are back", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+
+    launch();
+    startUpToDate();
+    expect(sync.getState()).toMatchObject({ status: "catching-up", unsaved: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sync.getState()).toMatchObject({ status: "up-to-date", unsaved: 1 });
+  });
+
   it("says a change kept from before couldn't be saved, in the words it was made with", async () => {
     await startedUpToDate();
     household().closeWith(1006);
