@@ -348,6 +348,19 @@ export const householdMigrations: readonly Migration[] = [
   `ALTER TABLE spaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE spaces ADD COLUMN archived_at INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE spaces ADD COLUMN archived_change_id TEXT NOT NULL DEFAULT ''`,
+  `CREATE TABLE strokes (
+    id TEXT PRIMARY KEY,
+    page_id TEXT NOT NULL REFERENCES pages (id),
+    drawn_at INTEGER NOT NULL,
+    drawn_by TEXT NOT NULL REFERENCES members (id),
+    input TEXT NOT NULL CHECK (input IN ('pencil', 'finger', 'mouse', 'stylus')),
+    tool TEXT NOT NULL CHECK (tool IN ('pen', 'monoline')),
+    colour INTEGER NOT NULL,
+    size REAL NOT NULL CHECK (size > 0),
+    samples BLOB,
+    seq INTEGER NOT NULL
+  );
+  CREATE INDEX strokes_by_page ON strokes (page_id, seq)`,
 ];
 
 /** Work on the household's data that needs today's code rather than the code of the migration

@@ -20,6 +20,7 @@ import {
   useCaptureKey,
 } from "./capture";
 import { applyPush } from "./changes";
+import { pullInk } from "./ink";
 import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
 import { migrateHousehold, runJobs } from "./migrations";
 import { canSeePage } from "./pages";
@@ -49,7 +50,12 @@ export type LiveSession = { sessionId: string; member: Member; renewed: boolean 
 /** The headers in which the Worker tells the household whose session opens a sync connection. */
 export const syncConnectionHeaders = { member: "Foyer-Member", session: "Foyer-Session" };
 
-type SyncConnection = { memberId: string; sessionId: string; live: LiveConnection };
+type SyncConnection = {
+  memberId: string;
+  sessionId: string;
+  live: LiveConnection;
+  inkPageId?: string;
+};
 
 type HouseholdMessageInit = MessageInitShape<typeof HouseholdMessageSchema>["message"];
 
@@ -121,9 +127,14 @@ export class Household extends DurableObject<Env> {
     switch (received.message.case) {
       case "pull": {
         const { sql } = this.ctx.storage;
+        const { pageId } = received.message.value;
         const cursor = Number(received.message.value.cursor);
-        const page = pullRows(sql, connection.memberId, cursor);
-        const value = { rows: page.rows, cursor: BigInt(page.cursor), done: page.done };
+        if (pageId !== "") socket.serializeAttachment({ ...connection, inkPageId: pageId });
+        const page =
+          pageId === ""
+            ? pullRows(sql, connection.memberId, cursor)
+            : pullInk(sql, connection.memberId, pageId, cursor);
+        const value = { rows: page.rows, cursor: BigInt(page.cursor), done: page.done, pageId };
         sendIfOpen(socket, { case: "pullReply", value });
         return;
       }
@@ -186,6 +197,7 @@ export class Household extends DurableObject<Env> {
       if (!connection) continue;
       const visible = rows
         .filter(({ visibleTo }) => visibleTo === null || visibleTo === connection.memberId)
+        .filter(({ inkPageId }) => inkPageId === undefined || inkPageId === connection.inkPageId)
         .map(({ row }) => row);
       if (visible.length > 0) sendIfOpen(socket, { case: "updates", value: { rows: visible } });
     }

@@ -4,6 +4,7 @@ package foyer.sync.v1;
 
 import "foyer/calendar/v1/calendar.proto";
 import "foyer/event/v1/event.proto";
+import "foyer/ink/v1/ink.proto";
 import "foyer/item/v1/item.proto";
 import "foyer/member/v1/member.proto";
 import "foyer/page/v1/page.proto";
@@ -76,6 +77,8 @@ message Change {
     foyer.text.v1.TextBlockDelete text_block_delete = 27;
     foyer.text.v1.TextBlockMove text_block_move = 28;
     foyer.space.v1.SpaceSetArchived space_set_archived = 30;
+    foyer.ink.v1.StrokeAdd stroke_add = 31;
+    foyer.ink.v1.StrokeErase stroke_erase = 32;
   }
   // A UUID version 7 the device makes, shared by the changes it makes for one action, such as
   // putting a task under another. The household applies an action all or none: if one change is
@@ -83,10 +86,16 @@ message Change {
   string action_id = 29;
 }
 
-// Asks for the rows the device can see that changed after its cursor. Answered with a PullReply.
+// Asks for the rows the device can see that changed after its cursor, which never include ink, or
+// for one page's ink. Answered with a PullReply.
 message Pull {
-  // The cursor the device has caught up to, or 0 for everything.
+  // The cursor the device has caught up to, or 0 for everything. For a page's ink, the cursor of
+  // that page's ink.
   int64 cursor = 1;
+  // A page the member sees, to pull only its strokes, added or erased after the cursor. Once it has
+  // pulled a page's ink, the device receives that page's new and erased strokes as Updates, until
+  // it pulls another page's ink.
+  string page_id = 2;
 }
 
 // What the household sends a device.
@@ -134,19 +143,23 @@ message Refusal {
 }
 
 // Rows a change just changed, sent to every connected device that can see them, the device that
-// made the change included. A change that had no effect sends that device its rows as they are.
+// made the change included. Strokes go only to the devices whose last ink pull was their page. A
+// change that had no effect sends that device its rows as they are.
 message Updates {
   repeated Row rows = 1;
 }
 
 // The rows the device can see that changed after a Pull's cursor, oldest change first. A long
-// catch-up takes several replies.
+// catch-up takes several replies, each of at most 500 rows, and a page's ink also at most 512 KB of
+// samples, never splitting the rows of one change.
 message PullReply {
   repeated Row rows = 1;
   // Where the next Pull starts: the device has caught up to here once it holds these rows.
   int64 cursor = 2;
   // Whether the device has caught up with every change so far. If not, it pulls again from cursor.
   bool done = 3;
+  // The page whose ink this is, as the Pull asked, or empty.
+  string page_id = 4;
 }
 
 // A row as the household holds it now.
@@ -165,6 +178,7 @@ message Row {
     foyer.calendar.v1.GoogleConnection google_connection = 9;
     foyer.text.v1.TextGroup text_group = 10;
     foyer.text.v1.TextBlock text_block = 11;
+    foyer.ink.v1.Stroke stroke = 12;
   }
 }
 
@@ -186,4 +200,5 @@ enum RowKind {
   ROW_KIND_GOOGLE_CONNECTION = 7;
   ROW_KIND_TEXT_GROUP = 8;
   ROW_KIND_TEXT_BLOCK = 9;
+  ROW_KIND_STROKE = 10;
 }

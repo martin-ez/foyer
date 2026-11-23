@@ -13,6 +13,7 @@ import { itemsOfRows, settleCalendarStickers } from "./calendar-stickers";
 import { tickTask, untickTask } from "./completions";
 import { queueEventWrites, wakeWaitingWrites } from "./event-sync";
 import { setEventTime } from "./events";
+import { addStroke, eraseStrokes } from "./ink";
 import { createItem, deleteItem, moveItem, setItemField, setItemRepeat } from "./items";
 import { setItemParent } from "./nesting";
 import { createPage } from "./pages";
@@ -232,6 +233,10 @@ function apply(sql: SqlStorage, memberId: string, change: Change, now: number): 
       return deleteTextBlock(sql, memberId, change.change.value);
     case "textBlockMove":
       return moveTextBlock(sql, memberId, setter, change.change.value);
+    case "strokeAdd":
+      return addStroke(sql, memberId, setter, change.change.value);
+    case "strokeErase":
+      return eraseStrokes(sql, memberId, change.change.value);
     default:
       return { refused: "The household doesn't know this kind of change." };
   }

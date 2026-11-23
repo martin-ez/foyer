@@ -55,6 +55,14 @@ function spacesTouchedBy(sql: SqlStorage, change: Change["change"]): string[] {
       blockId,
     );
 
+  const ofStroke = (strokeId: string) =>
+    spaceIdsOf(
+      sql,
+      `SELECT spaces.id FROM strokes JOIN pages ON pages.id = strokes.page_id ${joinPageSpace}
+       WHERE strokes.id = ?`,
+      strokeId,
+    );
+
   switch (change.case) {
     case undefined:
     case "spaceCreate":
@@ -100,6 +108,10 @@ function spacesTouchedBy(sql: SqlStorage, change: Change["change"]): string[] {
       return ofBlock(change.value.blockId);
     case "textBlockMove":
       return [...ofBlock(change.value.blockId), ...ofGroup(change.value.groupId)];
+    case "strokeAdd":
+      return ofPage(change.value.pageId);
+    case "strokeErase":
+      return change.value.strokeIds.flatMap(ofStroke);
     default:
       return change satisfies never;
   }

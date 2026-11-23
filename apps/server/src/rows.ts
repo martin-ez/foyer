@@ -4,6 +4,7 @@ import {
   GoogleConnectionSchema,
   GoogleConnectionState,
 } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
+import { Input, StrokeSchema, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import { ItemKind, ItemSchema, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { MemberSchema } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
@@ -24,12 +25,14 @@ export type RowKey = {
     | "completion"
     | "google_connection"
     | "text_group"
-    | "text_block";
+    | "text_block"
+    | "stroke";
   id: string;
 };
 
-/** A row as devices receive it, and who can see it: one member, or every member when null. */
-export type VisibleRow = { row: Row; visibleTo: string | null };
+/** A row as devices receive it, and who can see it: one member, or every member when null. A
+ *  stroke also says its page, since only the devices that follow a page's ink receive its strokes. */
+export type VisibleRow = { row: Row; visibleTo: string | null; inkPageId?: string };
 
 /** At most this many rows go in one reply to a pull, unless one change alone changed more. */
 export const pullReplyRowLimit = 500;
@@ -180,7 +183,31 @@ function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
         .exec<TextBlockRow>(`${selectTextBlocks} AND text_blocks.id = ?`, id)
         .toArray()
         .map(textBlockRow);
+    case "stroke":
+      return sql
+        .exec<StrokeRow>(`${selectStrokes} AND strokes.id = ?`, id)
+        .toArray()
+        .map(strokeRow);
   }
+}
+
+/** The strokes on a page that changed after one change and up to another, oldest first. */
+export function strokesOnPageBetween(
+  sql: SqlStorage,
+  pageId: string,
+  after: number,
+  upTo: number,
+): Row[] {
+  return sql
+    .exec<StrokeRow>(
+      `${selectStrokes} AND strokes.page_id = ? AND strokes.seq > ? AND strokes.seq <= ?
+       ORDER BY strokes.seq`,
+      pageId,
+      after,
+      upTo,
+    )
+    .toArray()
+    .map((stroke) => strokeRow(stroke).row);
 }
 
 type MemberRow = { id: string; name: string; seq: number };
@@ -285,6 +312,20 @@ type TextBlockRow = {
   owner_id: string | null;
 };
 
+type StrokeRow = {
+  id: string;
+  page_id: string;
+  drawn_at: number;
+  drawn_by: string;
+  input: "pencil" | "finger" | "mouse" | "stylus";
+  tool: "pen" | "monoline";
+  colour: number;
+  size: number;
+  samples: ArrayBuffer | null;
+  seq: number;
+  owner_id: string | null;
+};
+
 type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; seq: number };
 
 const selectMembers = "SELECT id, name, seq FROM members";
@@ -352,6 +393,14 @@ const selectTextBlocks = `SELECT text_blocks.id, text_blocks.group_id, text_bloc
   spaces.owner_id
   FROM ${textBlocksWithOwner}`;
 
+const strokesWithOwner = `strokes JOIN pages ON pages.id = strokes.page_id ${joinPageSpace}
+  WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
+
+const selectStrokes = `SELECT strokes.id, strokes.page_id, strokes.drawn_at, strokes.drawn_by,
+  strokes.input, strokes.tool, strokes.colour, strokes.size, strokes.samples, strokes.seq,
+  spaces.owner_id
+  FROM ${strokesWithOwner}`;
+
 const selectTombstones = "SELECT kind, id, visible_to, seq FROM tombstones";
 
 const selectHiddenRows = "SELECT kind, id, member_id AS visible_to, seq FROM hidden_rows";
@@ -393,6 +442,7 @@ const rowKinds = {
   google_connection: RowKind.GOOGLE_CONNECTION,
   text_group: RowKind.TEXT_GROUP,
   text_block: RowKind.TEXT_BLOCK,
+  stroke: RowKind.STROKE,
 } as const;
 
 const googleConnectionStates = {
@@ -661,6 +711,36 @@ function textBlockRow(block: TextBlockRow): VisibleRow {
     row: create(RowSchema, { seq: BigInt(block.seq), row: { case: "textBlock", value } }),
     visibleTo: block.owner_id,
   };
+}
+
+const inputs = {
+  pencil: Input.PENCIL,
+  finger: Input.FINGER,
+  mouse: Input.MOUSE,
+  stylus: Input.STYLUS,
+} as const;
+
+const tools = { pen: Tool.PEN, monoline: Tool.MONOLINE } as const;
+
+function strokeRow(stroke: StrokeRow): VisibleRow {
+  const seq = BigInt(stroke.seq);
+  const visible = { visibleTo: stroke.owner_id, inkPageId: stroke.page_id };
+  if (stroke.samples === null) {
+    const value = { kind: RowKind.STROKE, id: stroke.id };
+    return { row: create(RowSchema, { seq, row: { case: "deleted", value } }), ...visible };
+  }
+  const value = create(StrokeSchema, {
+    id: stroke.id,
+    pageId: stroke.page_id,
+    drawnAt: timestampFromMs(stroke.drawn_at),
+    drawnBy: stroke.drawn_by,
+    input: inputs[stroke.input],
+    tool: tools[stroke.tool],
+    colour: stroke.colour,
+    size: stroke.size,
+    samples: new Uint8Array(stroke.samples),
+  });
+  return { row: create(RowSchema, { seq, row: { case: "stroke", value } }), ...visible };
 }
 
 function deletedRow(tombstone: Tombstone): VisibleRow {
