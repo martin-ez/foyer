@@ -33,6 +33,7 @@ import type { GoogleConnection } from "@foyer/shared/gen/foyer/calendar/v1/calen
 import {
   type Input,
   type Stroke,
+  type StrokeAdd,
   StrokeSchema,
   type Tool,
 } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
@@ -58,6 +59,7 @@ import {
   type PullReply,
   type Row,
   RowKind,
+  RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { type Completion, CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import {
@@ -72,6 +74,7 @@ import { spotInSpace, spotOnPage } from "../page/sticker-layout";
 import { currentOccurrence, firstDateOf, repeatFromKind, tickOf } from "../tasks/repeats";
 import { itemsUnder } from "../tasks/task-lists";
 import { blocksIn } from "../text/text-groups";
+import { keptPages } from "./kept-pages";
 
 /** What happens to the items under a task when it's deleted: they're deleted too, they move up to
  *  its own parent, or to the top of its space. */
@@ -113,6 +116,10 @@ export type SyncState = {
   textBlocks: ReadonlyMap<string, TextBlock>;
   /** The strokes on the pages whose ink the device has pulled, by id. */
   strokes: ReadonlyMap<string, Stroke>;
+  /** The pages whose ink the device keeps between launches and has pulled, which it can open
+   *  without a connection, or null on a device that keeps no ink between launches, or that hasn't
+   *  read what it kept yet. */
+  inkHeld: ReadonlySet<string> | null;
   /** The member's connection to their Google account, or null when they aren't connected. */
   googleConnection: GoogleConnection | null;
   /** How many changes the household hasn't saved yet. */
@@ -175,6 +182,48 @@ export type UnsentChanges = {
   forgetAll(): void;
 };
 
+/** A row a device keeps, by its kind and id, with the page a stroke is on. */
+export type KeptRow = { kind: string; id: string; pageId: string | null; row: Row };
+
+/** What a device kept of the household when it last ran. */
+export type KeptHousehold = {
+  /** Each row as it was last received. */
+  rows: Row[];
+  /** Where the device had caught up to: with the household under "", and with each page's ink
+   *  under the page's id. */
+  cursors: ReadonlyMap<string, bigint>;
+  /** When each page was last opened on the device, in milliseconds since 1970. */
+  opened: ReadonlyMap<string, number>;
+};
+
+/** Where a device keeps what the household sends it between launches, with the ink of the pages it
+ *  keeps (`keptPages`). Writes are kept in the order they're made. */
+export type HouseholdStore = {
+  /** What was kept when the device last ran. */
+  load(): Promise<KeptHousehold>;
+  /** Keeps a row in place of the one with the same kind and id. */
+  keepRow(row: KeptRow): void;
+  /** Forgets a deleted row. */
+  forgetRow(kind: string, id: string): void;
+  /** Keeps where the device has caught up to: with the household when `pageId` is empty, as in a
+   *  pull, or else with the page's ink. */
+  keepCursor(pageId: string, cursor: bigint): void;
+  /** Keeps when a page was last opened on the device, in milliseconds since 1970. */
+  keepOpened(pageId: string, at: number): void;
+  /** Forgets the strokes, ink cursor and opening time of pages whose ink isn't kept any more. */
+  forgetPages(pageIds: readonly string[]): void;
+  /** Forgets everything kept for the member. */
+  forgetAll(): void;
+};
+
+/** Whether the device can open a page now: any page while it's connected to the household, but
+ *  without a connection only one whose ink it holds, so that nobody writes over ink they can't
+ *  see. A device that keeps no ink between launches opens any page. */
+export function canOpenPage(state: Pick<SyncState, "status" | "inkHeld">, pageId: string): boolean {
+  const connected = state.status === "catching-up" || state.status === "up-to-date";
+  return connected || state.inkHeld === null || state.inkHeld.has(pageId);
+}
+
 type Pending = { change: Change; describe: string; pushId?: string };
 
 function nextPush(unsent: Pending[]): Pending[] {
@@ -189,9 +238,10 @@ function nextPush(unsent: Pending[]): Pending[] {
   return unsent.slice(0, end);
 }
 
-/** Keeps a device in step with the household, in memory: catches up when it connects, applies
- *  what others change, and shows the member's own changes at once until the household commits or
- *  refuses them. Connects again after a drop, waiting longer each time, until signed out. */
+/** Keeps a device in step with the household, in memory and in its store if it has one: catches
+ *  up when it connects, applies what others change, and shows the member's own changes at once
+ *  until the household commits or refuses them. Connects again after a drop, waiting longer each
+ *  time, until signed out. */
 export class HouseholdSync {
   /** Which page the device is on and where it's pointing, and who else is there. */
   readonly live = new LiveLane((message) => this.#send(message));
@@ -200,6 +250,7 @@ export class HouseholdSync {
   readonly #connect: Connect;
   readonly #today: () => string;
   readonly #unsent: UnsentChanges | undefined;
+  readonly #store: HouseholdStore | undefined;
   #restored: "not-yet" | "restoring" | "done";
   readonly #listeners = new Set<() => void>();
   readonly #members = new Map<string, { seq: bigint; member: Member }>();
@@ -213,7 +264,21 @@ export class HouseholdSync {
   readonly #textBlocks = new Map<string, { seq: bigint; block: TextBlock }>();
   readonly #strokes = new Map<string, { seq: bigint; stroke: Stroke }>();
   readonly #inkCursors = new Map<string, bigint>();
-  #followedPage: string | null = null;
+  /** The page the device shows, whose ink it follows. */
+  #shownPage: string | null = null;
+  /** The pages whose ink the device keeps, with a store. */
+  #keptPages = new Set<string>();
+  /** When each page was last opened on the device, with a store. */
+  readonly #opened = new Map<string, number>();
+  /** Pages whose ink to pull on this connection, one after another. */
+  #inkQueue: string[] = [];
+  /** The page whose ink is being pulled, which pulls again until it's done. */
+  #inkPulling: string | null = null;
+  /** The page the connection follows: the last whose ink it pulled. */
+  #inkFollowed: string | null = null;
+  /** How many pulls of a page's ink haven't been answered yet. */
+  #inkPullsUnanswered = 0;
+  /** Whether the device has every change to the followed page's ink so far. */
   #inkCaughtUp = false;
   readonly #rowsOfKind = {
     member: this.#members,
@@ -242,51 +307,78 @@ export class HouseholdSync {
 
   /** `today` gives the device's own date, as an ISO 8601 date: by default from its clock and time
    *  zone. `unsent` keeps the member's unsent changes between launches: those it holds are sent
-   *  once it's started, before anything new, and it forgets them all if the session ends. */
+   *  once it's started, before anything new, and it forgets them all if the session ends. `store`
+   *  keeps what the household sends, with the ink of the pages in `keptPages`: the device starts
+   *  from what it kept, catches up from there, and forgets it all if the session ends. */
   constructor(options: {
     memberId: string;
     connect: Connect;
     today?: () => string;
     unsent?: UnsentChanges;
+    store?: HouseholdStore;
   }) {
     this.#memberId = options.memberId;
     this.#connect = options.connect;
     this.#today = options.today ?? (() => localToday());
     this.#unsent = options.unsent;
-    this.#restored = options.unsent ? "not-yet" : "done";
+    this.#store = options.store;
+    this.#restored = options.unsent || options.store ? "not-yet" : "done";
     this.#state = this.#currentState();
   }
 
-  /** Connects, and keeps connecting again until stopped or signed out. */
+  /** Connects, and keeps connecting again until stopped or signed out. With a store, it first
+   *  reads what it kept. */
   start(): void {
     if (!this.#stopped) return;
     this.#stopped = false;
     this.#restore();
+    if (this.#store && this.#restored !== "done") {
+      this.#status = "connecting";
+      this.#changed();
+      return;
+    }
     this.#open();
   }
 
   #restore(): void {
-    if (this.#restored !== "not-yet" || !this.#unsent) return;
+    if (this.#restored !== "not-yet") return;
     this.#restored = "restoring";
-    const finish = (kept: KeptChange[]) => {
-      const making = new Set(this.#pending.map(({ change }) => change.changeId));
-      const restored: Pending[] = [];
-      const unreadable: string[] = [];
-      for (const { changeId, encoded, describe } of kept) {
-        if (making.has(changeId)) continue;
-        try {
-          restored.push({ change: fromBinary(ChangeSchema, encoded), describe });
-        } catch {
-          unreadable.push(changeId);
-        }
-      }
-      if (unreadable.length > 0) this.#unsent?.forget(unreadable);
-      this.#pending = [...restored, ...this.#pending];
+    const unsent = this.#unsent?.load().catch(() => []) ?? Promise.resolve([]);
+    const kept = this.#store?.load().catch(() => null) ?? Promise.resolve(null);
+    Promise.all([unsent, kept]).then(([changes, household]) => {
+      if (household) this.#restoreHousehold(household);
+      this.#restoreUnsent(changes);
       this.#restored = "done";
+      if (this.#store && !this.#stopped && !this.#connection) this.#open();
       this.#pushUnsent();
       this.#changed();
-    };
-    this.#unsent.load().then(finish, () => finish([]));
+    });
+  }
+
+  #restoreUnsent(kept: KeptChange[]): void {
+    const making = new Set(this.#pending.map(({ change }) => change.changeId));
+    const restored: Pending[] = [];
+    const unreadable: string[] = [];
+    for (const { changeId, encoded, describe } of kept) {
+      if (making.has(changeId)) continue;
+      try {
+        restored.push({ change: fromBinary(ChangeSchema, encoded), describe });
+      } catch {
+        unreadable.push(changeId);
+      }
+    }
+    if (unreadable.length > 0) this.#unsent?.forget(unreadable);
+    this.#pending = [...restored, ...this.#pending];
+  }
+
+  #restoreHousehold({ rows, cursors, opened }: KeptHousehold): void {
+    this.#apply(rows, "store");
+    for (const [pageId, cursor] of cursors) {
+      if (pageId === "") this.#cursor = cursor;
+      else this.#inkCursors.set(pageId, cursor);
+    }
+    for (const [pageId, at] of opened) if (!this.#opened.has(pageId)) this.#opened.set(pageId, at);
+    this.#updateKeptPages();
   }
 
   /** Closes the connection and stops connecting again. */
@@ -787,12 +879,22 @@ export class HouseholdSync {
     });
   }
 
-  /** Pulls a page's ink, from where the device last caught up with it, and then receives its new
-   *  and erased strokes, until it follows another page. It pulls again on connecting again. */
+  /** Pulls the ink of the page the device shows, from where it last caught up with it, and then
+   *  receives its new and erased strokes, until it follows another page. It pulls again on
+   *  connecting again. With a store, the page counts as opened now, among the pages it keeps. */
   followInk(pageId: string): void {
-    if (pageId === this.#followedPage) return;
-    this.#followedPage = pageId;
-    this.#pullInk();
+    if (pageId === this.#shownPage) return;
+    this.#shownPage = pageId;
+    if (this.#store) {
+      const at = Date.now();
+      this.#opened.set(pageId, at);
+      this.#store.keepOpened(pageId, at);
+      this.#updateKeptPages();
+    }
+    this.#inkQueue = this.#inkQueue.filter((queued) => queued !== pageId);
+    this.#inkPulling = null;
+    this.#pullInk(pageId);
+    this.#changed();
   }
 
   /** Adds a stroke drawn on a page, with the page if nobody has put anything on it yet, and
@@ -833,11 +935,70 @@ export class HouseholdSync {
     if (erases.length > 0) this.#make("erasing", ...erases);
   }
 
-  #pullInk(): void {
-    const pageId = this.#followedPage;
-    if (!pageId || (this.#status !== "catching-up" && this.#status !== "up-to-date")) return;
+  #connected(): boolean {
+    return this.#status === "catching-up" || this.#status === "up-to-date";
+  }
+
+  #pullInk(pageId: string, cursor = this.#inkCursors.get(pageId) ?? 0n): void {
+    if (!this.#connected()) return;
+    this.#inkPulling = pageId;
+    this.#inkFollowed = pageId;
     this.#inkCaughtUp = false;
-    this.#send({ case: "pull", value: { pageId, cursor: this.#inkCursors.get(pageId) ?? 0n } });
+    this.#inkPullsUnanswered += 1;
+    this.#send({ case: "pull", value: { pageId, cursor } });
+  }
+
+  /** Pulls the next page in the queue, once the page being pulled is done. With the queue empty,
+   *  pulls the shown page again if another was pulled after it, so that the connection follows it. */
+  #pullNextInk(): void {
+    if (!this.#connected() || this.#inkPulling) return;
+    const next =
+      this.#inkQueue.shift() ?? (this.#shownPage !== this.#inkFollowed ? this.#shownPage : null);
+    if (next) this.#pullInk(next);
+  }
+
+  #keepsInk(pageId: string): boolean {
+    return !this.#store || this.#keptPages.has(pageId);
+  }
+
+  #setInkCursor(pageId: string, cursor: bigint): void {
+    if (!this.#keepsInk(pageId)) return;
+    this.#inkCursors.set(pageId, cursor);
+    this.#store?.keepCursor(pageId, cursor);
+  }
+
+  /** Works out which pages' ink a device with a store keeps now, forgets the ink of those it no
+   *  longer keeps, except changes not yet sent, and queues pulling those it now keeps. */
+  #updateKeptPages(): void {
+    if (!this.#store) return;
+    const kept = keptPages({
+      today: this.#today(),
+      spaces: [...this.#spaces.values()].map(({ space }) => space),
+      pages: new Map([...this.#pages].map(([id, { page }]) => [id, page])),
+      opened: this.#opened,
+    });
+    const dropped = new Set(
+      [...this.#inkCursors.keys(), ...this.#opened.keys()].filter((pageId) => !kept.has(pageId)),
+    );
+    for (const [id, { stroke }] of this.#strokes) {
+      if (kept.has(stroke.pageId)) continue;
+      this.#strokes.delete(id);
+      dropped.add(stroke.pageId);
+    }
+    for (const pageId of dropped) {
+      this.#inkCursors.delete(pageId);
+      this.#opened.delete(pageId);
+    }
+    if (dropped.size > 0) this.#store.forgetPages([...dropped]);
+    const added = [...kept].filter((pageId) => !this.#keptPages.has(pageId));
+    this.#keptPages = kept;
+    this.#inkQueue = this.#inkQueue.filter((pageId) => kept.has(pageId));
+    if (!this.#connected()) return;
+    for (const pageId of added) {
+      if (pageId !== this.#inkPulling && !this.#inkQueue.includes(pageId)) {
+        this.#inkQueue.push(pageId);
+      }
+    }
   }
 
   #orderAfter(groupId: string, after: string | null): string {
@@ -1081,7 +1242,12 @@ export class HouseholdSync {
         this.#attempts = 0;
         this.#status = "catching-up";
         this.#send({ case: "pull", value: { cursor: this.#cursor } });
-        this.#pullInk();
+        this.#updateKeptPages();
+        this.#inkQueue = [this.#shownPage, ...(this.#store ? this.#keptPages : [])].filter(
+          (pageId, index, pages): pageId is string =>
+            pageId !== null && pages.indexOf(pageId) === index,
+        );
+        this.#pullNextInk();
         this.#pushUnsent();
         this.live.connected();
         break;
@@ -1093,24 +1259,36 @@ export class HouseholdSync {
         this.#apply(message.value.rows);
         if (message.value.done) {
           this.#cursor = message.value.cursor;
+          this.#store?.keepCursor("", this.#cursor);
           this.#status = "up-to-date";
+          this.#updateKeptPages();
+          this.#pullNextInk();
         } else {
           this.#send({ case: "pull", value: { cursor: message.value.cursor } });
         }
         break;
-      case "updates":
-        this.#apply(message.value.rows);
+      case "updates": {
+        const { rows } = message.value;
+        this.#apply(rows);
+        const cursor = this.#cursor;
         if (this.#status === "up-to-date") {
-          for (const { seq } of message.value.rows) if (seq > this.#cursor) this.#cursor = seq;
+          for (const { seq } of rows) if (seq > this.#cursor) this.#cursor = seq;
         }
-        this.#caughtUpWithInk(message.value.rows);
+        if (this.#cursor !== cursor) this.#store?.keepCursor("", this.#cursor);
+        this.#caughtUpWithInk(rows);
+        if (rows.some(({ row }) => row.case === "space" || row.case === "page")) {
+          this.#updateKeptPages();
+          this.#pullNextInk();
+        }
         break;
+      }
       case "committed": {
         const reported = new Set<string>();
         this.#unsent?.forget(message.value.results.map(({ changeId }) => changeId));
         for (const { changeId, result } of message.value.results) {
           const pending = this.#pending.find(({ change }) => change.changeId === changeId);
           this.#pending = this.#pending.filter((each) => each !== pending);
+          if (pending && result.case === "seq") this.#keepOwnInk(pending.change, result.value);
           if (!pending || result.case !== "refused") continue;
           const { actionId } = pending.change;
           if (reported.has(actionId)) continue;
@@ -1124,85 +1302,107 @@ export class HouseholdSync {
   }
 
   #receiveInk({ pageId, rows, cursor, done }: PullReply): void {
+    this.#inkPullsUnanswered = Math.max(0, this.#inkPullsUnanswered - 1);
     this.#apply(rows);
-    if (done) this.#inkCursors.set(pageId, cursor);
-    if (pageId !== this.#followedPage) return;
-    if (done) this.#inkCaughtUp = true;
-    else this.#send({ case: "pull", value: { pageId, cursor } });
+    if (done) this.#setInkCursor(pageId, cursor);
+    const followed = pageId === this.#inkFollowed && this.#inkPullsUnanswered === 0;
+    if (done && followed) this.#inkCaughtUp = true;
+    if (pageId === this.#inkPulling) {
+      if (!done) {
+        this.#pullInk(pageId, cursor);
+        return;
+      }
+      this.#inkPulling = null;
+    } else if (!done && this.#store && this.#keepsInk(pageId) && !this.#inkQueue.includes(pageId)) {
+      this.#inkQueue.push(pageId);
+    }
+    this.#pullNextInk();
   }
 
   #caughtUpWithInk(rows: Row[]): void {
-    const pageId = this.#followedPage;
+    const pageId = this.#inkFollowed;
     if (!pageId || !this.#inkCaughtUp) return;
     for (const { seq, row } of rows) {
       const isInk =
         row.case === "stroke" || (row.case === "deleted" && row.value.kind === RowKind.STROKE);
-      if (isInk && seq > (this.#inkCursors.get(pageId) ?? 0n)) this.#inkCursors.set(pageId, seq);
+      if (isInk && seq > (this.#inkCursors.get(pageId) ?? 0n)) this.#setInkCursor(pageId, seq);
     }
   }
 
-  #apply(rows: Row[]): void {
-    for (const { seq, row } of rows) {
+  /** Keeps a stroke the member added or erased once the household commits it, as the household
+   *  now holds it, for when the connection doesn't follow its page and so doesn't receive it. */
+  #keepOwnInk({ change }: Change, seq: bigint): void {
+    if (change.case === "strokeAdd") {
+      const { strokeId } = change.value;
+      if ((this.#strokes.get(strokeId)?.seq ?? -1n) >= seq) return;
+      const stroke = strokeOf(change.value, this.#memberId);
+      this.#apply([create(RowSchema, { seq, row: { case: "stroke", value: stroke } })]);
+    } else if (change.case === "strokeErase") {
+      const erased = change.value.strokeIds
+        .filter((id) => (this.#strokes.get(id)?.seq ?? seq) < seq)
+        .map((id) =>
+          create(RowSchema, {
+            seq,
+            row: { case: "deleted", value: { kind: RowKind.STROKE, id } },
+          }),
+        );
+      this.#apply(erased);
+    }
+  }
+
+  /** Applies rows the household sent, or that the device kept, which it doesn't keep again. A
+   *  device with a store keeps only the strokes of the pages it keeps. */
+  #apply(rows: Row[], from: "household" | "store" = "household"): void {
+    for (const received of rows) {
+      const { seq, row } = received;
+      const key = keyOf(row);
+      if (!key) continue;
+      if (row.case === "stroke" && from === "household" && !this.#keepsInk(row.value.pageId)) {
+        continue;
+      }
+      const known = this.#rowsOfKind[key.kind];
+      if (!this.#isNewer(key.kind, key.id, seq, known)) continue;
       switch (row.case) {
         case "member":
-          if (this.#isNewer("member", row.value.id, seq, this.#members)) {
-            this.#members.set(row.value.id, { seq, member: row.value });
-          }
+          this.#members.set(key.id, { seq, member: row.value });
           break;
         case "space":
-          if (this.#isNewer("space", row.value.id, seq, this.#spaces)) {
-            this.#spaces.set(row.value.id, { seq, space: row.value });
-          }
+          this.#spaces.set(key.id, { seq, space: row.value });
           break;
         case "page":
-          if (this.#isNewer("page", row.value.id, seq, this.#pages)) {
-            this.#pages.set(row.value.id, { seq, page: row.value });
-          }
+          this.#pages.set(key.id, { seq, page: row.value });
           break;
         case "item":
-          if (this.#isNewer("item", row.value.id, seq, this.#items)) {
-            this.#items.set(row.value.id, { seq, item: row.value });
-          }
+          this.#items.set(key.id, { seq, item: row.value });
           break;
         case "sticker":
-          if (this.#isNewer("sticker", row.value.id, seq, this.#stickers)) {
-            this.#stickers.set(row.value.id, { seq, sticker: row.value });
-          }
+          this.#stickers.set(key.id, { seq, sticker: row.value });
           break;
         case "completion":
-          if (this.#isNewer("completion", row.value.id, seq, this.#completions)) {
-            this.#completions.set(row.value.id, { seq, completion: row.value });
-          }
+          this.#completions.set(key.id, { seq, completion: row.value });
           break;
         case "googleConnection":
-          if (this.#isNewer("googleConnection", row.value.memberId, seq, this.#googleConnections)) {
-            this.#googleConnections.set(row.value.memberId, { seq, connection: row.value });
-          }
+          this.#googleConnections.set(key.id, { seq, connection: row.value });
           break;
         case "textGroup":
-          if (this.#isNewer("textGroup", row.value.id, seq, this.#textGroups)) {
-            this.#textGroups.set(row.value.id, { seq, group: row.value });
-          }
+          this.#textGroups.set(key.id, { seq, group: row.value });
           break;
         case "textBlock":
-          if (this.#isNewer("textBlock", row.value.id, seq, this.#textBlocks)) {
-            this.#textBlocks.set(row.value.id, { seq, block: row.value });
-          }
+          this.#textBlocks.set(key.id, { seq, block: row.value });
           break;
         case "stroke":
-          if (this.#isNewer("stroke", row.value.id, seq, this.#strokes)) {
-            this.#strokes.set(row.value.id, { seq, stroke: row.value });
-          }
+          this.#strokes.set(key.id, { seq, stroke: row.value });
           break;
-        case "deleted": {
-          const kind = rowKindNames[row.value.kind];
-          const rows = kind && this.#rowsOfKind[kind];
-          if (kind && rows && this.#isNewer(kind, row.value.id, seq, rows)) {
-            rows.delete(row.value.id);
-            this.#deleted.set(`${kind} ${row.value.id}`, seq);
-          }
+        case "deleted":
+          known.delete(key.id);
+          this.#deleted.set(`${key.kind} ${key.id}`, seq);
           break;
-        }
+      }
+      if (from === "store" || !this.#store) continue;
+      if (row.case === "deleted") this.#store.forgetRow(key.kind, key.id);
+      else {
+        const pageId = row.case === "stroke" ? row.value.pageId : null;
+        this.#store.keepRow({ ...key, pageId, row: received });
       }
     }
   }
@@ -1231,12 +1431,17 @@ export class HouseholdSync {
 
   #closed(code: number): void {
     this.#drop();
+    this.#inkQueue = [];
+    this.#inkPulling = null;
+    this.#inkFollowed = null;
+    this.#inkPullsUnanswered = 0;
     this.#inkCaughtUp = false;
     for (const pending of this.#pending) pending.pushId = undefined;
     if (code === signedOutCloseCode) {
       this.#stopped = true;
       this.#status = "signed-out";
       this.#unsent?.forgetAll();
+      this.#store?.forgetAll();
     } else {
       this.#status = "offline";
       if (!this.#stopped) {
@@ -1496,12 +1701,9 @@ export class HouseholdSync {
         case "textBlockDelete":
           textBlocks.delete(change.change.value.blockId);
           break;
-        case "strokeAdd": {
-          const { strokeId, $typeName: _, ...drawn } = change.change.value;
-          const stroke = { ...drawn, id: strokeId, drawnBy: this.#memberId };
-          strokes.set(strokeId, create(StrokeSchema, stroke));
+        case "strokeAdd":
+          strokes.set(change.change.value.strokeId, strokeOf(change.change.value, this.#memberId));
           break;
-        }
         case "strokeErase":
           for (const id of change.change.value.strokeIds) strokes.delete(id);
           break;
@@ -1524,6 +1726,7 @@ export class HouseholdSync {
       textGroups,
       textBlocks,
       strokes,
+      inkHeld: this.#store && this.#restored === "done" ? new Set(this.#inkCursors.keys()) : null,
       googleConnection: this.#googleConnections.get(this.#memberId)?.connection ?? null,
       unsaved: this.#pending.length,
       problems: [...this.#problems],
@@ -1540,6 +1743,26 @@ const calendarPageKinds: Record<CalendarPageKind, PageKind> = {
 function sizeOfCalendarPage(pageId: string, pages: ReadonlyMap<string, PageSize>): PageSize {
   const calendar = calendarPageOf(pageId);
   return pages.get(pageId) ?? pageSizeFor(calendar?.kind ?? "day");
+}
+
+function strokeOf(added: StrokeAdd, memberId: string): Stroke {
+  const { strokeId, $typeName: _, ...drawn } = added;
+  return create(StrokeSchema, { ...drawn, id: strokeId, drawnBy: memberId });
+}
+
+function keyOf(row: Row["row"]): { kind: RowKindName; id: string } | null {
+  switch (row.case) {
+    case undefined:
+      return null;
+    case "deleted": {
+      const kind = rowKindNames[row.value.kind];
+      return kind ? { kind, id: row.value.id } : null;
+    }
+    case "googleConnection":
+      return { kind: "googleConnection", id: row.value.memberId };
+    default:
+      return { kind: row.case, id: row.value.id };
+  }
 }
 
 function stickerKindOf(item: Item): StickerKind {

@@ -26,7 +26,8 @@
         {
           "faceIDPermission": false
         }
-      ]
+      ],
+      "expo-sqlite"
     ]
   }
 }
