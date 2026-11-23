@@ -59,6 +59,33 @@ export async function openDayInWeek(page: Page, weeks: number, weekday: number):
   return day;
 }
 
+/** A day of the month `months` months from this one, by the browser's clock and time zone, as the
+ *  app describes it, such as "Monday, November 15, 2027". */
+export function describeDayOfMonth(page: Page, months: number, day: number): Promise<string> {
+  return page.evaluate(
+    ([ahead, of]) => {
+      const now = new Date();
+      const date = new Date(now.getFullYear(), now.getMonth() + ahead, of);
+      const format = { weekday: "long", day: "numeric", month: "long", year: "numeric" } as const;
+      return new Intl.DateTimeFormat(undefined, format).format(date);
+    },
+    [months, day] as const,
+  );
+}
+
+/** Opens the page of a day of the month `months` months from this one, through the month pages,
+ *  and returns the day as the app describes it. */
+export async function openDayInMonth(page: Page, months: number, day: number): Promise<string> {
+  await show(page, "Month");
+  await page.getByRole("button", { name: "Today" }).click();
+  for (let step = 0; step < months; step += 1) {
+    await page.getByRole("button", { name: "Next month" }).click();
+  }
+  const name = await describeDayOfMonth(page, months, day);
+  await page.getByRole("button", { name: `Open ${name}` }).click();
+  return name;
+}
+
 /** The open day page, which holds what's on it. */
 export function dayPage(page: Page, day: string): Locator {
   return page.getByLabel(day, { exact: true });
