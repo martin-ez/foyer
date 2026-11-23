@@ -1,11 +1,12 @@
 import { create } from "@bufbuild/protobuf";
 import { itemPageId, spacePageId } from "@foyer/shared";
 import { ItemKind, ItemSchema } from "@foyer/shared/gen/foyer/item/v1/item_pb";
-import { SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { CalendarState, SpaceKind, SpaceSchema } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { StickerKind, StickerSchema } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import { CompletionSchema } from "@foyer/shared/gen/foyer/task/v1/task_pb";
 import { describe, expect, it } from "vitest";
 import {
+  canMoveTo,
   doneTasks,
   isStickerDone,
   itemsUnder,
@@ -283,5 +284,53 @@ describe("itemsUnder and openTasksUnder", () => {
         .map(({ id }) => id)
         .sort(),
     ).toEqual(["b", "d"]);
+  });
+});
+
+describe("canMoveTo", () => {
+  const space = (id: string, calendarState: CalendarState) =>
+    create(SpaceSchema, { id, kind: SpaceKind.SHARED, calendarState });
+  const garden = space("019a8f4e-5c00-7000-8000-0000000000a3", CalendarState.SYNCING);
+  const trips = space("019a8f4e-5c00-7000-8000-0000000000a4", CalendarState.PAUSED);
+  const notes = space("019a8f4e-5c00-7000-8000-0000000000a5", CalendarState.NONE);
+  const kitchen = space("019a8f4e-5c00-7000-8000-0000000000a6", CalendarState.SYNCING);
+  const spaces = [garden, trips, notes, kitchen];
+  const item = (id: string, parentId: string, kind = ItemKind.TASK, seriesId = "") =>
+    create(ItemSchema, { id, kind, spaceId: garden.id, title: id, parentId, seriesId });
+  const tree = (...items: ReturnType<typeof item>[]) =>
+    new Map(items.map((found) => [found.id, found]));
+
+  it("lets a task holding an event at any depth move only into a space with a Google calendar", () => {
+    const items = tree(item("a", ""), item("b", "a"), item("c", "b", ItemKind.EVENT));
+    const a = items.get("a") ?? item("a", "");
+
+    expect(canMoveTo(a, kitchen.id, items, spaces)).toBe(true);
+    expect(canMoveTo(a, trips.id, items, spaces)).toBe(true);
+    expect(canMoveTo(a, notes.id, items, spaces)).toBe(false);
+    expect(canMoveTo(a, inbox.id, items, spaces)).toBe(false);
+  });
+
+  it("lets a task holding no event move into any space", () => {
+    const items = tree(item("a", ""), item("b", "a"));
+    const a = items.get("a") ?? item("a", "");
+
+    expect(canMoveTo(a, notes.id, items, spaces)).toBe(true);
+    expect(canMoveTo(a, inbox.id, items, spaces)).toBe(true);
+  });
+
+  it("keeps a task holding an occurrence of a repeating event in its own space", () => {
+    const items = tree(item("a", ""), item("b", "a", ItemKind.EVENT, "series"));
+    const a = items.get("a") ?? item("a", "");
+
+    expect(canMoveTo(a, garden.id, items, spaces)).toBe(true);
+    expect(canMoveTo(a, trips.id, items, spaces)).toBe(false);
+  });
+
+  it("lets an event move only into a space with a Google calendar", () => {
+    const event = item("e", "", ItemKind.EVENT);
+    const items = tree(event);
+
+    expect(canMoveTo(event, trips.id, items, spaces)).toBe(true);
+    expect(canMoveTo(event, notes.id, items, spaces)).toBe(false);
   });
 });

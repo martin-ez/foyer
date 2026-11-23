@@ -18,6 +18,7 @@ import { Checkbox } from "./checkbox";
 import { RepeatPicker } from "./repeat-picker";
 import { firstDateOf, type RepeatChoice, repeatProblem } from "./repeats";
 import { changedFields, shownFields, shownRepeat, type TaskEdits } from "./task-edits";
+import { canMoveTo } from "./task-lists";
 import { DeleteTask, TaskNesting } from "./task-nesting";
 import { useTick } from "./ticking";
 
@@ -84,7 +85,9 @@ export function TaskEditor({
     .slice(0, 5);
   const nameOf = (memberId: string) =>
     state.members.find(({ id }) => id === memberId)?.name ?? "someone";
-  const others = state.spaces.filter(({ id }) => id !== task.spaceId);
+  const others = state.spaces.filter(
+    ({ id }) => id !== task.spaceId && canMoveTo(task, id, state.items, state.spaces),
+  );
 
   return (
     <View
@@ -166,20 +169,24 @@ export function TaskEditor({
           />
         )}
         <TaskNesting task={task} state={state} sync={sync} onOpenTask={onOpenTask} />
-        <Text style={styles.line}>Move to</Text>
-        <View style={styles.row}>
-          {others.map((space) => {
-            const name = space.kind === SpaceKind.INBOX ? "Inbox" : space.name;
-            return (
-              <Button
-                key={space.id}
-                title={name}
-                accessibilityLabel={`Move to ${name}`}
-                onPress={() => sync.moveTask(task.id, space.id)}
-              />
-            );
-          })}
-        </View>
+        {others.length > 0 ? (
+          <>
+            <Text style={styles.line}>Move to</Text>
+            <View style={styles.row}>
+              {others.map((space) => {
+                const name = space.kind === SpaceKind.INBOX ? "Inbox" : space.name;
+                return (
+                  <Button
+                    key={space.id}
+                    title={name}
+                    accessibilityLabel={`Move to ${name}`}
+                    onPress={() => sync.moveTask(task.id, space.id)}
+                  />
+                );
+              })}
+            </View>
+          </>
+        ) : null}
         <DeleteTask task={task} state={state} sync={sync} onDeleted={onClose} />
       </ScrollView>
     </View>

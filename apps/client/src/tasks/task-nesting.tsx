@@ -1,13 +1,14 @@
 import { limitItemTitle } from "@foyer/shared";
 import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
-import { CalendarState, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
+import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { useState } from "react";
 import { Button, StyleSheet, Text, TextInput, View } from "react-native";
 import type { HouseholdSync, ItemsUnderDeleted, SyncState } from "../sync/household-sync";
-import { itemsUnder } from "./task-lists";
+import { canMoveTo, itemsUnder } from "./task-lists";
 
 /** Where a task sits among others: the task it's under, which can be opened, with a way to take it
- *  out, a way to add a task under it, and a search for another task to put it under. */
+ *  out, a way to add a task under it, and a search for another task to put it under, in a space
+ *  the household lets it move to with what's under it. */
 export function TaskNesting({
   task,
   state,
@@ -41,20 +42,26 @@ export function TaskNesting({
         />
         <Button title="Add under it" disabled={blocked} onPress={add} />
       </View>
-      <PutUnderTask item={task} state={state} sync={sync} label="Put it under another task" />
+      <PutUnderTask
+        item={task}
+        state={state}
+        sync={sync}
+        label="Put it under another task"
+        canGoIn={(spaceId) => canMoveTo(task, spaceId, state.items, state.spaces)}
+      />
     </View>
   );
 }
 
-/** Where an event sits among tasks: the task it's under, which can be opened, with a way to take
- *  it out, and a search for a task to put it under, in its own space or one with a Google
- *  calendar, where an event can go. */
 /** Whether an event is an occurrence of a repeating series, which moves to another space only with
  *  its series, in Google Calendar. */
 export function repeats(event: Item): boolean {
   return event.seriesId !== "";
 }
 
+/** Where an event sits among tasks: the task it's under, which can be opened, with a way to take
+ *  it out, and a search for a task to put it under, in its own space or one with a Google
+ *  calendar, where an event can go. */
 export function EventNesting({
   event,
   state,
@@ -66,13 +73,6 @@ export function EventNesting({
   sync: HouseholdSync;
   onOpenTask: (itemId: string) => void;
 }) {
-  const canGoIn = (spaceId: string) =>
-    spaceId === event.spaceId ||
-    (!repeats(event) &&
-      state.spaces.some(
-        ({ id, calendarState }) => id === spaceId && calendarState !== CalendarState.NONE,
-      ));
-
   return (
     <View style={styles.section}>
       <ParentOf item={event} state={state} sync={sync} onOpenTask={onOpenTask} />
@@ -81,7 +81,7 @@ export function EventNesting({
         state={state}
         sync={sync}
         label="Put it under a task"
-        canGoIn={canGoIn}
+        canGoIn={(spaceId) => canMoveTo(event, spaceId, state.items, state.spaces)}
       />
     </View>
   );
