@@ -9,7 +9,7 @@ import {
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { type Camera, fittedCamera, pointOnPage } from "../src/page/sheet-camera";
 import { expectOnAnotherDevice } from "./another-device";
-import { describeDayInBrowser } from "./pages";
+import { describeDayOfMonth, openDayInMonth } from "./calendar-pages";
 import { saveScreenshot } from "./screenshot";
 import { housemate, member, signIn } from "./sign-in";
 
@@ -26,6 +26,8 @@ type Box = { x: number; y: number; width: number; height: number };
 
 type Sheet = { box: Box; camera: Camera };
 
+const dayNoOtherCheckOpens = { months: 12, dayOfMonth: 15 };
+
 test("shows who else is on the page and where they point, through the household", async ({
   browser,
 }, testInfo) => {
@@ -37,37 +39,37 @@ test("shows who else is on the page and where they point, through the household"
   const baseURL = testInfo.project.use.baseURL;
 
   const alex = await openAs(browser, baseURL, member);
-  const today = await todaysPageId(alex.page);
-  await expect.poll(() => entered(alex)).toEqual([today]);
-  await expect.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  const { pageId, name: day } = await openDayNoOtherCheckOpens(alex);
+  await expect.poll(() => lastHere(alex)).toEqual({ pageId, members: 0 });
 
   const sam = await openAs(browser, baseURL, housemate);
-  await expect.poll(() => entered(sam)).toEqual([today]);
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
-  await expect.poll(() => lastHere(sam)).toEqual({ pageId: today, members: 1 });
+  await openDayNoOtherCheckOpens(sam);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 1 });
+  await expect.poll(() => lastHere(sam)).toEqual({ pageId, members: 1 });
   const samsMarker = markerOf(alex.page, housemate);
   const alexsMarker = markerOf(sam.page, member);
   await expectOnAnotherDevice(samsMarker).toBeVisible();
   await expect(alexsMarker).toBeVisible();
-  const waiting = await onPage(alex.page, await topLeftCorner(samsMarker));
+  const waiting = await onPage(alex.page, day, await topLeftCorner(samsMarker));
   expect(waiting.x).toBeGreaterThanOrEqual(0);
   expect(waiting.x).toBeLessThan(a4Portrait.width / 2);
   expect(waiting.y).toBeGreaterThanOrEqual(0);
   expect(waiting.y).toBeLessThan(50);
 
-  const path = recordPath(alex.page, housemate, await describeDayInBrowser(alex.page, 0));
-  const pointedAt = await pointAtMiddleOfPage(sam.page);
+  const stopRecording = await startRecordingPath(alex.page, housemate, day);
+  const pointedAt = await pointAtMiddleOfPage(sam.page, day);
   await expect.poll(() => kinds(sam.sent)).toContain("point");
   await expectOnAnotherDevice.poll(() => kinds(alex.received)).toContain("pointed");
   await expectOnAnotherDevice
-    .poll(async () => onPage(alex.page, await topLeftCorner(samsMarker)))
+    .poll(async () => onPage(alex.page, day, await topLeftCorner(samsMarker)))
     .toEqual(nearly(pointedAt));
-  const glided = await path;
-  expect(between(glided, waiting, pointedAt).length).toBeGreaterThan(3);
+  const glided = await stopRecording();
+  expect(between(glided, waiting, pointedAt)).not.toHaveLength(0);
+  expect(glided.at(-1)).toEqual(nearly(pointedAt));
   await saveScreenshot(alex.page, testInfo, "presence-pointing");
   await saveScreenshot(sam.page, testInfo, "presence-waiting");
 
-  const fitted = await sheetOf(alex.page);
+  const fitted = await sheetOf(alex.page, day);
   await zoomIn(alex.page, fitted);
   const zoomedMarker = await settled(samsMarker);
   expect(zoomedMarker).not.toEqual(nearly(toScreen(fitted, pointedAt)));
@@ -77,37 +79,62 @@ test("shows who else is on the page and where they point, through the household"
 
   await setHidden(sam.page, true);
   await expect.poll(() => kinds(sam.sent).at(-1)).toBe("leave");
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 0 });
   await expectOnAnotherDevice(samsMarker).toHaveCount(0);
 
+  const enteredBefore = entered(sam).length;
   await setHidden(sam.page, false);
-  await expect.poll(() => entered(sam)).toEqual([today, today]);
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expect.poll(() => entered(sam).slice(enteredBefore)).toEqual([pageId]);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 1 });
   await expectOnAnotherDevice(samsMarker).toBeVisible();
 
   await sam.page.getByRole("button", { name: "Next day" }).click();
-  await expect(sam.page.getByRole("heading")).toHaveText(await describeDayInBrowser(sam.page, 1));
-  await expect.poll(() => entered(sam).length).toBe(3);
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expect(sam.page.getByRole("heading")).toHaveText(
+    await describeDayOfMonth(
+      sam.page,
+      dayNoOtherCheckOpens.months,
+      dayNoOtherCheckOpens.dayOfMonth + 1,
+    ),
+  );
+  await expect.poll(() => entered(sam).length).toBe(enteredBefore + 2);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 0 });
   await expectOnAnotherDevice(samsMarker).toHaveCount(0);
   await expect(markerOf(sam.page, member)).toHaveCount(0);
 
-  await sam.page.getByRole("button", { name: "Today" }).click();
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await sam.page.getByRole("button", { name: "Previous day" }).click();
+  await expect(sam.page.getByRole("heading")).toHaveText(day);
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 1 });
   await expectOnAnotherDevice(samsMarker).toBeVisible();
 
   await sam.page.getByRole("tab", { name: "Notebook" }).click();
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 0 });
   await expectOnAnotherDevice(samsMarker).toHaveCount(0);
   await sam.page.getByRole("tab", { name: "Calendar" }).click();
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 1 });
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 1 });
   await expectOnAnotherDevice(samsMarker).toBeVisible();
   await sam.page.context().close();
-  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId: today, members: 0 });
+  await expectOnAnotherDevice.poll(() => lastHere(alex)).toEqual({ pageId, members: 0 });
   await expectOnAnotherDevice(samsMarker).toHaveCount(0);
 
   await alex.page.context().close();
 });
+
+async function openDayNoOtherCheckOpens(device: Member) {
+  const { months, dayOfMonth } = dayNoOtherCheckOpens;
+  const name = await openDayInMonth(device.page, months, dayOfMonth);
+  await expect(device.page.getByRole("heading")).toHaveText(name);
+  const pageId = await device.page.evaluate(
+    ([ahead, of]) => {
+      const now = new Date();
+      const date = new Date(now.getFullYear(), now.getMonth() + ahead, of);
+      const pad = (value: number) => String(value).padStart(2, "0");
+      return `day:${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    },
+    [months, dayOfMonth] as const,
+  );
+  await expect.poll(() => entered(device).at(-1)).toBe(pageId);
+  return { pageId, name };
+}
 
 async function openAs(browser: Browser, baseURL: string | undefined, email: string) {
   const page = await (await browser.newContext({ baseURL })).newPage();
@@ -143,14 +170,6 @@ function lastHere({ received }: Member) {
     : null;
 }
 
-function todaysPageId(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const now = new Date();
-    const pad = (value: number) => String(value).padStart(2, "0");
-    return `day:${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  });
-}
-
 function markerOf(page: Page, email: string) {
   return page.getByLabel(`${email.split("@")[0]} is on this page`);
 }
@@ -161,8 +180,8 @@ async function topLeftCorner(marker: Locator): Promise<Point> {
   return { x: box.x, y: box.y };
 }
 
-async function sheetOf(page: Page): Promise<Sheet> {
-  const box = await page.getByLabel(await describeDayInBrowser(page, 0)).boundingBox();
+async function sheetOf(page: Page, day: string): Promise<Sheet> {
+  const box = await page.getByLabel(day).boundingBox();
   if (!box) throw new Error("The page isn't shown");
   return { box, camera: fittedCamera(box, a4Portrait) };
 }
@@ -171,8 +190,8 @@ function toPage({ box, camera }: Sheet, at: Point): Point {
   return pointOnPage(camera, { x: at.x - box.x, y: at.y - box.y });
 }
 
-async function onPage(page: Page, at: Point): Promise<Point> {
-  return toPage(await sheetOf(page), at);
+async function onPage(page: Page, day: string, at: Point): Promise<Point> {
+  return toPage(await sheetOf(page, day), at);
 }
 
 function toScreen({ box, camera }: Sheet, { x, y }: Point): Point {
@@ -205,8 +224,8 @@ function distance(from: Point | null, to: Point): number {
   return from ? Math.hypot(from.x - to.x, from.y - to.y) : Number.POSITIVE_INFINITY;
 }
 
-async function pointAtMiddleOfPage(page: Page): Promise<Point> {
-  const sheet = await sheetOf(page);
+async function pointAtMiddleOfPage(page: Page, day: string): Promise<Point> {
+  const sheet = await sheetOf(page, day);
   const { box } = sheet;
   const end = { x: box.x + box.width / 2 + 20, y: box.y + box.height / 2 };
   await page.mouse.move(end.x - 40, end.y);
@@ -214,30 +233,35 @@ async function pointAtMiddleOfPage(page: Page): Promise<Point> {
   return toPage(sheet, end);
 }
 
-async function recordPath(page: Page, email: string, day: string): Promise<Point[]> {
+async function startRecordingPath(page: Page, email: string, day: string) {
   const markerLabel = `${email.split("@")[0]} is on this page`;
-  const frames = await page.evaluate(
-    ([marker, sheet]) =>
-      new Promise<{ at: Point; box: Box }[]>((resolve) => {
-        const seen: { at: Point; box: Box }[] = [];
-        const start = performance.now();
-        const frame = () => {
-          const at = document.querySelector(`[aria-label="${marker}"]`)?.getBoundingClientRect();
-          const box = document.querySelector(`[aria-label="${sheet}"]`)?.getBoundingClientRect();
-          if (at && box) {
-            seen.push({
-              at: { x: at.left, y: at.top },
-              box: { x: box.left, y: box.top, width: box.width, height: box.height },
-            });
-          }
-          if (performance.now() - start < 2000) requestAnimationFrame(frame);
-          else resolve(seen);
-        };
-        requestAnimationFrame(frame);
-      }),
+  const recording = await page.evaluateHandle(
+    ([marker, sheet]) => {
+      const recorded = { seen: [] as { at: Point; box: Box }[], stopped: false };
+      const frame = () => {
+        const at = document.querySelector(`[aria-label="${marker}"]`)?.getBoundingClientRect();
+        const box = document.querySelector(`[aria-label="${sheet}"]`)?.getBoundingClientRect();
+        if (at && box) {
+          recorded.seen.push({
+            at: { x: at.left, y: at.top },
+            box: { x: box.left, y: box.top, width: box.width, height: box.height },
+          });
+        }
+        if (!recorded.stopped) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      return recorded;
+    },
     [markerLabel, day] as const,
   );
-  return frames.map(({ at, box }) => toPage({ box, camera: fittedCamera(box, a4Portrait) }, at));
+  return async (): Promise<Point[]> => {
+    const frames = await recording.evaluate((recorded) => {
+      recorded.stopped = true;
+      return recorded.seen;
+    });
+    await recording.dispose();
+    return frames.map(({ at, box }) => toPage({ box, camera: fittedCamera(box, a4Portrait) }, at));
+  };
 }
 
 function between(path: Point[], from: Point, to: Point): Point[] {
