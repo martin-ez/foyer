@@ -60,9 +60,8 @@ type Write = { source: string; values: BindValue[] };
 const nothingKept: KeptHousehold = { rows: [], cursors: new Map(), opened: new Map() };
 
 /** A device's copy of its member's household in SQLite, with the ink of the pages it keeps, when
- *  each page was last opened on it, and the member's unsent changes. Writes are kept in the order
- *  they're made, together in one transaction for each turn of the event loop. If the database
- *  can't be opened, nothing is kept. */
+ *  each was last opened, and unsent changes. Writes are kept in order, in one transaction for each
+ *  turn of the event loop, and all or none. If the database can't be opened, nothing is kept. */
 export class HouseholdDatabase implements HouseholdStore {
   /** The member's changes the household hasn't saved yet, which a rebuild keeps. */
   readonly unsent: UnsentChanges;
@@ -219,8 +218,9 @@ export class HouseholdDatabase implements HouseholdStore {
     this.#writes = [];
     const database = await this.#database;
     if (!database || writes.length === 0 || this.#forgotten) return;
-    try {
-      await database.withTransactionAsync(async () => {
+    const loseAllTogether = () => undefined;
+    await database
+      .withTransactionAsync(async () => {
         const statements = new Map<string, Awaited<ReturnType<SqlDatabase["prepareAsync"]>>>();
         try {
           for (const { source, values } of writes) {
@@ -234,11 +234,8 @@ export class HouseholdDatabase implements HouseholdStore {
         } finally {
           for (const statement of statements.values()) await statement.finalizeAsync();
         }
-      });
-    } catch {
-      // The writes are lost together. What the household sent comes back when the device catches
-      // up again, and its unsent changes are sent while the app runs.
-    }
+      })
+      .catch(loseAllTogether);
   }
 
   #read<T>(fallback: T, read: (database: SqlDatabase) => Promise<T>): Promise<T> {

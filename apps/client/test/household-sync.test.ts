@@ -3044,7 +3044,6 @@ describe("keeping the household on the device", () => {
     household().reply(rows, seq);
   }
 
-  /** Answers each pull of a page's ink as done, with `rowsOf` the page, until no more come. */
   function answerInkPulls(rowsOf: (pageId: string) => RowInit[] = () => [], cursor = 9) {
     const end = household();
     let answered = 0;
@@ -3219,6 +3218,21 @@ describe("keeping the household on the device", () => {
     expect(canOpenPage(sync.getState(), day)).toBe(true);
     expect(canOpenPage(sync.getState(), farAhead)).toBe(false);
     expect(canOpenPage({ status: "offline", inkHeld: null }, farAhead)).toBe(true);
+  });
+
+  it("opens any page until it has read what it kept", async () => {
+    let loaded: (kept: KeptHousehold) => void = () => undefined;
+    store.load = () =>
+      new Promise((resolve) => {
+        loaded = resolve;
+      });
+
+    sync.start();
+    expect(canOpenPage(sync.getState(), farAhead)).toBe(true);
+    loaded({ rows: [], cursors: new Map(), opened: new Map() });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(canOpenPage(sync.getState(), farAhead)).toBe(false);
   });
 
   it("keeps its own strokes once committed, though the connection follows another page", async () => {

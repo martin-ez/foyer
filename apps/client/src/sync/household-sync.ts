@@ -238,10 +238,9 @@ function nextPush(unsent: Pending[]): Pending[] {
   return unsent.slice(0, end);
 }
 
-/** Keeps a device in step with the household, in memory and in its store if it has one: catches
- *  up when it connects, applies what others change, and shows the member's own changes at once
- *  until the household commits or refuses them. Connects again after a drop, waiting longer each
- *  time, until signed out. */
+/** Keeps a device in step with the household, in memory and in its store if any: catches up when
+ *  it connects, applies what others change, and shows the member's changes at once until saved or
+ *  refused. Connects again after a drop, waiting longer each time, until signed out. */
 export class HouseholdSync {
   /** Which page the device is on and where it's pointing, and who else is there. */
   readonly live = new LiveLane((message) => this.#send(message));
@@ -264,21 +263,13 @@ export class HouseholdSync {
   readonly #textBlocks = new Map<string, { seq: bigint; block: TextBlock }>();
   readonly #strokes = new Map<string, { seq: bigint; stroke: Stroke }>();
   readonly #inkCursors = new Map<string, bigint>();
-  /** The page the device shows, whose ink it follows. */
   #shownPage: string | null = null;
-  /** The pages whose ink the device keeps, with a store. */
   #keptPages = new Set<string>();
-  /** When each page was last opened on the device, with a store. */
   readonly #opened = new Map<string, number>();
-  /** Pages whose ink to pull on this connection, one after another. */
   #inkQueue: string[] = [];
-  /** The page whose ink is being pulled, which pulls again until it's done. */
   #inkPulling: string | null = null;
-  /** The page the connection follows: the last whose ink it pulled. */
   #inkFollowed: string | null = null;
-  /** How many pulls of a page's ink haven't been answered yet. */
   #inkPullsUnanswered = 0;
-  /** Whether the device has every change to the followed page's ink so far. */
   #inkCaughtUp = false;
   readonly #rowsOfKind = {
     member: this.#members,
@@ -305,11 +296,9 @@ export class HouseholdSync {
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   #keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
-  /** `today` gives the device's own date, as an ISO 8601 date: by default from its clock and time
-   *  zone. `unsent` keeps the member's unsent changes between launches: those it holds are sent
-   *  once it's started, before anything new, and it forgets them all if the session ends. `store`
-   *  keeps what the household sends, with the ink of the pages in `keptPages`: the device starts
-   *  from what it kept, catches up from there, and forgets it all if the session ends. */
+  /** `today` gives the device's date, by default from its clock. `unsent` keeps unsent changes
+   *  between launches, sent first once started, and `store` what the household sends, which the
+   *  device starts from and catches up from. Both are forgotten if the session ends. */
   constructor(options: {
     memberId: string;
     connect: Connect;
@@ -948,8 +937,6 @@ export class HouseholdSync {
     this.#send({ case: "pull", value: { pageId, cursor } });
   }
 
-  /** Pulls the next page in the queue, once the page being pulled is done. With the queue empty,
-   *  pulls the shown page again if another was pulled after it, so that the connection follows it. */
   #pullNextInk(): void {
     if (!this.#connected() || this.#inkPulling) return;
     const next =
@@ -967,8 +954,6 @@ export class HouseholdSync {
     this.#store?.keepCursor(pageId, cursor);
   }
 
-  /** Works out which pages' ink a device with a store keeps now, forgets the ink of those it no
-   *  longer keeps, except changes not yet sent, and queues pulling those it now keeps. */
   #updateKeptPages(): void {
     if (!this.#store) return;
     const kept = keptPages({
@@ -1329,8 +1314,6 @@ export class HouseholdSync {
     }
   }
 
-  /** Keeps a stroke the member added or erased once the household commits it, as the household
-   *  now holds it, for when the connection doesn't follow its page and so doesn't receive it. */
   #keepOwnInk({ change }: Change, seq: bigint): void {
     if (change.case === "strokeAdd") {
       const { strokeId } = change.value;
@@ -1350,8 +1333,6 @@ export class HouseholdSync {
     }
   }
 
-  /** Applies rows the household sent, or that the device kept, which it doesn't keep again. A
-   *  device with a store keeps only the strokes of the pages it keeps. */
   #apply(rows: Row[], from: "household" | "store" = "household"): void {
     for (const received of rows) {
       const { seq, row } = received;

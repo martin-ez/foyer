@@ -49,8 +49,7 @@ type PageViewProps = {
 
 /** A page as everyone on it sees it: what's printed on it, its text, its stickers, which can be
  *  moved, ticked and tapped, its ink, which the Apple Pencil writes and erases on the iPad, and
- *  where others are pointing. It's drawn, and this device is on the page, only while in front.
- *  Without a connection, the iPad opens only the pages whose ink it keeps. */
+ *  where others are pointing. It's drawn, and this device is on the page, only while in front. */
 export function PageView(props: PageViewProps) {
   return useIsFocused() ? <PageIfOnDevice {...props} /> : null;
 }

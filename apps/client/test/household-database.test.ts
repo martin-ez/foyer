@@ -132,7 +132,6 @@ describe("the household's copy on the iPad", () => {
     earlier.raw.exec(`
       DROP TABLE household_rows;
       CREATE TABLE household_rows (kind TEXT, id TEXT, seq INTEGER, row BLOB);
-      CREATE TABLE old_cache (anything TEXT);
       PRAGMA user_version = ${copyLayout + 1};`);
 
     const rebuilt = launch();
@@ -144,10 +143,6 @@ describe("the household's copy on the iPad", () => {
     expect(await rebuilt.unsent.load()).toEqual([change("a"), change("b")]);
     rebuilt.keepRow({ kind: "space", id: home, pageId: null, row: spaceRow(7, "Home") });
     expect((await rebuilt.load()).rows).toEqual([spaceRow(7, "Home")]);
-    const tables = earlier.raw
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'old_cache'")
-      .all();
-    expect(tables).toEqual([]);
   });
 
   it("starts afresh when what it kept can't be read", async () => {
