@@ -7,6 +7,8 @@ import {
   calendarPageKinds,
   calendarStickerGap,
   dayPageId,
+  decodeSamples,
+  encodeSamples,
   heightOfTime,
   inStrip,
   itemPageId,
@@ -19,6 +21,7 @@ import {
   timelineOf,
 } from "@foyer/shared";
 import { GoogleConnectionState } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
+import { Input, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import { ItemKind, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { CalendarState, SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
@@ -40,6 +43,7 @@ import {
   archivedSpaceOf,
   type Connect,
   type ConnectionEvents,
+  eraseLimit,
   HouseholdSync,
   type KeptChange,
   keepAliveInterval,
@@ -80,6 +84,10 @@ class HouseholdEnd {
     this.#say({ case: "pullReply", value: { rows, cursor: BigInt(cursor), done } });
   }
 
+  inkReply(pageId: string, rows: RowInit[], cursor: number, done = true) {
+    this.#say({ case: "pullReply", value: { pageId, rows, cursor: BigInt(cursor), done } });
+  }
+
   update(...rows: RowInit[]) {
     this.#say({ case: "updates", value: { rows } });
   }
@@ -113,7 +121,15 @@ class HouseholdEnd {
 
   pulls(): number[] {
     return this.received.flatMap(({ message }) =>
-      message.case === "pull" ? [Number(message.value.cursor)] : [],
+      message.case === "pull" && message.value.pageId === "" ? [Number(message.value.cursor)] : [],
+    );
+  }
+
+  inkPulls(): { pageId: string; cursor: number }[] {
+    return this.received.flatMap(({ message }) =>
+      message.case === "pull" && message.value.pageId !== ""
+        ? [{ pageId: message.value.pageId, cursor: Number(message.value.cursor) }]
+        : [],
     );
   }
 
@@ -2769,5 +2785,148 @@ describe("text on pages", () => {
 
     expect(sync.getState().textGroups.size).toBe(0);
     expect(sync.getState().textBlocks.size).toBe(0);
+  });
+});
+
+describe("ink on pages", () => {
+  const day = dayPageId("2026-11-23");
+  const nextDay = dayPageId("2026-11-24");
+  const first = "019a8f4e-5c00-7000-8000-0000000000b1";
+  const second = "019a8f4e-5c00-7000-8000-0000000000b2";
+  const samples = { x: [40, 41.5], y: [60, 62.25], time: [0, 4] };
+
+  function strokeRow(seq: number, id: string, pageId = day): RowInit {
+    const value = {
+      id,
+      pageId,
+      drawnBy: housemate,
+      input: Input.PENCIL,
+      tool: Tool.PEN,
+      colour: 0x1a1a1a,
+      size: 1.4,
+      samples: encodeSamples(samples),
+    };
+    return { seq: BigInt(seq), row: { case: "stroke", value } };
+  }
+
+  function erasedRow(seq: number, id: string): RowInit {
+    return { seq: BigInt(seq), row: { case: "deleted", value: { kind: RowKind.STROKE, id } } };
+  }
+
+  function strokeIds() {
+    return [...sync.getState().strokes.keys()].sort();
+  }
+
+  it("pulls a page's ink when following it, until it has caught up", () => {
+    startUpToDate();
+
+    sync.followInk(day);
+    household().inkReply(day, [strokeRow(3, first)], 3, false);
+    household().inkReply(day, [strokeRow(4, second)], 4);
+
+    expect(household().inkPulls()).toEqual([
+      { pageId: day, cursor: 0 },
+      { pageId: day, cursor: 3 },
+    ]);
+    expect(strokeIds()).toEqual([first, second]);
+  });
+
+  it("pulls a page's ink only once it's connected, after everything else", () => {
+    sync.followInk(day);
+    sync.start();
+
+    household().welcome(2);
+
+    expect(
+      household().received.map(({ message }) => message.case === "pull" && message.value.pageId),
+    ).toEqual(["", day]);
+  });
+
+  it("pulls a page it follows again from where it caught up, as on connecting again", () => {
+    startUpToDate();
+    sync.followInk(day);
+    household().inkReply(day, [strokeRow(3, first)], 3);
+    household().update(strokeRow(5, second));
+    sync.followInk(nextDay);
+    household().inkReply(nextDay, [], 6);
+
+    sync.followInk(day);
+    household().closeWith(1006);
+    vi.advanceTimersByTime(longestReconnectDelay);
+    household().welcome(6);
+
+    expect(connections[0]?.inkPulls().map(({ cursor }) => cursor)).toEqual([0, 0, 5]);
+    expect(household().inkPulls()).toEqual([{ pageId: day, cursor: 5 }]);
+  });
+
+  it("keeps the strokes the household adds and erases on the page it follows", () => {
+    startUpToDate();
+    sync.followInk(day);
+    household().inkReply(day, [strokeRow(3, first)], 3);
+
+    household().update(strokeRow(4, second), erasedRow(4, first));
+
+    expect(strokeIds()).toEqual([second]);
+  });
+
+  it("adds a stroke at once, with its page when nobody has put anything on it yet", () => {
+    startUpToDate();
+    const drawnAt = Date.UTC(2026, 10, 23, 9, 30);
+
+    const strokeId = sync.addStroke(day, {
+      drawnAt,
+      input: Input.PENCIL,
+      tool: Tool.MONOLINE,
+      colour: 0x2255aa,
+      size: 1.5,
+      samples,
+    });
+
+    const [page, added] = household()
+      .lastPush()
+      .changes.map(({ change }) => change);
+    expect(page).toMatchObject({ case: "pageCreate", value: { pageId: day, kind: PageKind.DAY } });
+    expect(added).toMatchObject({
+      case: "strokeAdd",
+      value: { strokeId, pageId: day, tool: Tool.MONOLINE, colour: 0x2255aa, size: 1.5 },
+    });
+    const stroke = sync.getState().strokes.get(strokeId);
+    expect(stroke).toMatchObject({ pageId: day, drawnBy: me, input: Input.PENCIL });
+    expect(stroke && decodeSamples(stroke.samples)).toEqual(samples);
+  });
+
+  it("erases strokes at once, and draws them again if the household refuses", () => {
+    startUpToDate();
+    sync.followInk(day);
+    household().inkReply(day, [strokeRow(3, first), strokeRow(4, second)], 4);
+
+    sync.eraseStrokes([first, second]);
+
+    const push = household().lastPush();
+    expect(push.changes.map(({ change }) => change)).toEqual([
+      expect.objectContaining({
+        case: "strokeErase",
+        value: expect.objectContaining({ strokeIds: [first, second] }),
+      }),
+    ]);
+    expect(strokeIds()).toEqual([]);
+
+    household().commit(push, { [push.changes[0]?.changeId ?? ""]: "There's no such stroke." });
+
+    expect(strokeIds()).toEqual([first, second]);
+    expect(sync.getState().problems).toEqual(["Couldn't save erasing: There's no such stroke."]);
+  });
+
+  it("erases more strokes than one erase holds in several, as one action", () => {
+    startUpToDate();
+    const ids = Array.from({ length: eraseLimit + 1 }, () => newId());
+
+    sync.eraseStrokes(ids);
+
+    const changes = household().lastPush().changes;
+    expect(
+      changes.map(({ change }) => change.case === "strokeErase" && change.value.strokeIds.length),
+    ).toEqual([eraseLimit, 1]);
+    expect(new Set(changes.map(({ actionId }) => actionId)).size).toBe(1);
   });
 });
