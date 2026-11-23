@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25, #26, #151 and #147
+Decided in #14, #21, #25, #26, #151, #147 and #107
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -22,6 +22,7 @@ Decided in #14, #21, #25, #26, #151 and #147
 - **Actions:** the changes a device makes together for one action, such as putting a task under another, which sets its parent and moves its sticker, stand or fall together.
   - They share an `action_id`, a UUID version 7 the device makes. A change made alone has none.
   - The device sends an action's changes one after another in one push, in the order it made them, never split between pushes.
+  - A push holds at most 10 changes, unless one action alone has more: it goes whole, in a push of its own.
   - The household applies them in one transaction, in that order. If one is refused, none is applied, and each is answered as refused with that one's reason. Committed, each gets its own number.
   - A change that loses a conflict isn't refused, so it doesn't undo the rest of its action.
   - Each change is remembered by its id, as any change is, so an action sent again is answered as it was the first time.
@@ -47,6 +48,7 @@ Keeping what the iPad receives between launches is built by #20.
 - Ink is most of the data. Everything else is small enough for every device to hold, so lists, search and capture work offline.
 - Connections drop in bursts with no fault on the server (#4), so every device must connect again and pull from its cursor.
 - Sending a whole day's changes in one reply took 7 ms of CPU against a 10 ms limit (#4), so replies are capped.
+- Applying changes costs far more CPU than sending them: on the preview, a push of 100 changes took 30 to 230 ms, and one of 10 changes 5 to 26 ms (#107). Cloudflare only tolerates going over 10 ms now and then, and a device back from a long time offline sends its pushes one after another, so pushes are small.
 - A device whose session has ended can't send changes again, so remembering changes for longer than a session lasts unused is useless.
 - A change made on a phone while offline, such as a captured task, would be lost if the tab closed before the connection came back (#147). Only unsent changes exist nowhere else: what a device received comes back when it catches up.
 - An action applied in part leaves things half done, such as a task under another with its sticker still on its space's page (#151). Refusing it whole leaves things as they were before, on every device.

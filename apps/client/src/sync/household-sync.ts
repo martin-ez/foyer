@@ -143,7 +143,7 @@ export const longestReconnectDelay = 30_000;
 
 /** At most this many changes go in one push, unless one action alone has more: it goes whole, in
  *  a push of its own. An action is never split between pushes. */
-export const pushChangeLimit = 100;
+export const pushChangeLimit = 10;
 
 /** A change the member made that the household hasn't saved yet, encoded as it's sent, with what
  *  it does in words for saying it couldn't be saved. */
