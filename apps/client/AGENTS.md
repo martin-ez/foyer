@@ -70,6 +70,7 @@ A page is drawn in points from its top-left corner, whatever its size or zoom. `
 - **Unit tests** cover plain TypeScript code, such as `src/page/sheet-camera.ts`. Keep logic that needs no React Native in modules like that, so it can be tested on its own.
 - **Golden images** check what pages draw. `expectToMatchGoldenImage` in `test/golden-image.ts` draws Skia elements on the CPU with Skia's headless build and compares them pixel by pixel with a PNG in `test/golden-images/`. Each feature that draws something adds its own images.
 - Tests swap `react-native-skia` for its headless build, which has no `Canvas` and no React Native. So keep what a page draws in a component made only of Skia elements, such as `PageDrawing`, apart from the React Native view that sizes the canvas and hosts it.
+- A drawing that throws or logs an error fails its test with that error, before it's compared or saved. The headless build also lacks some of the app's helpers, such as `vec`: a drawing that calls one fails with "is not a function", so write the value out instead, such as `{ x, y }` for a point.
 - When a drawing differs, the test writes it and a diff, with the changed pixels in red, to `test/golden-images/failures/`. Look at both before deciding the change is intended. If it is, run `pnpm update-golden-images` from the repository root and commit the new images with the change, so the pull request shows them.
 - A golden image that doesn't exist yet fails the test: create it with the same command.
 
