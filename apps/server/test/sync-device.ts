@@ -237,6 +237,12 @@ export function spaceRename(spaceId: string, name: string, made: Made = {}): Cha
   return { ...madeNow(made), change: { case: "spaceRename", value: { spaceId, name } } };
 }
 
+/** Archives a space, or restores it when `archived` is false, made by the device now unless `made`
+ *  says otherwise. */
+export function spaceSetArchived(spaceId: string, archived: boolean, made: Made = {}): ChangeInit {
+  return { ...madeNow(made), change: { case: "spaceSetArchived", value: { spaceId, archived } } };
+}
+
 /** Creates a page, made by the device now unless `made` says otherwise. */
 export function pageCreate(
   page: MessageInitShape<typeof PageCreateSchema>,
@@ -363,6 +369,7 @@ export function idOf({ change }: ChangeInit): string {
   switch (change?.case) {
     case "spaceCreate":
     case "spaceRename":
+    case "spaceSetArchived":
       return change.value.spaceId ?? "";
     case "pageCreate":
       return change.value.pageId ?? "";

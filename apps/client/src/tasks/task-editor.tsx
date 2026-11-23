@@ -12,7 +12,8 @@ import {
   View,
 } from "react-native";
 import { localToday } from "../page/calendar-date";
-import type { HouseholdSync, SyncState } from "../sync/household-sync";
+import { archivedSpaceOf, type HouseholdSync, type SyncState } from "../sync/household-sync";
+import { ArchivedItem } from "./archived-item";
 import { Checkbox } from "./checkbox";
 import { RepeatPicker } from "./repeat-picker";
 import { firstDateOf, type RepeatChoice, repeatProblem } from "./repeats";
@@ -46,6 +47,8 @@ export function TaskEditor({
   const tick = useTick();
   const { height } = useWindowDimensions();
   const [edits, setEdits] = useState<TaskEdits>({});
+  const archived = archivedSpaceOf(state, task);
+  if (archived) return <ArchivedItem item={task} space={archived} done={done} onClose={onClose} />;
   const { title, description, date, time } = shownFields(task, edits);
   const repeat = shownRepeat(task, edits);
   const changes = changedFields(task, edits);

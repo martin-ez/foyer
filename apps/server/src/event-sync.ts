@@ -287,9 +287,7 @@ export class EventSync {
         return "done";
       }
       const target = this.#calendarOfSpace(event.space_id);
-      if (!target || target.lost_at !== null || !this.#isConnected(target.member_id)) {
-        return "waiting";
-      }
+      if (!target || target.lost_at !== null || !this.#readsAndWrites(target)) return "waiting";
       const fields = fieldsOfStored(event);
       if (!fields) return "done";
       if (event.series_id !== null) {
@@ -423,7 +421,7 @@ export class EventSync {
   async #removeFromGoogle(calendarId: string, eventId: string): Promise<SyncOutcome> {
     const calendar = this.#calendarById(calendarId);
     if (!calendar || calendar.lost_at !== null) return "done";
-    if (!this.#isConnected(calendar.member_id)) return "waiting";
+    if (!this.#readsAndWrites(calendar)) return "waiting";
     const removed = await this.#withAccess(calendar.member_id, (token) =>
       deleteEvent(token, calendarId, eventId),
     );
@@ -671,8 +669,7 @@ export class EventSync {
 
   async #hasLeft(link: GoogleIds): Promise<boolean | { stopped: SyncOutcome }> {
     const calendar = this.#calendarById(link.google_calendar_id);
-    const canAsk =
-      calendar !== null && calendar.lost_at === null && this.#isConnected(calendar.member_id);
+    const canAsk = calendar !== null && calendar.lost_at === null && this.#readsAndWrites(calendar);
     if (!canAsk) return true;
     const found = await this.#withAccess(calendar.member_id, (token) =>
       readEvent(token, link.google_calendar_id, link.google_event_id),
@@ -729,14 +726,14 @@ export class EventSync {
   }
 
   /** The series whose occurrences are due to be made, or listed again, in calendars whose holder is
-   *  connected, those to list again first. */
+   *  connected and whose space isn't archived, those to list again first. */
   seriesDue(now = Date.now()): { series: Series; calendar: SpaceCalendar }[] {
     const { to } = occurrenceWindow(now);
     const due = this.#seriesWhere("made_until IS NULL OR made_until < ?", to);
     return due.flatMap((series) => {
       const calendar = this.#calendarById(series.google_calendar_id);
       const readable =
-        calendar !== null && calendar.lost_at === null && this.#isConnected(calendar.member_id);
+        calendar !== null && calendar.lost_at === null && this.#readsAndWrites(calendar);
       return readable ? [{ series, calendar }] : [];
     });
   }
@@ -1077,6 +1074,13 @@ export class EventSync {
       )
       .toArray();
     return calendar ?? null;
+  }
+
+  #readsAndWrites(calendar: SpaceCalendar): boolean {
+    const archived = this.#storage.sql
+      .exec("SELECT 1 FROM spaces WHERE id = ? AND archived = 1", calendar.space_id)
+      .toArray().length;
+    return archived === 0 && this.#isConnected(calendar.member_id);
   }
 
   #isConnected(memberId: string): boolean {

@@ -34,6 +34,8 @@ import {
   pageCreate,
   signIn,
   spaceCreate,
+  spaceRename,
+  spaceSetArchived,
   stickerPlace,
 } from "./sync-device";
 
@@ -520,6 +522,89 @@ describe("changing events in Foyer", () => {
   });
 });
 
+describe("archived spaces' calendars", () => {
+  it("neither reads nor writes an archived space's calendar, and settles both once it's restored", async () => {
+    const { device } = await member(alex);
+    const dinner = await addInPersonal(device, "Dinner");
+    const lunch = await addInPersonal(device, "Lunch");
+    const personal = await spaceNamed(device, "Personal");
+    const calendarId = calendarOf(alexsAccount, "Personal");
+    const inGoogle = (title: string) =>
+      fakeGoogle.eventsOf(calendarId).find(({ summary }) => summary === title)?.id ?? "";
+
+    await device.push(itemSetTitle(lunch, "Lunch with Sam"), spaceSetArchived(personal.id, true));
+    fakeGoogle.changeEvent(calendarId, inGoogle("Dinner"), { summary: "Dinner with Sam" });
+    addInGoogle(alexsAccount, "Personal", { summary: "Dentist" });
+    await readAgain();
+    const inFoyerWhileArchived = [...(await eventsOf(device)).values()].map(({ title }) => title);
+    const inGoogleWhileArchived = googleEvents(alexsAccount, "Personal").map(
+      ({ summary }) => summary,
+    );
+    await device.push(spaceSetArchived(personal.id, false));
+    await work();
+
+    expect(inFoyerWhileArchived.sort()).toEqual(["Dinner", "Lunch with Sam"]);
+    expect(inGoogleWhileArchived.sort()).toEqual(["Dentist", "Dinner with Sam", "Lunch"]);
+    const events = await eventsOf(device);
+    expect(events.get(dinner)?.title).toBe("Dinner with Sam");
+    expect([...events.values()].map(({ title }) => title).sort()).toEqual([
+      "Dentist",
+      "Dinner with Sam",
+      "Lunch with Sam",
+    ]);
+    expect(
+      googleEvents(alexsAccount, "Personal")
+        .map(({ summary }) => summary)
+        .sort(),
+    ).toEqual(["Dentist", "Dinner with Sam", "Lunch with Sam"]);
+  });
+});
+
+describe("archived spaces' events", () => {
+  it("refuses changing an event's time in an archived space", async () => {
+    const { device } = await member(alex);
+    const dinner = await addInPersonal(device, "Dinner");
+    await device.push(spaceSetArchived((await spaceNamed(device, "Personal")).id, true));
+
+    const committed = await device.push(
+      eventSetTime(dinner, { startsAt: "2026-11-21T19:00:00Z", endsAt: "2026-11-21T21:00:00Z" }),
+    );
+
+    expect(resultOf(committed.results[0])).toEqual({
+      refused: "This space is archived. Restore it to change it.",
+    });
+  });
+
+  it("deletes an event from Google only once its space is restored", async () => {
+    const { device } = await member(alex);
+    const dinner = await addInPersonal(device, "Dinner");
+    const personal = (await spaceNamed(device, "Personal")).id;
+
+    await device.push(itemDelete(dinner), spaceSetArchived(personal, true));
+    await work();
+    const whileArchived = googleEvents(alexsAccount, "Personal").map(({ summary }) => summary);
+    await device.push(spaceSetArchived(personal, false));
+    await work();
+
+    expect(whileArchived).toEqual(["Dinner"]);
+    expect(googleEvents(alexsAccount, "Personal")).toEqual([]);
+  });
+
+  it("renames an archived space's calendar only once it's restored", async () => {
+    const { device } = await member(alex);
+    const personal = (await spaceNamed(device, "Personal")).id;
+
+    await device.push(spaceRename(personal, "Mine"), spaceSetArchived(personal, true));
+    await work();
+    const whileArchived = fakeGoogle.calendarsOf(alexsAccount).map(({ name }) => name);
+    await device.push(spaceSetArchived(personal, false));
+    await work();
+
+    expect(whileArchived).toEqual(["Foyer · Personal"]);
+    expect(fakeGoogle.calendarsOf(alexsAccount).map(({ name }) => name)).toEqual(["Foyer · Mine"]);
+  });
+});
+
 describe("reading changes made in Google", () => {
   it("adds an event added in Google, with no member as its creator", async () => {
     const { device } = await member(alex, "America/Santo_Domingo");
@@ -938,6 +1023,28 @@ describe("events moved in Google from one of Foyer's calendars to another", () =
 
     expect(whileDown).toBe(personal);
     expect((await eventsOf(device)).get(dinner)?.spaceId).toBe(workSpace);
+  });
+
+  it("takes the event as moved, without asking Google, when Foyer knows it in an archived space's calendar", async () => {
+    const { device } = await member(alex);
+    const workSpace = await personalSpace(device, "Work");
+    const dinner = await addIn(device, workSpace, "Dinner");
+    const archivedCalendar = calendarOf(alexsAccount, "Work");
+    await device.push(spaceSetArchived(workSpace, true));
+    moveInGoogle("Dinner", [alexsAccount, "Work"], [alexsAccount, "Personal"]);
+    const answer = fakeGoogle.answer.bind(fakeGoogle);
+    const askedAbout: string[] = [];
+    vi.spyOn(fakeGoogle, "answer").mockImplementation((request) => {
+      askedAbout.push(decodeURIComponent(new URL(request.url).pathname));
+      return answer(request);
+    });
+
+    await readAgain();
+
+    expect((await eventsOf(device)).get(dinner)?.spaceId).toBe(
+      (await spaceNamed(device, "Personal")).id,
+    );
+    expect(askedAbout.filter((path) => path.includes(archivedCalendar))).toEqual([]);
   });
 
   it("takes the event as moved when the holder of the calendar Foyer knows it in has disconnected", async () => {

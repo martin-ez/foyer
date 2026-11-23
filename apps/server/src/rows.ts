@@ -193,6 +193,7 @@ type SpaceRow = {
   seq: number;
   calendar_member_id: string | null;
   calendar_holder_state: "connected" | "needs_reconnecting" | null;
+  archived: number;
 };
 
 type GoogleConnectionRow = {
@@ -289,7 +290,7 @@ type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; 
 const selectMembers = "SELECT id, name, seq FROM members";
 
 const selectSpaces = `SELECT spaces.id, spaces.kind, spaces.owner_id, spaces.name, spaces.seq,
-  space_calendars.member_id AS calendar_member_id,
+  spaces.archived, space_calendars.member_id AS calendar_member_id,
   google_connections.state AS calendar_holder_state
   FROM spaces LEFT JOIN space_calendars ON space_calendars.space_id = spaces.id
   LEFT JOIN google_connections ON google_connections.member_id = space_calendars.member_id`;
@@ -528,6 +529,7 @@ function spaceRow(space: SpaceRow): VisibleRow {
     name: space.name ?? "",
     calendarMemberId: space.calendar_member_id ?? "",
     calendarState: calendarStateOf(space),
+    archived: space.archived !== 0,
   });
   return {
     row: create(RowSchema, { seq: BigInt(space.seq), row: { case: "space", value } }),

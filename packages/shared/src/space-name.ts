@@ -18,6 +18,22 @@ export function clashingName(name: string, names: Iterable<string>): string | un
   return undefined;
 }
 
+/** Why a space can't be renamed to `name`, as a sentence, because one of `others`, the other spaces
+ *  the person renaming it sees, has that name, ignoring case, or null if none does. An archived
+ *  space's name still counts, and the sentence says it's archived. */
+export function nameClashProblem(
+  name: string,
+  others: Iterable<{ name: string; archived: boolean }>,
+): string | null {
+  const clashes = Array.from(others).filter(
+    (other) => clashingName(name, [other.name]) !== undefined,
+  );
+  const shown = clashes.find(({ archived }) => !archived);
+  if (shown) return `Another space you see is called “${shown.name}”.`;
+  const archived = clashes[0];
+  return archived ? `An archived space is called “${archived.name}”.` : null;
+}
+
 /** `name` if none of `names` clashes with it, or else the first of "name 2", "name 3" and so on
  *  that none clashes with. A name that would grow past the limit is shortened before its number. */
 export function freeSpaceName(name: string, names: Iterable<string>): string {

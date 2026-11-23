@@ -89,6 +89,7 @@ export {
   clashingName,
   freeSpaceName,
   limitSpaceName,
+  nameClashProblem,
   spaceNameLimit,
   spaceNameProblem,
 } from "./space-name";
