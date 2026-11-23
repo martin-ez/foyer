@@ -58,6 +58,25 @@ describe("upcomingEvents", () => {
       "Breakfast",
     ]);
   });
+
+  it("lists a repeating series once, as its next occurrence that hasn't ended", () => {
+    const occurrence = (title: string, seriesId: string, day: string) =>
+      create(ItemSchema, { ...event(title, { on: [day, day] }), id: `${title} ${day}`, seriesId });
+    const items = [
+      occurrence("Walk", "daily", "2026-11-21"),
+      occurrence("Walk", "daily", "2026-11-19"),
+      occurrence("Walk, longer", "daily", "2026-11-20"),
+      occurrence("Choir", "weekly", "2026-11-25"),
+      occurrence("Choir", "weekly", "2026-12-02"),
+      event("Dinner", { at: ["2026-11-24T19:00:00-04:00", "2026-11-24T21:00:00-04:00"] }),
+    ];
+
+    expect(upcomingEvents(items, now).map(({ id }) => id)).toEqual([
+      "Walk, longer 2026-11-20",
+      "Dinner",
+      "Choir 2026-11-25",
+    ]);
+  });
 });
 
 describe("describeEventTime", () => {
