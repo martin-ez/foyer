@@ -1,0 +1,12 @@
+appId: io.github.martin-ez.foyer
+name: Says why when the household doesn't let the email typed in
+---
+- runFlow: steps/open.yaml
+- tapOn: Email
+- inputText: stranger@example.com
+- tapOn: Sign in without Google
+- extendedWaitUntil:
+    visible: That Google account isn't part of this household.
+    timeout: 30000
+- assertVisible: stranger@example.com
+- assertVisible: Sign in without Google

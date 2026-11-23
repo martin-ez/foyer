@@ -1,0 +1,12 @@
+appId: io.github.martin-ez.foyer
+name: Signs in without Google as the email typed
+---
+- runFlow: steps/open.yaml
+- tapOn: Email
+- inputText: housemate@example.com
+- tapOn: Sign in without Google
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 30000
+- tapOn: Account
+- assertVisible: Signed in as housemate

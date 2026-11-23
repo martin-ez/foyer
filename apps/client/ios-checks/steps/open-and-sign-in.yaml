@@ -1,0 +1,8 @@
+# Opens the app afresh and signs in without Google as you@example.com.
+appId: io.github.martin-ez.foyer
+---
+- runFlow: open.yaml
+- tapOn: Sign in without Google
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 30000

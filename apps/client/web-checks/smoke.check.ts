@@ -12,6 +12,7 @@ test("the app opens, signs in and shows today's day page", async ({ page }, test
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible({
     timeout: bundleBuildTimeout,
   });
+  await expect(page.getByRole("button", { name: "Sign in without Google" })).toHaveCount(0);
 
   await signIn(page);
   await expect(page.getByText("Up to date")).toBeVisible();

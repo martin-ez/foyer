@@ -1,0 +1,15 @@
+# Opens the app from Expo's development server, with nothing kept from earlier runs, on the sign-in
+# screen. The launch arguments keep the development build's menu closed.
+appId: io.github.martin-ez.foyer
+---
+- clearKeychain
+- launchApp:
+    clearState: true
+    arguments:
+      --initialUrl: http://localhost:8081
+      -EXDevMenuIsOnboardingFinished: true
+      -EXDevMenuShowsAtLaunch: false
+      -EXDevMenuShowFloatingActionButton: false
+- extendedWaitUntil:
+    visible: Sign in without Google
+    timeout: 120000

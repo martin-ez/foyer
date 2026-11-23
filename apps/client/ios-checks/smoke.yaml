@@ -1,0 +1,10 @@
+appId: io.github.martin-ez.foyer
+name: The app opens, signs in and shows its first page
+---
+- runFlow: steps/open-and-sign-in.yaml
+- assertVisible:
+    text: Calendar
+    selected: true
+- takeScreenshot: first-page-ipad
+- tapOn: Account
+- assertVisible: Signed in as .*
