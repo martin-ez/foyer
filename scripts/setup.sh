@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Installs pnpm if it's missing, then the dependencies, which bring the Node version the project
 # runs on. Installing pnpm needs Node, so it first installs the major version in .nvmrc if needed.
-# On macOS, it also installs Maestro, which checks the iPad app on the simulator, and the Java it
-# runs on if that's missing.
-# Works on macOS and Linux, including cloud sessions.
+# Works on macOS and Linux, including cloud sessions, and on macOS also installs Maestro.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,7 +15,7 @@ java_dir="$HOME/.local/share/foyer/java"
 bin_dir="$HOME/.local/bin"
 original_path="$PATH"
 installed_node=false
-installed="" # the programs installed in $bin_dir that people run, to check the PATH finds them
+programs_to_find_on_path=""
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -25,8 +23,6 @@ has_pinned_node() {
   command -v node > /dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" = "$node_major" ]
 }
 
-# Fails unless the file's SHA-256 checksum is the one given. It compares the two itself, because
-# `sha256sum -c` on macOS passes a checksum line it can't read, such as an empty checksum.
 check_sha256() {
   local file="$1" expected="$2" actual
   if command -v sha256sum > /dev/null; then
@@ -74,16 +70,12 @@ install_node() {
   installed_node=true
 }
 
-# Whether the Java that Maestro would run, from JAVA_HOME or the PATH, is version 17 or newer, as
-# Maestro needs. On macOS, `java` is always on the PATH, and fails when no Java is installed.
 has_java_for_maestro() {
   local java="${JAVA_HOME:+$JAVA_HOME/bin/java}" major
   major="$("${java:-java}" -version 2>&1 | sed -nE 's/.* version "([0-9]+).*/\1/p' | head -n 1)" || true
   [ -n "$major" ] && [ "$major" -ge 17 ]
 }
 
-# Downloads the newest Eclipse Temurin Java runtime of the pinned major from Adoptium into
-# $java_dir, after checking it against the published checksum, and links java into $bin_dir.
 install_java() {
   local arch release link sum
   case "$(uname -m)" in
@@ -103,11 +95,9 @@ install_java() {
   mkdir -p "$java_dir" "$bin_dir"
   tar -xzf "$tmp/java.tar.gz" -C "$java_dir" --strip-components=1
   ln -sf "$java_dir/Contents/Home/bin/java" "$bin_dir/"
-  installed="$installed java"
+  programs_to_find_on_path="$programs_to_find_on_path java"
 }
 
-# Downloads the pinned Maestro command-line tool from its GitHub release into $maestro_dir, after
-# checking it against the checksum above, and links maestro into $bin_dir.
 install_maestro() {
   echo "Installing Maestro $maestro_version into $maestro_dir"
   curl -fsSL -o "$tmp/maestro.zip" \
@@ -118,7 +108,7 @@ install_maestro() {
   mkdir -p "$(dirname "$maestro_dir")" "$bin_dir"
   mv "$tmp/maestro" "$maestro_dir"
   ln -sf "$maestro_dir/bin/maestro" "$bin_dir/"
-  installed="$installed maestro"
+  programs_to_find_on_path="$programs_to_find_on_path maestro"
 }
 
 if ! command -v pnpm > /dev/null; then
@@ -136,13 +126,12 @@ if ! command -v pnpm > /dev/null; then
   npm install --global --allow-scripts=pnpm "$(node -p 'require("./package.json").packageManager')"
   if [ "$installed_node" = true ]; then
     ln -sf "$node_dir/bin/pnpm" "$bin_dir/"
-    installed="$installed pnpm"
+    programs_to_find_on_path="$programs_to_find_on_path pnpm"
   fi
 fi
 
 pnpm install --frozen-lockfile
 
-# The iPad simulator, and so Maestro, needs macOS.
 if [ "$(uname -s)" = Darwin ]; then
   if ! has_java_for_maestro; then
     install_java
@@ -153,7 +142,7 @@ if [ "$(uname -s)" = Darwin ]; then
 fi
 
 not_found=""
-for program in $installed; do
+for program in $programs_to_find_on_path; do
   if [ "$(PATH="$original_path" && command -v "$program")" != "$bin_dir/$program" ]; then
     not_found="$not_found $program"
   fi
