@@ -58,3 +58,7 @@ web-export-checks/results/
 
 # A trace that `playwright trace open` extracted, to read from the command line
 .playwright-cli/
+
+# What the iPad simulator checks write: their screenshots, and Maestro's results
+ios-checks/screenshots/
+ios-checks/results/

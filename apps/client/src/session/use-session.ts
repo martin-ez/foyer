@@ -3,10 +3,13 @@ import { sessionClient } from "../backend/backend";
 import { forgetUnsentChanges } from "../sync/unsent-changes";
 import { checkSession, type Session, signOut } from "./session";
 import { forgetSessionToken } from "./session-token";
-import { problemFromSignIn, signInWithGoogle } from "./sign-in";
+import { problemFromSignIn, signInWithGoogle, signInWithoutGoogle } from "./sign-in";
+
+const withoutGoogle = signInWithoutGoogle;
 
 /** Who is signed in on this device, checked with the backend when the app starts, and the ways to
- *  change it. Signing out forgets what the device keeps for the member. */
+ *  change it. Signing out forgets what the device keeps for the member. Only the iPad app's
+ *  development builds can sign in without Google. */
 export function useSession() {
   const [session, setSession] = useState<Session>({ status: "checking" });
 
@@ -31,6 +34,8 @@ export function useSession() {
     session,
     check,
     signIn: async () => setSession(await signInWithGoogle()),
+    signInWithoutGoogle:
+      withoutGoogle && (async (email: string) => setSession(await withoutGoogle(email))),
     signOut: async () => setSession(await signOut(sessionClient, forgetOnDevice)),
   };
 }

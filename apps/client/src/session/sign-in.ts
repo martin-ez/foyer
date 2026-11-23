@@ -4,11 +4,25 @@ import { finishSignIn, type Session } from "./session";
 import { keepSessionToken } from "./session-token";
 
 /** Signs in with Google in the system's sign-in sheet, which returns to `foyer://signed-in`. */
-export async function signInWithGoogle(): Promise<Session> {
-  const result = await openAuthSessionAsync(
-    `${backendUrl}/auth/google?app=ipad`,
-    "foyer://signed-in",
-  );
+export function signInWithGoogle(): Promise<Session> {
+  return signInAt(`${backendUrl}/auth/google?app=ipad`);
+}
+
+/** Signs in as `email` at the local backend's sign-in without Google, in a private sheet, which
+ *  the system opens without first asking to use the backend's address. Only development builds
+ *  have it. */
+export const signInWithoutGoogle = __DEV__
+  ? (email: string): Promise<Session> =>
+      signInAt(`${backendUrl}/auth/dev?email=${encodeURIComponent(email)}&app=ipad`, {
+        preferEphemeralSession: true,
+      })
+  : undefined;
+
+async function signInAt(
+  address: string,
+  options?: { preferEphemeralSession: boolean },
+): Promise<Session> {
+  const result = await openAuthSessionAsync(address, "foyer://signed-in", options);
   if (result.type !== "success") return { status: "signed-out" };
   return finishSignIn(result.url, sessionClient, keepSessionToken);
 }

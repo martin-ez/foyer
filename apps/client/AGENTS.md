@@ -22,6 +22,7 @@ pnpm --filter @foyer/client check-web                    # check the web app in 
 pnpm --filter @foyer/client check-web --grep "<name>"    # run only the web checks whose names match
 pnpm --filter @foyer/client check-web-export             # check the web app as deploys export and serve it
 pnpm --filter @foyer/client check-ios-bundle             # build the iPad app's bundle
+pnpm --filter @foyer/client check-ios-simulator          # check the iPad app on the simulator, on a Mac
 pnpm check                                            # type checks, lint and formatting
 pnpm format                                           # fix formatting and import order
 ```
@@ -86,7 +87,8 @@ The root `AGENTS.md` says which checks to run for which change. In this package:
 - **Making the open view fail:** in development builds, `window.foyerTest.throwInOpenView()` makes the open destination throw while it's drawn, as a bug in it would (`src/shell/throw-when-asked.tsx`). Production builds don't have it.
 - **What another tab shows** after a change made on the first goes through `expectOnAnotherDevice` from `web-checks/another-device.ts`, which waits longer than Playwright's default while the change goes through the household. If it still times out, look at its trace, kept with `--trace retain-on-failure`: a delay that long is a bug to file, not a timing to wait out.
 - Find what's on the page by role and text, as a person would, such as `getByRole("button", { name: "Sign out" })`, never by the page's structure or styles: views are wireframes and will change.
-- Code that runs only on the iPad, such as `session-token.ts` beside its `.web.ts`, never runs in the web checks. `check-ios-bundle` checks it builds, and the simulator checks it works, which needs a Mac.
+- Code that runs only on the iPad, such as `session-token.ts` beside its `.web.ts`, never runs in the web checks. `check-ios-bundle` checks it builds, and `check-ios-simulator` that it works, which needs a Mac.
+- **iPad simulator checks** are Maestro flows in `ios-checks/`, one `.yaml` file each, run by `check-ios-simulator` on the booted iPad simulator against the installed development build, the local backend and Expo's development server. Run them, when you're on a Mac, for any change to code only the iPad runs, such as the Keychain or the Pencil. Start each flow with `- runFlow: steps/open-and-sign-in.yaml`, which opens the app afresh from Expo's server and signs in without Google; only development builds offer that, with `signInWithoutGoogle` in `src/session/sign-in.ts`. Find what's on the screen by its text or accessibility label, as with the web checks, and save what a flow shows with `takeScreenshot`, named like the web checks' screenshots, such as `first-page-ipad`. `docs/development.md` has how to run the app on the simulator.
 - **Running the web checks:** a full run takes about 10 minutes, as long as a cloud session lets a command run in the foreground, which stops it without a result. So while working, run only the checks the change touches, with `--grep`. Run the full checks in the background, with their output in a file, and with `--trace retain-on-failure`, so a check that fails only in a full run keeps a trace. A run that's stopped can leave its backend running on port 8788, and the next run then fails at the start: stop it with `pkill -f -- '--port [8]788'`. `docs/development.md` has the commands, and how to read a trace in a terminal.
 
 ## Rules
