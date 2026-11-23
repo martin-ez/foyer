@@ -77,6 +77,7 @@ The iPad app runs on the simulator only on a Mac with Xcode and CocoaPods, so cl
   - It saves screenshots in `apps/client/ios-checks/screenshots/`, such as `first-page-ipad.png`, and Maestro's results in `apps/client/ios-checks/results/`, where a failed flow keeps a screenshot and the elements on the screen at the step that failed. Each run empties both folders first.
   - Arguments after `check-ios-simulator` go to `maestro test` in place of the folder of flows: `ios-checks/smoke.yaml` runs only that flow. With more than one simulator booted, choose one with `--device <udid> ios-checks`.
   - `./scripts/setup.sh` installs Maestro. Its first run on a simulator also installs its driver there, which takes longer.
+- **Drawing:** the simulator has no Apple Pencil. In it, the ink tools above the page have a switch, Draw with the mouse, which lets the mouse and Maestro's swipes draw and erase, while the page doesn't move with them. Turn it off to move the page again. How ink looks and feels under a real Pencil, such as its lag, can only be checked on an iPad.
 
 ## Cloud sessions
 

@@ -7,6 +7,7 @@ import {
   calendarPageOf,
   daysBetween,
   type EventTime,
+  encodeSamples,
   eventTimeFields,
   formatRepeat,
   freeSpaceName,
@@ -22,12 +23,19 @@ import {
   planCalendarStickers,
   type RepeatFrom,
   type RepeatRule,
+  type StrokeSamples,
   signedOutCloseCode,
   spaceNameProblem,
   spacePageId,
   timeOfDay,
 } from "@foyer/shared";
 import type { GoogleConnection } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
+import {
+  type Input,
+  type Stroke,
+  StrokeSchema,
+  type Tool,
+} from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import {
   type Item,
   ItemKind,
@@ -47,6 +55,7 @@ import {
   ChangeSchema,
   DeviceMessageSchema,
   HouseholdMessageSchema,
+  type PullReply,
   type Row,
   RowKind,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
@@ -102,6 +111,8 @@ export type SyncState = {
   textGroups: ReadonlyMap<string, TextGroup>;
   /** The blocks of those text groups, by id. */
   textBlocks: ReadonlyMap<string, TextBlock>;
+  /** The strokes on the pages whose ink the device has pulled, by id. */
+  strokes: ReadonlyMap<string, Stroke>;
   /** The member's connection to their Google account, or null when they aren't connected. */
   googleConnection: GoogleConnection | null;
   /** How many changes the household hasn't saved yet. */
@@ -144,6 +155,9 @@ export const longestReconnectDelay = 30_000;
 /** At most this many changes go in one push, unless one action alone has more: it goes whole, in
  *  a push of its own. An action is never split between pushes. */
 export const pushChangeLimit = 10;
+
+/** At most this many strokes go in one erase: erasing more takes several, in one action. */
+export const eraseLimit = 1_000;
 
 /** A change the member made that the household hasn't saved yet, encoded as it's sent, with what
  *  it does in words for saying it couldn't be saved. */
@@ -197,6 +211,10 @@ export class HouseholdSync {
   readonly #googleConnections = new Map<string, { seq: bigint; connection: GoogleConnection }>();
   readonly #textGroups = new Map<string, { seq: bigint; group: TextGroup }>();
   readonly #textBlocks = new Map<string, { seq: bigint; block: TextBlock }>();
+  readonly #strokes = new Map<string, { seq: bigint; stroke: Stroke }>();
+  readonly #inkCursors = new Map<string, bigint>();
+  #followedPage: string | null = null;
+  #inkCaughtUp = false;
   readonly #rowsOfKind = {
     member: this.#members,
     space: this.#spaces,
@@ -207,6 +225,7 @@ export class HouseholdSync {
     googleConnection: this.#googleConnections,
     textGroup: this.#textGroups,
     textBlock: this.#textBlocks,
+    stroke: this.#strokes,
   };
   readonly #deleted = new Map<string, bigint>();
   #pending: Pending[] = [];
@@ -768,6 +787,59 @@ export class HouseholdSync {
     });
   }
 
+  /** Pulls a page's ink, from where the device last caught up with it, and then receives its new
+   *  and erased strokes, until it follows another page. It pulls again on connecting again. */
+  followInk(pageId: string): void {
+    if (pageId === this.#followedPage) return;
+    this.#followedPage = pageId;
+    this.#pullInk();
+  }
+
+  /** Adds a stroke drawn on a page, with the page if nobody has put anything on it yet, and
+   *  returns its id. */
+  addStroke(
+    pageId: string,
+    stroke: {
+      drawnAt: number;
+      input: Input;
+      tool: Tool;
+      colour: number;
+      size: number;
+      samples: StrokeSamples;
+    },
+  ): string {
+    const strokeId = newId();
+    const { drawnAt, samples, ...brush } = stroke;
+    this.#make("drawing", ...this.#creatingPage(pageId), {
+      case: "strokeAdd",
+      value: {
+        strokeId,
+        pageId,
+        drawnAt: timestampFromMs(Math.round(drawnAt)),
+        ...brush,
+        samples: encodeSamples(samples),
+      },
+    });
+    return strokeId;
+  }
+
+  /** Erases whole strokes, such as every stroke one pass of the eraser crossed, together. */
+  eraseStrokes(strokeIds: readonly string[]): void {
+    const erases: ChangeInit[] = [];
+    for (let start = 0; start < strokeIds.length; start += eraseLimit) {
+      const ids = strokeIds.slice(start, start + eraseLimit);
+      erases.push({ case: "strokeErase", value: { strokeIds: ids } });
+    }
+    if (erases.length > 0) this.#make("erasing", ...erases);
+  }
+
+  #pullInk(): void {
+    const pageId = this.#followedPage;
+    if (!pageId || (this.#status !== "catching-up" && this.#status !== "up-to-date")) return;
+    this.#inkCaughtUp = false;
+    this.#send({ case: "pull", value: { pageId, cursor: this.#inkCursors.get(pageId) ?? 0n } });
+  }
+
   #orderAfter(groupId: string, after: string | null): string {
     const blocks = blocksIn(groupId, this.#state.textBlocks);
     const index = after === null ? -1 : blocks.findIndex(({ id }) => id === after);
@@ -1009,10 +1081,15 @@ export class HouseholdSync {
         this.#attempts = 0;
         this.#status = "catching-up";
         this.#send({ case: "pull", value: { cursor: this.#cursor } });
+        this.#pullInk();
         this.#pushUnsent();
         this.live.connected();
         break;
       case "pullReply":
+        if (message.value.pageId !== "") {
+          this.#receiveInk(message.value);
+          break;
+        }
         this.#apply(message.value.rows);
         if (message.value.done) {
           this.#cursor = message.value.cursor;
@@ -1026,6 +1103,7 @@ export class HouseholdSync {
         if (this.#status === "up-to-date") {
           for (const { seq } of message.value.rows) if (seq > this.#cursor) this.#cursor = seq;
         }
+        this.#caughtUpWithInk(message.value.rows);
         break;
       case "committed": {
         const reported = new Set<string>();
@@ -1043,6 +1121,24 @@ export class HouseholdSync {
       }
     }
     this.#changed();
+  }
+
+  #receiveInk({ pageId, rows, cursor, done }: PullReply): void {
+    this.#apply(rows);
+    if (done) this.#inkCursors.set(pageId, cursor);
+    if (pageId !== this.#followedPage) return;
+    if (done) this.#inkCaughtUp = true;
+    else this.#send({ case: "pull", value: { pageId, cursor } });
+  }
+
+  #caughtUpWithInk(rows: Row[]): void {
+    const pageId = this.#followedPage;
+    if (!pageId || !this.#inkCaughtUp) return;
+    for (const { seq, row } of rows) {
+      const isInk =
+        row.case === "stroke" || (row.case === "deleted" && row.value.kind === RowKind.STROKE);
+      if (isInk && seq > (this.#inkCursors.get(pageId) ?? 0n)) this.#inkCursors.set(pageId, seq);
+    }
   }
 
   #apply(rows: Row[]): void {
@@ -1093,6 +1189,11 @@ export class HouseholdSync {
             this.#textBlocks.set(row.value.id, { seq, block: row.value });
           }
           break;
+        case "stroke":
+          if (this.#isNewer("stroke", row.value.id, seq, this.#strokes)) {
+            this.#strokes.set(row.value.id, { seq, stroke: row.value });
+          }
+          break;
         case "deleted": {
           const kind = rowKindNames[row.value.kind];
           const rows = kind && this.#rowsOfKind[kind];
@@ -1130,6 +1231,7 @@ export class HouseholdSync {
 
   #closed(code: number): void {
     this.#drop();
+    this.#inkCaughtUp = false;
     for (const pending of this.#pending) pending.pushId = undefined;
     if (code === signedOutCloseCode) {
       this.#stopped = true;
@@ -1169,6 +1271,7 @@ export class HouseholdSync {
     );
     const textGroups = new Map([...this.#textGroups].map(([id, { group }]) => [id, group]));
     const textBlocks = new Map([...this.#textBlocks].map(([id, { block }]) => [id, block]));
+    const strokes = new Map([...this.#strokes].map(([id, { stroke }]) => [id, stroke]));
     const deleteGroup = (groupId: string) => {
       textGroups.delete(groupId);
       for (const [id, block] of textBlocks) if (block.groupId === groupId) textBlocks.delete(id);
@@ -1393,6 +1496,15 @@ export class HouseholdSync {
         case "textBlockDelete":
           textBlocks.delete(change.change.value.blockId);
           break;
+        case "strokeAdd": {
+          const { strokeId, $typeName: _, ...drawn } = change.change.value;
+          const stroke = { ...drawn, id: strokeId, drawnBy: this.#memberId };
+          strokes.set(strokeId, create(StrokeSchema, stroke));
+          break;
+        }
+        case "strokeErase":
+          for (const id of change.change.value.strokeIds) strokes.delete(id);
+          break;
       }
     }
     const inOrder = [...spaces.values()].sort(
@@ -1411,6 +1523,7 @@ export class HouseholdSync {
       completions,
       textGroups,
       textBlocks,
+      strokes,
       googleConnection: this.#googleConnections.get(this.#memberId)?.connection ?? null,
       unsaved: this.#pending.length,
       problems: [...this.#problems],
@@ -1500,7 +1613,8 @@ type RowKindName =
   | "completion"
   | "googleConnection"
   | "textGroup"
-  | "textBlock";
+  | "textBlock"
+  | "stroke";
 
 const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.MEMBER]: "member",
@@ -1512,6 +1626,7 @@ const rowKindNames: Partial<Record<RowKind, RowKindName>> = {
   [RowKind.GOOGLE_CONNECTION]: "googleConnection",
   [RowKind.TEXT_GROUP]: "textGroup",
   [RowKind.TEXT_BLOCK]: "textBlock",
+  [RowKind.STROKE]: "stroke",
 };
 
 const kindOrder: Record<SpaceKind, number> = {

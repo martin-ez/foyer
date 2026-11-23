@@ -23,7 +23,6 @@ Decided in #10 and #18
 - **Erasing:** anyone who sees a page can erase any ink on it, as on paper. An erased stroke keeps its row without its samples, so that a page's pull finds it erased (`how-do-devices-stay-in-sync.md`). Erasing it again has no effect.
 - **Deleting:** an item's pages are deleted with it, and so is their ink.
 
-Capturing ink on the iPad, from PencilKit's finished stroke, is built by #18.
 Erasing part of a stroke, which replaces it with the pieces that survive, is built by #41.
 
 **Why:** The stored format is the one part of ink that's expensive to change, because changing it means converting every stroke ever drawn. Owning it keeps ink portable across iPad, phones, the web and future styluses, and lets the renderer change without migrating data. It keeps every value the pen reports, which handwriting recognition needs, after only PencilKit's light smoothing on the iPad, so that Skia draws the same points PencilKit drew and the hand-off at pen lift doesn't jump. It holds while ink means handwriting, scribbles and doodles, where a "close enough" look across devices is fine; artistic brushes would need it revisited.

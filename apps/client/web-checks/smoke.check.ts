@@ -16,6 +16,7 @@ test("the app opens, signs in and shows today's day page", async ({ page }, test
 
   await signIn(page);
   await expect(page.getByText("Up to date")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Eraser" })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Calendar", selected: true })).toBeVisible();
   await expect(page.getByRole("heading")).toHaveText(await describeDayInBrowser(page, 0));
   await saveScreenshot(page, testInfo, "first-page");
