@@ -140,6 +140,18 @@ describe("what the iPad keeps once a member's session has ended", () => {
     expect(await (await launchApp()).deviceStorageOf(me).unsent?.load()).toEqual([]);
   });
 
+  it("deletes them when someone else signs in before the app is launched again", async () => {
+    const me = newId();
+    const app = await launchApp();
+    app.deviceStorageOf(me).unsent?.keep([change]);
+    await app.forgetEndedSession(me);
+
+    await app.forgetOtherMembers(newId());
+
+    expect(await app.deviceStorageOf(me).unsent?.load()).toEqual([]);
+    expect(await (await launchApp()).deviceStorageOf(me).unsent?.load()).toEqual([]);
+  });
+
   it("keeps them when the member signs in again before the session ends a second time", async () => {
     const me = newId();
     const app = await sessionEnded(me);

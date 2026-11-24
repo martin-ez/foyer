@@ -296,8 +296,7 @@ export class HouseholdSync {
 
   /** `today` gives the device's date, by default from its clock. `unsent` keeps unsent changes
    *  between launches, sent first once started, and `store` what the household sends, which the
-   *  device starts from and catches up from. If the session ends, what to forget of either is the
-   *  app's to decide. */
+   *  device starts from and catches up from. Neither is forgotten when the session ends. */
   constructor(options: {
     memberId: string;
     connect: Connect;

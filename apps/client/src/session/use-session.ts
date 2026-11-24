@@ -73,7 +73,6 @@ export function useSession() {
   return {
     session,
     check,
-    /** Forgets the session after the household said it has ended, then checks who is signed in. */
     sessionEnded,
     signIn: () => show(signInWithGoogle()),
     signInWithoutGoogle: withoutGoogle && ((email: string) => show(withoutGoogle(email))),
