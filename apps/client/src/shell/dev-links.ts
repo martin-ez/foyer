@@ -1,11 +1,11 @@
 /** What a development link asks for: what follows `foyer://dev/`, such as `add-strokes`. */
-export type DevLink = "add-strokes" | "sign-in";
+export type DevLink = "add-strokes" | "sign-in" | "zoom";
 
 type Handler = (params: URLSearchParams) => void;
 
 const handlers = new Map<DevLink, Handler>();
 const waiting = new Map<DevLink, URLSearchParams>();
-const links: readonly string[] = ["add-strokes", "sign-in"] satisfies DevLink[];
+const links: readonly string[] = ["add-strokes", "sign-in", "zoom"] satisfies DevLink[];
 
 /** Follows a link into the iPad app's development builds, such as
  *  `foyer://dev/add-strokes?fixture=circle-and-scribble`, and says whether it was one. A link that

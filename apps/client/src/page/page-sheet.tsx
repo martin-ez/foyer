@@ -1,24 +1,38 @@
 import type { PageSize } from "@foyer/shared";
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   View,
+  type ViewStyle,
 } from "react-native";
-import { Canvas } from "react-native-skia";
+import { Canvas, Group } from "react-native-skia";
+import { type PageRest, SharpZoomView } from "../../modules/foyer-ink";
+import { handleDevLink } from "../shell/dev-links";
 import { deskColour } from "./desk-drawing";
 import { PageDrawing, type Ruling } from "./page-drawing";
 import { PageScale } from "./page-scale";
+import {
+  cleared,
+  layerDrawn,
+  needsSharpLayer,
+  noSharpLayers,
+  type Rest,
+  restedAt,
+  SharpDrawing,
+  type SharpLayer,
+} from "./sharp-layers";
 import { type Point, type Size, zoomLimits } from "./sheet-camera";
 import { tapSlop } from "./sticker-drag";
 
 /** A page lying on the desk, fitted to it at first, in a view that iOS zooms and moves as one sheet,
- *  so everything on the page moves with it in every frame of a pinch. A touch that moves or zooms
- *  the page isn't a tap. */
+ *  so everything on the page moves with it in every frame of a pinch, drawn again sharp once it
+ *  rests. A touch that moves or zooms the page isn't a tap. */
 export function PageSheet({
   size,
   ruling,
@@ -56,6 +70,15 @@ export function PageSheet({
     setView({ width, height });
   };
   const limits = view && zoomLimits(view, size);
+  const scroll = useRef<ScrollViewInstance>(null);
+  const shownView = useRef(view);
+  shownView.current = view;
+  useEffect(() => {
+    if (!__DEV__) return;
+    return handleDevLink("zoom", (params) =>
+      zoomWhenAsked(scroll.current, shownView.current, params),
+    );
+  }, []);
   const fitted = useRef(1);
   fitted.current = limits?.smallest || 1;
   const zoomed = useRef<number | null>(null);
@@ -65,6 +88,35 @@ export function PageSheet({
     if (zoomScale !== undefined && zoomScale > 0) zoomed.current = zoomScale;
   };
   const sheet = { width: size.width, height: size.height };
+  const [sharp, setSharp] = useState(noSharpLayers);
+  const rested = useCallback(({ nativeEvent }: { nativeEvent: PageRest }) => {
+    setSharp((before) => restedAt(before, nativeEvent));
+  }, []);
+  const drawnLayer = useCallback((key: number) => {
+    setSharp((before) => layerDrawn(before, key));
+  }, []);
+  useEffect(() => {
+    if (!sharp.rest || needsSharpLayer(sharp.rest) || sharp.layers.length === 0) return;
+    return afterPresenting(() => setSharp(cleared));
+  }, [sharp]);
+  const page = useMemo(
+    () => (
+      <PageDrawing size={size} ruling={ruling}>
+        {drawn}
+      </PageDrawing>
+    ),
+    [size, ruling, drawn],
+  );
+  const hidden = sharp.inkHiddenIn;
+  const softInk = useMemo(() => {
+    if (!hidden) return ink;
+    const { x, y, width, height } = hidden;
+    return (
+      <Group clip={{ x, y, width, height }} invertClip>
+        {ink}
+      </Group>
+    );
+  }, [ink, hidden]);
   const touched = ({ nativeEvent }: GestureResponderEvent) => {
     const at = { x: nativeEvent.locationX, y: nativeEvent.locationY };
     if (at.x >= 0 && at.y >= 0 && at.x <= size.width && at.y <= size.height) onPoint?.(at);
@@ -83,6 +135,7 @@ export function PageSheet({
     <View style={styles.desk} onLayout={onLayout} accessibilityLabel={label}>
       {limits && limits.smallest > 0 ? (
         <ScrollView
+          ref={scroll}
           style={styles.desk}
           contentContainerStyle={sheet}
           minimumZoomScale={limits.smallest}
@@ -107,21 +160,91 @@ export function PageSheet({
                 tapFrom.current = null;
               }}
             >
-              <Canvas style={sheet}>
-                <PageDrawing size={size} ruling={ruling}>
-                  {drawn}
-                </PageDrawing>
-              </Canvas>
+              <Canvas style={sheet}>{page}</Canvas>
             </View>
+            {sharp.layers.map((layer) => (
+              <SharpCanvas key={layer.key} layer={layer} onDrawn={drawnLayer}>
+                {page}
+              </SharpCanvas>
+            ))}
             <View style={[sheet, styles.above]}>
               <PageScale value={scale}>{children}</PageScale>
             </View>
-            {ink ? <Canvas style={[sheet, styles.over]}>{ink}</Canvas> : null}
+            {ink ? <Canvas style={[sheet, styles.over]}>{softInk}</Canvas> : null}
+            {ink
+              ? sharp.layers.map((layer) => (
+                  <SharpCanvas key={layer.key} layer={layer}>
+                    {ink}
+                  </SharpCanvas>
+                ))
+              : null}
+            <SharpZoomView style={[sheet, styles.over]} onRest={rested} />
             {pencil ? <View style={[sheet, styles.over]}>{pencil}</View> : null}
           </View>
         </ScrollView>
       ) : null}
     </View>
+  );
+}
+
+function SharpCanvas({
+  layer: { key, rest, drawn },
+  onDrawn,
+  children,
+}: {
+  layer: SharpLayer;
+  onDrawn?: (key: number) => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (drawn || !onDrawn) return;
+    return afterPresenting(() => onDrawn(key));
+  }, [key, drawn, onDrawn]);
+  const style = useMemo(() => placementOf(rest), [rest]);
+  const drawing = useMemo(
+    () => <SharpDrawing rest={rest}>{children}</SharpDrawing>,
+    [rest, children],
+  );
+  return <Canvas style={style}>{drawing}</Canvas>;
+}
+
+function placementOf({ x, y, width, height, zoom }: Rest): ViewStyle {
+  return {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: width * zoom,
+    height: height * zoom,
+    pointerEvents: "none",
+    transformOrigin: [0, 0, 0],
+    transform: [{ translateX: x }, { translateY: y }, { scale: 1 / zoom }],
+  };
+}
+
+function afterPresenting(then: () => void): () => void {
+  const timer = setTimeout(then, presentedAfter);
+  return () => clearTimeout(timer);
+}
+
+const presentedAfter = 150;
+
+function zoomWhenAsked(
+  scroll: ScrollViewInstance | null,
+  view: Size | null,
+  params: URLSearchParams,
+) {
+  const read = (name: string) => (params.has(name) ? Number(params.get(name)) : Number.NaN);
+  const [scale, x, y] = [read("scale"), read("x"), read("y")];
+  if (!scroll || !view || !(scale > 0) || !Number.isFinite(x) || !Number.isFinite(y)) {
+    console.error(`Zooming needs a scale, an x and a y, but got "${params}".`);
+    return;
+  }
+  const width = view.width / scale;
+  const height = view.height / scale;
+  const animated = params.get("animated") === "1";
+  scroll.scrollResponderZoomTo(
+    { x: x - width / 2, y: y - height / 2, width, height, animated },
+    animated,
   );
 }
 

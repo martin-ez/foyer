@@ -33,5 +33,9 @@ public class FoyerInkModule: Module {
         view.strokeDrawn(handoff)
       }
     }
+
+    View(SharpZoomView.self) {
+      Events("onRest")
+    }
   }
 }

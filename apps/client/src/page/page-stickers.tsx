@@ -122,6 +122,7 @@ function StickerView({
       : event
         ? styles.event
         : styles.outline;
+  const frame = !item ? styles.hiddenFrame : task ? styles.taskFrame : styles.eventFrame;
 
   return (
     <>
@@ -139,6 +140,7 @@ function StickerView({
           dragged ? styles.lifted : null,
         ]}
       >
+        {task || event ? <View style={[styles.frame, frame]} /> : null}
         {task && item ? (
           <View style={styles.words}>
             <Text
@@ -230,19 +232,23 @@ const styles = StyleSheet.create({
     pointerEvents: "auto",
   },
   roomForCheckbox: { paddingLeft: checkboxSize },
-  event: {
-    backgroundColor: "#dcebf7",
-    borderColor: "#8fb3d1",
+  event: { backgroundColor: "#dcebf7", boxShadow: "0 1px 3px rgba(0, 0, 0, 0.18)" },
+  task: { backgroundColor: "#fff6c9", boxShadow: "0 1px 3px rgba(0, 0, 0, 0.18)" },
+  hidden: { backgroundColor: "#d9d6cf" },
+  frame: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 4,
     borderWidth: 1,
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.18)",
+    overflow: "hidden",
+    pointerEvents: "none",
   },
-  task: {
-    backgroundColor: "#fff6c9",
-    borderColor: "#d9c77a",
-    borderWidth: 1,
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.18)",
-  },
-  hidden: { backgroundColor: "#d9d6cf", borderColor: "#bdb8ad", borderWidth: 1 },
+  eventFrame: { borderColor: "#8fb3d1" },
+  taskFrame: { borderColor: "#d9c77a" },
+  hiddenFrame: { borderColor: "#bdb8ad" },
   outline: { borderColor: "#8f887a", borderWidth: 1, borderStyle: "dashed" },
   lifted: { zIndex: 1, boxShadow: "0 4px 10px rgba(0, 0, 0, 0.25)" },
   aboveLifted: { zIndex: 2 },
