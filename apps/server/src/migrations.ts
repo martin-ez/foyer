@@ -361,6 +361,8 @@ export const householdMigrations: readonly Migration[] = [
     seq INTEGER NOT NULL
   );
   CREATE INDEX strokes_by_page ON strokes (page_id, seq)`,
+  `DROP INDEX stickers_by_page;
+  CREATE INDEX stickers_by_page ON stickers (page_id, occurrence)`,
 ];
 
 /** Work on the household's data that needs today's code rather than the code of the migration

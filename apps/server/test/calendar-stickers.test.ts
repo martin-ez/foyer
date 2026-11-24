@@ -310,7 +310,7 @@ describe("keeping an item's calendar stickers on its day", () => {
     expect(month?.occurrence).toBe("2026-11-17");
   });
 
-  it("places new tasks below the ones already on their day", async () => {
+  it("places new tasks below the ones already on their day, on each of its pages", async () => {
     const { device } = await connect(alex);
     const inbox = await spaceOf(device, SpaceKind.INBOX);
     const first = newTask(inbox, "2026-11-17");
@@ -319,13 +319,14 @@ describe("keeping an item's calendar stickers on its day", () => {
 
     await device.push(second);
 
-    const [firstOnDay] = (await calendarStickers(device, first.itemId)).filter(
-      ({ pageId }) => pageId === "day:2026-11-17",
-    );
-    const [secondOnDay] = (await calendarStickers(device, idOf(second))).filter(
-      ({ pageId }) => pageId === "day:2026-11-17",
-    );
-    expect(secondOnDay?.y).toBeGreaterThan(firstOnDay?.y ?? Number.POSITIVE_INFINITY);
+    const firsts = await calendarStickers(device, first.itemId);
+    const seconds = await calendarStickers(device, idOf(second));
+    for (const kind of calendarPageKinds) {
+      const pageId = calendarPageId(kind, "2026-11-17");
+      const firstOnPage = firsts.find((sticker) => sticker.pageId === pageId);
+      const secondOnPage = seconds.find((sticker) => sticker.pageId === pageId);
+      expect(secondOnPage?.y, kind).toBeGreaterThan(firstOnPage?.y ?? Number.POSITIVE_INFINITY);
+    }
   });
 
   it("keeps a repeating task's ticked day, places it on its next date, and unticking removes it", async () => {
@@ -367,6 +368,22 @@ describe("stickers on a day page's timeline", () => {
     const elsewhere = (stickers: Sticker[]) =>
       stickers.filter(({ pageId }) => !pageId.startsWith("day:")).map(({ id, x, y }) => [id, x, y]);
     expect(elsewhere(timed)).toEqual(elsewhere(before));
+  });
+
+  it("moves a task's day page sticker beside one already at its time", async () => {
+    const { device } = await connect(alex);
+    const inbox = await spaceOf(device, SpaceKind.INBOX);
+    const first = newTask(inbox, "2026-11-17");
+    const second = newTask(inbox, "2026-11-17");
+    await device.push(...first.changes, ...second.changes, itemSetTime(first.itemId, "09:00"));
+
+    await device.push(itemSetTime(second.itemId, "09:00"));
+
+    const firstOnDay = onDayPage(await calendarStickers(device, first.itemId));
+    const secondOnDay = onDayPage(await calendarStickers(device, second.itemId));
+    expect(firstOnDay).toMatchObject({ x: dayTimeline?.left, y: heightAt(9 * 60) });
+    expect(secondOnDay?.y).toBe(heightAt(9 * 60));
+    expect(secondOnDay?.x).toBeGreaterThan(firstOnDay?.x ?? Number.POSITIVE_INFINITY);
   });
 
   it("leaves a task's sticker where its device dropped it at its time", async () => {
