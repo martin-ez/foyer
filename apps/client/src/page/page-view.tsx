@@ -32,7 +32,6 @@ import { PresenceMarkers } from "./presence-markers";
 import type { Point } from "./sheet-camera";
 import { stickerSize, stickersOn } from "./sticker-layout";
 
-/** Checks' hooks on the open page. Production builds leave them out, with the fixtures they hold. */
 const SceneHooks: typeof import("./scene-hooks").SceneHooks | null = __DEV__
   ? require("./scene-hooks").SceneHooks
   : null;

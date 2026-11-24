@@ -16,8 +16,7 @@ const withCode = signInWithCode;
 
 /** Who is signed in on this device, checked with the backend when the app starts, and the ways to
  *  change it. Signing out forgets what the device keeps for the member. Only the iPad app's
- *  development builds can sign in without Google, or with a one-time code from it opened as
- *  `foyer://dev/sign-in?code=…`. */
+ *  development builds can sign in without Google. */
 export function useSession() {
   const [session, setSession] = useState<Session>({ status: "checking" });
 

@@ -23,8 +23,7 @@ type StartedSignIn = { state?: string; codeVerifier?: string; app: App };
 
 /** Answers the browser navigations under `/auth/` that sign people in, with Google or, locally,
  *  without it. They return to the web app with a session cookie, or, opened with `?app=ipad`, to
- *  `foyer://signed-in` with a one-time code. Someone who isn't let in returns with an error.
- *  Locally, `/auth/dev/strokes` also gives a page's strokes, to record them as a test fixture. */
+ *  `foyer://signed-in` with a one-time code. Someone who isn't let in returns with an error. */
 export async function handleSignIn(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/auth/dev/google/calendar") {

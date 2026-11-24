@@ -1,8 +1,6 @@
-// Signs a real iPad in to the local backend, which it can't reach at localhost: signs in without
-// Google here, at localhost, and shows the iPad's one-time code as a QR code. The iPad's camera
-// opens it in the development build as foyer://dev/sign-in?code=…, which works for a minute.
-//
-//   pnpm sign-in-ipad [email]
+// `pnpm sign-in-ipad [email]` signs a real iPad in to the local backend, which only lets people in
+// without Google at localhost: it signs in here, and shows the iPad's one-time code, valid for a
+// minute, as a QR code that the iPad's camera opens in the development build.
 import qrcode from "qrcode-terminal";
 
 const backend = "http://localhost:8787";

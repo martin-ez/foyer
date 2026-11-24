@@ -1,7 +1,6 @@
-// Saves the strokes on a page of the local household as a stroke fixture, from the page someone
-// drew on last unless a page's id is given, and lists every fixture in the fixtures' index.
-//
-//   pnpm record-strokes <name> [page id]
+// `pnpm record-strokes <name> [page id]` saves the strokes on a page of the local household as a
+// stroke fixture, from the page someone drew on last unless a page is given, and lists it in the
+// fixtures' index.
 import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -28,7 +27,6 @@ writeFileSync(join(folder, "index.ts"), indexOf(fixtureNames()));
 console.log(`Saved ${strokes.length} strokes from ${recordedFrom} as the "${name}" fixture.`);
 console.log("Check it holds nothing personal, then run `pnpm update-golden-images`.");
 
-/** The fixture as JSON with two spaces of indent, and each list of numbers on one line. */
 function fixtureJson(value) {
   return JSON.stringify(value, null, 2).replace(
     /\[[\d\s,-]*\]/g,
@@ -50,18 +48,16 @@ function fixtureNames() {
 }
 
 function indexOf(names) {
-  const variable = (fixture) =>
-    fixture.replace(/-([a-z0-9])/g, (_, letter) => letter.toUpperCase());
-  const imports = names.map((fixture) => `import ${variable(fixture)} from "./${fixture}.json";\n`);
-  const entries = names.map((fixture) => `  "${fixture}": ${variable(fixture)},\n`);
+  const variable = (name) => name.replace(/-([a-z0-9])/g, (_, letter) => letter.toUpperCase());
+  const imports = names.map((name) => `import ${variable(name)} from "./${name}.json";\n`);
+  const entries = names.map((name) => `  "${name}": ${variable(name)},\n`);
+  const value = names.length === 0 ? "{}" : `{\n${entries.join("")}}`;
   return [
-    "// Written by `pnpm record-strokes`: one entry per fixture in this folder.\n",
     ...imports,
-    "\n",
-    "/** The stroke fixtures recorded on a real iPad, by name, as `strokeFixtureOf` wrote them. */\n",
-    names.length === 0
-      ? "export const strokeFixtures: Readonly<Record<string, unknown>> = {};\n"
-      : `export const strokeFixtures: Readonly<Record<string, unknown>> = {\n${entries.join("")}};\n`,
+    ...(imports.length > 0 ? ["\n"] : []),
+    "/** The stroke fixtures recorded on a real iPad, by name, as `strokeFixtureOf` wrote them.",
+    " Written\n *  by `pnpm record-strokes`. */\n",
+    `export const strokeFixtures: Readonly<Record<string, unknown>> = ${value};\n`,
   ].join("");
 }
 

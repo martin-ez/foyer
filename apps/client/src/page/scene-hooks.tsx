@@ -9,10 +9,9 @@ import type { OpenPage } from "./open-page";
 import { pageIdOf } from "./open-page";
 import { sceneOf } from "./scene";
 
-/** Lets checks read the open page and add stroke fixtures to it, in development builds only: in
- *  the web app as `window.foyerTest.scene()` and `addStrokes(fixture)`, and on the iPad through
- *  `foyer://dev/add-strokes?fixture=<name>` and an element with the test id `scene`, which holds
- *  `scene()` as JSON. */
+/** Lets checks read the open page and add stroke fixtures to it: as `window.foyerTest` on the
+ *  web, and through `foyer://dev/add-strokes?fixture=<name>` and the element `scene` on the iPad.
+ *  Load it only behind `__DEV__`, so production builds leave it out with the fixtures. */
 export function SceneHooks({ page }: { page: OpenPage }) {
   const { state, sync } = useHousehold();
   const { pages, items, stickers, strokes } = state;
