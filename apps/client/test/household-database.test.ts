@@ -171,10 +171,28 @@ describe("the household's copy on the iPad", () => {
 
     expect(removed).toEqual([file]);
     expect(opened[0]?.raw.isOpen).toBe(false);
-    expect(database.isForgotten).toBe(true);
+    expect(database.closed).not.toBeNull();
     expect(await database.load()).toEqual({ rows: [], cursors: new Map(), opened: new Map() });
     expect(await database.unsent.load()).toEqual([]);
     expect(await launch().unsent.load()).toEqual([]);
+  });
+
+  it("keeps only the unsent changes, those still being written included, when asked to", async () => {
+    const database = launch();
+    database.keepRow({ kind: "stroke", id: "a", pageId: day, row: strokeRow(4, "a", day) });
+    database.keepCursor("", 5n);
+    database.keepOpened(day, 1_000);
+    database.unsent.keep([change("a")]);
+
+    await database.keepOnlyUnsent();
+    database.unsent.keep([change("b")]);
+
+    expect(removed).toEqual([]);
+    expect(opened[0]?.raw.isOpen).toBe(false);
+    expect(database.closed).not.toBeNull();
+    const next = launch();
+    expect(await next.load()).toEqual({ rows: [], cursors: new Map(), opened: new Map() });
+    expect(await next.unsent.load()).toEqual([change("a")]);
   });
 
   it("keeps nothing when the database can't be opened", async () => {

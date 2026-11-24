@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionClient } from "../backend/backend";
 import { handleDevLink } from "../shell/dev-links";
-import { forgetDeviceStorage } from "../sync/device-storage";
-import { checkSession, type Session, signOut } from "./session";
-import { forgetSessionToken } from "./session-token";
+import {
+  forgetDeviceStorage,
+  forgetEndedSession,
+  forgetOtherMembers,
+} from "../sync/device-storage";
+import { type KeptSignIn, openSession, type Session, signOut } from "./session";
+import {
+  forgetSessionToken,
+  forgetSignedInMember,
+  keepSignedInMember,
+  readSignedInMember,
+} from "./session-token";
 import {
   problemFromSignIn,
   signInWithCode,
@@ -14,51 +23,76 @@ import {
 const withoutGoogle = signInWithoutGoogle;
 const withCode = signInWithCode;
 
-/** Who is signed in on this device, checked with the backend when the app starts, and the ways to
+const keptSignIn: KeptSignIn = {
+  member: readSignedInMember,
+  signedIn: async (member) => {
+    await keepSignedInMember(member);
+    await forgetOtherMembers(member.id);
+  },
+  ended: async (memberId) => {
+    await forgetSessionToken();
+    await forgetSignedInMember();
+    await forgetEndedSession(memberId);
+  },
+};
+
+/** Who is signed in on this device, opened with `openSession` when the app starts, and the ways to
  *  change it. Signing out forgets what the device keeps for the member. Only the iPad app's
  *  development builds can sign in without Google. */
 export function useSession() {
   const [session, setSession] = useState<Session>({ status: "checking" });
-
   const latest = useRef(0);
 
   const check = useCallback(async () => {
     const started = ++latest.current;
-    setSession({ status: "checking" });
-    const checked = await checkSession(sessionClient);
-    if (started !== latest.current) return;
-    const problem = problemFromSignIn();
-    setSession(checked.status === "signed-out" && problem ? { ...checked, problem } : checked);
+    await openSession(sessionClient, keptSignIn, (opened) => {
+      if (started !== latest.current) return;
+      const problem = opened.status === "checking" ? undefined : problemFromSignIn();
+      setSession(opened.status === "signed-out" && problem ? { ...opened, problem } : opened);
+    });
   }, []);
 
   useEffect(() => {
     check();
   }, [check]);
 
+  const show = useCallback(async (next: Promise<Session>) => {
+    const started = ++latest.current;
+    const shown = await next;
+    if (shown.status === "signed-in") await keptSignIn.signedIn(shown.member);
+    if (started === latest.current) setSession(shown);
+  }, []);
+
   useEffect(
     () =>
       withCode &&
-      handleDevLink("sign-in", async (params) => {
-        const started = ++latest.current;
+      handleDevLink("sign-in", (params) => {
         setSession({ status: "checking" });
-        const signedIn = await withCode(params.get("code") ?? "");
-        if (started === latest.current) setSession(signedIn);
+        show(withCode(params.get("code") ?? ""));
       }),
-    [],
+    [show],
   );
 
   const memberId = session.status === "signed-in" ? session.member.id : null;
+
+  const sessionEnded = useCallback(async () => {
+    ++latest.current;
+    if (memberId) await keptSignIn.ended(memberId);
+    await check();
+  }, [memberId, check]);
+
   const forgetOnDevice = async () => {
     await forgetSessionToken();
+    await forgetSignedInMember();
     if (memberId) await forgetDeviceStorage(memberId);
   };
 
   return {
     session,
     check,
-    signIn: async () => setSession(await signInWithGoogle()),
-    signInWithoutGoogle:
-      withoutGoogle && (async (email: string) => setSession(await withoutGoogle(email))),
-    signOut: async () => setSession(await signOut(sessionClient, forgetOnDevice)),
+    sessionEnded,
+    signIn: () => show(signInWithGoogle()),
+    signInWithoutGoogle: withoutGoogle && ((email: string) => show(withoutGoogle(email))),
+    signOut: () => show(signOut(sessionClient, forgetOnDevice)),
   };
 }

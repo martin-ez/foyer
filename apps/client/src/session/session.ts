@@ -24,6 +24,36 @@ export async function checkSession(sessions: Sessions): Promise<Session> {
   }
 }
 
+/** What a device keeps of the member signed in on it, and of their household. */
+export type KeptSignIn = {
+  /** The member signed in on the device, which it keeps to open as them without a connection, or
+   *  null when it keeps none. */
+  member(): Promise<Member | null>;
+  /** Keeps the member who just signed in, and forgets what the device still kept for anyone
+   *  else. */
+  signedIn(member: Member): Promise<void>;
+  /** Forgets a session the backend ended: its token, the member, and what the device kept of
+   *  their household, except what it keeps until they sign in again. */
+  ended(memberId: string): Promise<void>;
+};
+
+/** Opens the session the device had, calling `show` with each session in turn: the member it kept
+ *  at once, signed in while the backend can't be reached, then who the backend says is signed in.
+ *  It keeps a member signed in, and forgets a kept member whose session ended. */
+export async function openSession(
+  sessions: Sessions,
+  kept: KeptSignIn,
+  show: (session: Session) => void,
+): Promise<void> {
+  const member = await kept.member();
+  show(member ? { status: "signed-in", member } : { status: "checking" });
+  const checked = await checkSession(sessions);
+  if (checked.status === "unreachable" && member) return;
+  if (checked.status === "signed-in") await kept.signedIn(checked.member);
+  else if (checked.status === "signed-out" && member) await kept.ended(member.id);
+  show(checked);
+}
+
 /** Finishes signing in on the iPad, from the address that sign-in returned to: exchanges its
  *  one-time code for a session, and keeps the session's token. An address without a code means
  *  the person chose not to sign in. */

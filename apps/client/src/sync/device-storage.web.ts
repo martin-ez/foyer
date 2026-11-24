@@ -11,3 +11,13 @@ export function deviceStorageOf(memberId: string): DeviceStorage {
 export function forgetDeviceStorage(memberId: string): Promise<void> {
   return forgetUnsentChanges(memberId);
 }
+
+/** Forgets the member's unsent changes once the household ends their session: only the iPad keeps
+ *  them for when the member signs in again. */
+export function forgetEndedSession(memberId: string): Promise<void> {
+  return forgetUnsentChanges(memberId);
+}
+
+/** Does nothing: the browser keeps each member's unsent changes apart, and never sends them as
+ *  another member's. */
+export async function forgetOtherMembers(_memberId: string): Promise<void> {}

@@ -70,7 +70,8 @@ export class HouseholdDatabase implements HouseholdStore {
   readonly #remove: () => Promise<void>;
   #writes: Write[] = [];
   #work: Promise<unknown> = Promise.resolve();
-  #forgotten: Promise<void> | null = null;
+  #closed: Promise<void> | null = null;
+  #discarding = false;
 
   /** `open` opens the database's file, and `remove` deletes it once it's closed. */
   constructor(open: Promise<SqlDatabase>, remove: () => Promise<void>) {
@@ -111,15 +112,13 @@ export class HouseholdDatabase implements HouseholdStore {
           this.#write("DELETE FROM unsent_changes WHERE change_id = ?", changeId);
         }
       },
-      forgetAll: () => {
-        this.forget();
-      },
     };
   }
 
-  /** Whether the database has been forgotten, after which it keeps nothing. */
-  get isForgotten(): boolean {
-    return this.#forgotten !== null;
+  /** Resolves once the database is closed, after it was forgotten or kept only its unsent changes,
+   *  and is null while it's open. Once closed, it keeps nothing. */
+  get closed(): Promise<void> | null {
+    return this.#closed;
   }
 
   load(): Promise<KeptHousehold> {
@@ -190,25 +189,40 @@ export class HouseholdDatabase implements HouseholdStore {
     }
   }
 
-  forgetAll(): void {
-    this.forget();
-  }
-
   /** Stops keeping anything, waits for what's being written, closes the database and deletes it.
    *  Resolves once it's deleted. */
   forget(): Promise<void> {
-    this.#forgotten ??= (async () => {
+    if (!this.#closed) {
+      this.#discarding = true;
       this.#writes = [];
+    }
+    return this.#close(this.#remove);
+  }
+
+  /** Stops keeping anything, and once what's being written is written, empties the copy and when
+   *  pages were opened, keeping only the unsent changes, for the next database opened on the same
+   *  file to read. Resolves once it's closed. */
+  keepOnlyUnsent(): Promise<void> {
+    if (!this.#closed) {
+      for (const table of ["household_rows", "cursors", "opened_pages"]) {
+        this.#write(`DELETE FROM ${table}`);
+      }
+    }
+    return this.#close(async () => undefined);
+  }
+
+  #close(after: () => Promise<void>): Promise<void> {
+    this.#closed ??= (async () => {
       await this.#work;
       const database = await this.#database;
       await database?.closeAsync().catch(() => undefined);
-      await this.#remove().catch(() => undefined);
+      await after().catch(() => undefined);
     })();
-    return this.#forgotten;
+    return this.#closed;
   }
 
   #write(source: string, ...values: BindValue[]): void {
-    if (this.#forgotten) return;
+    if (this.#closed) return;
     this.#writes.push({ source, values });
     if (this.#writes.length === 1) this.#work = this.#work.then(() => this.#flush());
   }
@@ -217,7 +231,7 @@ export class HouseholdDatabase implements HouseholdStore {
     const writes = this.#writes;
     this.#writes = [];
     const database = await this.#database;
-    if (!database || writes.length === 0 || this.#forgotten) return;
+    if (!database || writes.length === 0 || this.#discarding) return;
     const loseAllTogether = () => undefined;
     await database
       .withTransactionAsync(async () => {
@@ -241,7 +255,7 @@ export class HouseholdDatabase implements HouseholdStore {
   #read<T>(fallback: T, read: (database: SqlDatabase) => Promise<T>): Promise<T> {
     const result = this.#work.then(async () => {
       const database = await this.#database;
-      if (!database || this.#forgotten) return fallback;
+      if (!database || this.#closed) return fallback;
       return read(database).catch(() => fallback);
     });
     this.#work = result;

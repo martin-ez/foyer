@@ -61,12 +61,37 @@ function SignInWithoutGoogle({ onSignIn }: { onSignIn: (email: string) => void }
   );
 }
 
-/** Says who is signed in, with a way to sign out. */
-export function SignedInAs({ member, onSignOut }: { member: Member; onSignOut: () => void }) {
+/** Says who is signed in, with a way to sign out, which first asks whether to lose the `unsaved`
+ *  changes the household hasn't saved yet, if any. */
+export function SignedInAs({
+  member,
+  unsaved,
+  onSignOut,
+}: {
+  member: Member;
+  unsaved: number;
+  onSignOut: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  if (asking) {
+    return (
+      <View style={styles.asking}>
+        <Text style={styles.problem}>
+          {unsaved === 1
+            ? "1 change isn't saved yet. Signing out now loses it."
+            : `${unsaved} changes aren't saved yet. Signing out now loses them.`}
+        </Text>
+        <View style={styles.signedInAs}>
+          <Button title="Sign out anyway" onPress={onSignOut} />
+          <Button title="Stay signed in" onPress={() => setAsking(false)} />
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={styles.signedInAs}>
       <Text style={styles.line}>Signed in as {member.name}</Text>
-      <Button title="Sign out" onPress={onSignOut} />
+      <Button title="Sign out" onPress={() => (unsaved > 0 ? setAsking(true) : onSignOut())} />
     </View>
   );
 }
@@ -78,5 +103,6 @@ const styles = StyleSheet.create({
   withoutGoogle: { flexDirection: "row", alignItems: "center", gap: 8 },
   email: { minWidth: 220, borderWidth: 1, borderColor: "#c9c2b6", padding: 8 },
   signedInAs: { flexDirection: "row", alignItems: "center", gap: 8 },
+  asking: { gap: 8, maxWidth: 320 },
   line: { fontSize: 12, color: "#6b6459" },
 });

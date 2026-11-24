@@ -89,9 +89,6 @@ export function unsentChangesOf(memberId: string): UnsentChanges | undefined {
         return () => undefined;
       });
     },
-    forgetAll: () => {
-      forgetUnsentChanges(memberId);
-    },
   };
 }
 

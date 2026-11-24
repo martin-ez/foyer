@@ -866,9 +866,6 @@ describe("keeping unsent changes between launches", () => {
     forget = (changeIds: string[]) => {
       this.kept = this.kept.filter(({ changeId }) => !changeIds.includes(changeId));
     };
-    forgetAll = () => {
-      this.kept = [];
-    };
   }
 
   let unsent: KeptChanges;
@@ -995,15 +992,17 @@ describe("keeping unsent changes between launches", () => {
     expect(names()).toEqual(["Inbox", "Home"]);
   });
 
-  it("forgets every kept change once the household says the session has ended", async () => {
+  it("leaves the kept changes for the app to forget or send once the household says the session has ended", async () => {
     await startedUpToDate();
     household().closeWith(1006);
     sync.renameSpace(home.id, "Our home");
+    const kept = keptIds();
     vi.advanceTimersByTime(1000);
 
     household().closeWith(signedOutCloseCode);
 
-    expect(unsent.kept).toEqual([]);
+    expect(keptIds()).toEqual(kept);
+    expect(kept).toHaveLength(1);
   });
 
   it("sends a change made before it started once, though it's kept too", async () => {
@@ -3000,7 +2999,6 @@ describe("keeping the household on the device", () => {
     rows = new Map<string, KeptRow>();
     cursors = new Map<string, bigint>();
     opened = new Map<string, number>();
-    forgotten = false;
     load = async (): Promise<KeptHousehold> => ({
       rows: [...this.rows.values()].map(({ row }) => row),
       cursors: new Map(this.cursors),
@@ -3026,12 +3024,6 @@ describe("keeping the household on the device", () => {
         this.cursors.delete(pageId);
         this.opened.delete(pageId);
       }
-    };
-    forgetAll = () => {
-      this.rows.clear();
-      this.cursors.clear();
-      this.opened.clear();
-      this.forgotten = true;
     };
   }
 
@@ -3287,13 +3279,5 @@ describe("keeping the household on the device", () => {
 
     expect(strokeIds()).toEqual([]);
     expect([...store.rows.keys()]).not.toContain(`stroke ${strokeId}`);
-  });
-
-  it("forgets everything it kept once the household says the session has ended", async () => {
-    await caughtUp();
-
-    household().closeWith(signedOutCloseCode);
-
-    expect(store.forgotten).toBe(true);
   });
 });
