@@ -13,6 +13,23 @@ describe("followDevLink", () => {
     expect(handler.mock.calls[0]?.[0].get("fixture")).toBe("circle-and-scribble");
   });
 
+  it("hands a zoom's scale and the point to zoom on to what zooms the page", () => {
+    const handler = vi.fn();
+    const stop = handleDevLink("zoom", handler);
+
+    const followed = followDevLink("foyer://dev/zoom?scale=4&x=300&y=420&animated=1");
+    stop();
+
+    const params: URLSearchParams = handler.mock.calls[0]?.[0];
+    expect(followed).toBe(true);
+    expect(["scale", "x", "y", "animated"].map((name) => params.get(name))).toEqual([
+      "4",
+      "300",
+      "420",
+      "1",
+    ]);
+  });
+
   it("follows the link given as a path too", () => {
     const handler = vi.fn();
     const stop = handleDevLink("sign-in", handler);

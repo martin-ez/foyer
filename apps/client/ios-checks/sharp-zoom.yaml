@@ -1,0 +1,54 @@
+appId: io.github.martin-ez.foyer
+name: Draws a day page sharp at four times its size once it rests, then cleans it up
+---
+- runFlow: steps/open-and-sign-in.yaml
+- tapOn:
+    point: 75%, 39%
+- tapOn: Title
+- inputText: Sharp sticker
+- pressKey: Enter
+- assertVisible: ".*Sharp sticker.*"
+- tapOn: Draw with the mouse
+- tapOn: Even line
+- swipe:
+    start: 35%, 47%
+    end: 70%, 52%
+    duration: 800
+- swipe:
+    start: 40%, 55%
+    end: 60%, 45%
+    duration: 800
+- tapOn: Draw with the mouse
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 10000
+- copyTextFrom:
+    id: scene
+- assertTrue: ${JSON.parse(maestro.copiedText).strokes.length == 2}
+- assertTrue: ${JSON.parse(maestro.copiedText).stickers.length == 1}
+- assertVisible: Upcoming events
+- takeScreenshot: sharp-zoom-fitted-ipad
+- openLink: foyer://dev/zoom?scale=4&x=380&y=200
+- waitForAnimationToEnd
+- takeScreenshot: sharp-zoom-4x-ipad
+- openLink: foyer://dev/zoom?scale=0.1&x=300&y=420
+- waitForAnimationToEnd
+- tapOn: Draw with the mouse
+- tapOn: Eraser
+- swipe:
+    start: 50%, 42%
+    end: 50%, 60%
+    duration: 800
+- tapOn: Draw with the mouse
+- tapOn: ".*Sharp sticker.*"
+- scrollUntilVisible:
+    element: Delete task
+- tapOn: Delete task
+- tapOn: Delete
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 10000
+- copyTextFrom:
+    id: scene
+- assertTrue: ${JSON.parse(maestro.copiedText).strokes.length == 0}
+- assertTrue: ${JSON.parse(maestro.copiedText).stickers.length == 0}

@@ -46,6 +46,17 @@ export const PencilView: ComponentType<{
   style?: StyleProp<ViewStyle>;
 }> = requireNativeView("FoyerInk");
 
+/** Where a page came to rest: the part of it on screen, in its own points, and how many screen
+ *  points one of its points takes. */
+export type PageRest = { x: number; y: number; width: number; height: number; zoom: number };
+
+/** A view laid over a page in its own points, inside the view that zooms it. Once the page comes
+ *  to rest, it draws the text of the views on screen at that zoom, and says where the page rests. */
+export const SharpZoomView: ComponentType<{
+  onRest?: (event: { nativeEvent: PageRest }) => void;
+  style?: StyleProp<ViewStyle>;
+}> = requireNativeView("FoyerInk", "SharpZoomView");
+
 /** Whether the app runs in the iPad simulator, where the mouse can draw instead of the Pencil. */
 export const isSimulator: boolean = requireNativeModule<{ isSimulator: boolean }>(
   "FoyerInk",

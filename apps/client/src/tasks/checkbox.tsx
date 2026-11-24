@@ -47,6 +47,7 @@ const styles = StyleSheet.create({
     borderColor: "#6b6459",
     borderWidth: 1.5,
     borderRadius: 3,
+    overflow: "hidden",
   },
   ticked: { backgroundColor: "#6b6459" },
   tick: { color: "#fffdf8", fontSize: 11, lineHeight: 13, fontWeight: "700" },
