@@ -3,7 +3,7 @@ import { type EventTime, eventDate, eventTimeFields, readEventTime } from "@foye
 import type { EventSetTime } from "@foyer/shared/gen/foyer/event/v1/event_pb";
 import { type Applied, isLater, type Setter } from "./changes";
 import { itemFor } from "./items";
-import { nextSeq, type RowKey } from "./rows";
+import { inJson, nextSeq, type RowKey } from "./rows";
 
 /** When an event happens, as a change carries it, or why it can't happen then. */
 export function eventTimeIn(change: {
@@ -104,17 +104,19 @@ export function redateEvents(
   setter: Setter,
   seq: number,
 ): string[] {
+  const events = sql
+    .exec<StoredTime & { id: string; date: string | null; time_zone: string | null }>(
+      `SELECT items.id, items.date, items.starts_on, items.ends_on, items.starts_at, items.ends_at,
+         space_calendars.time_zone
+       FROM items LEFT JOIN space_calendars ON space_calendars.space_id = items.space_id
+       WHERE items.id IN ${inJson} AND items.kind = 'event'`,
+      JSON.stringify(itemIds),
+    )
+    .toArray();
+  const byId = new Map(events.map((event) => [event.id, event]));
   const redated: string[] = [];
-  for (const itemId of itemIds) {
-    const [event] = sql
-      .exec<StoredTime & { date: string | null; time_zone: string | null }>(
-        `SELECT items.date, items.starts_on, items.ends_on, items.starts_at, items.ends_at,
-           space_calendars.time_zone
-         FROM items LEFT JOIN space_calendars ON space_calendars.space_id = items.space_id
-         WHERE items.id = ? AND items.kind = 'event'`,
-        itemId,
-      )
-      .toArray();
+  for (const id of new Set(itemIds)) {
+    const event = byId.get(id);
     const time = event && storedEventTime(event);
     if (!event || !time) continue;
     const date = eventDate(time, event.time_zone ?? "UTC");
@@ -125,9 +127,9 @@ export function redateEvents(
       setter.at,
       setter.changeId,
       seq,
-      itemId,
+      event.id,
     );
-    redated.push(itemId);
+    redated.push(event.id);
   }
   return redated;
 }
@@ -136,10 +138,7 @@ export function redateEvents(
  *  Google calendar. */
 export function eventsCanMoveTo(sql: SqlStorage, itemIds: readonly string[], spaceId: string) {
   if (calendarTimeZone(sql, spaceId) !== null) return true;
-  return !itemIds.some(
-    (id) =>
-      sql.exec("SELECT 1 FROM items WHERE id = ? AND kind = 'event'", id).toArray().length > 0,
-  );
+  return !anyOf(sql, itemIds, "kind = 'event'");
 }
 
 /** Refused when an event would move into a space without a Google calendar. */
@@ -148,11 +147,12 @@ export const eventNeedsCalendar = "An event can only go in a space with a Google
 /** Whether any of some items is an occurrence of a repeating event, which moves to another space
  *  only with its series, in Google Calendar. */
 export function holdsOccurrence(sql: SqlStorage, itemIds: readonly string[]): boolean {
-  return itemIds.some(
-    (id) =>
-      sql.exec("SELECT 1 FROM items WHERE id = ? AND series_id IS NOT NULL", id).toArray().length >
-      0,
-  );
+  return anyOf(sql, itemIds, "series_id IS NOT NULL");
+}
+
+function anyOf(sql: SqlStorage, itemIds: readonly string[], condition: string): boolean {
+  const query = `SELECT 1 FROM items WHERE id IN ${inJson} AND ${condition} LIMIT 1`;
+  return sql.exec(query, JSON.stringify(itemIds)).toArray().length > 0;
 }
 
 /** Refused when an occurrence of a repeating event would move to another space. */

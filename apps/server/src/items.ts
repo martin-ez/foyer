@@ -31,7 +31,7 @@ import {
 } from "./events";
 import { deleteInkOnPagesOf } from "./ink";
 import { type MovedUp, type Placer, stickMovedUp } from "./moved-up";
-import { joinPageSpace, nextSeq, type RowKey } from "./rows";
+import { idsByKind, inJson, joinPageSpace, nextSeq, type RowKey } from "./rows";
 import { canSee } from "./spaces";
 import { buryGroups, textOnPagesOf } from "./text";
 
@@ -421,34 +421,26 @@ export function moveIntoSpace(
     .toArray();
   const ownerAfter = space?.owner_id ?? null;
   const items = [itemId, ...itemsUnder(sql, itemId)];
-  for (const id of items) {
-    sql.exec(
-      "UPDATE items SET space_id = ?, space_at = ?, space_change_id = ?, seq = ? WHERE id = ?",
-      spaceId,
-      setter.at,
-      setter.changeId,
-      seq,
-      id,
-    );
-    sql.exec("UPDATE completions SET seq = ? WHERE item_id = ?", seq, id);
-    sql.exec("UPDATE pages SET seq = ? WHERE item_id = ?", seq, id);
-    sql.exec(
-      "UPDATE stickers SET seq = ? WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
-      seq,
-      id,
-    );
-    sql.exec(
-      "UPDATE text_groups SET seq = ? WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
-      seq,
-      id,
-    );
-    sql.exec(
-      `UPDATE text_blocks SET seq = ? WHERE group_id IN (SELECT text_groups.id FROM text_groups
-         JOIN pages ON pages.id = text_groups.page_id WHERE pages.item_id = ?)`,
-      seq,
-      id,
-    );
-  }
+  const ids = JSON.stringify(items);
+  sql.exec(
+    `UPDATE items SET space_id = ?, space_at = ?, space_change_id = ?, seq = ?
+     WHERE id IN ${inJson}`,
+    spaceId,
+    setter.at,
+    setter.changeId,
+    seq,
+    ids,
+  );
+  sql.exec(`UPDATE completions SET seq = ? WHERE item_id IN ${inJson}`, seq, ids);
+  sql.exec(`UPDATE pages SET seq = ? WHERE item_id IN ${inJson}`, seq, ids);
+  sql.exec(`UPDATE stickers SET seq = ? WHERE page_id IN ${theirPages}`, seq, ids);
+  sql.exec(`UPDATE text_groups SET seq = ? WHERE page_id IN ${theirPages}`, seq, ids);
+  sql.exec(
+    `UPDATE text_blocks SET seq = ?
+     WHERE group_id IN (SELECT id FROM text_groups WHERE page_id IN ${theirPages})`,
+    seq,
+    ids,
+  );
   redateEvents(sql, items, setter, seq);
 
   const losing =
@@ -460,31 +452,35 @@ export function moveIntoSpace(
             .toArray()
             .map(({ id }) => id)
         : [ownerBefore];
-  const moved = items.flatMap((id): RowKey[] => [{ kind: "item", id }, ...carriedBy(sql, id)]);
-  for (const row of moved) {
+  const moved = [...items.map((id): RowKey => ({ kind: "item", id })), ...carriedBy(sql, items)];
+  for (const [kind, ofKind] of idsByKind(moved)) {
+    const rows = JSON.stringify(ofKind);
     if (ownerAfter === null) {
-      sql.exec("DELETE FROM hidden_rows WHERE kind = ? AND id = ?", row.kind, row.id);
+      sql.exec(`DELETE FROM hidden_rows WHERE kind = ? AND id IN ${inJson}`, kind, rows);
     } else {
       sql.exec(
-        "DELETE FROM hidden_rows WHERE kind = ? AND id = ? AND member_id = ?",
-        row.kind,
-        row.id,
+        `DELETE FROM hidden_rows WHERE kind = ? AND id IN ${inJson} AND member_id = ?`,
+        kind,
+        rows,
         ownerAfter,
       );
     }
     for (const member of losing) {
       sql.exec(
-        `INSERT INTO hidden_rows (kind, id, member_id, seq) VALUES (?, ?, ?, ?)
+        `INSERT INTO hidden_rows (kind, id, member_id, seq)
+         SELECT ?, value, ?, ? FROM json_each(?) WHERE true
          ON CONFLICT (kind, id, member_id) DO UPDATE SET seq = excluded.seq`,
-        row.kind,
-        row.id,
+        kind,
         member,
         seq,
+        rows,
       );
     }
   }
   return moved;
 }
+
+const theirPages = `(SELECT id FROM pages WHERE item_id IN ${inJson})`;
 
 /** Deletes an item, its stickers, its completions, and its body page with what's on it, leaving
  *  tombstones for the members who saw them. Items still under it move up, with stickers placed on
@@ -569,11 +565,11 @@ function deleteFound(
     sql.exec("DELETE FROM stickers WHERE id = ?", sticker.id);
     bury("sticker", sticker.id, sticker.owner_id);
   }
-  const groups = textOnPagesOf(sql, itemId)
+  const groups = textOnPagesOf(sql, [itemId])
     .filter(({ kind }) => kind === "text_group")
     .map(({ id }) => id);
   const text = buryGroups(sql, groups, owner, seq);
-  const carried = carriedBy(sql, itemId).filter(({ kind }) => kind !== "sticker");
+  const carried = carriedBy(sql, [itemId]).filter(({ kind }) => kind !== "sticker");
   for (const row of carried) bury(row.kind, row.id, owner);
   sql.exec("DELETE FROM completions WHERE item_id = ?", itemId);
   sql.exec("DELETE FROM last_ticks WHERE item_id = ?", itemId);
@@ -593,21 +589,18 @@ function deleteFound(
   return { seq, changed, unchanged: [] };
 }
 
-function carriedBy(sql: SqlStorage, itemId: string): RowKey[] {
-  const ids = (query: string) =>
+function carriedBy(sql: SqlStorage, itemIds: readonly string[]): RowKey[] {
+  const ids = JSON.stringify(itemIds);
+  const keys = (kind: RowKey["kind"], query: string) =>
     sql
-      .exec<{ id: string }>(query, itemId)
+      .exec<{ id: string }>(query, ids)
       .toArray()
-      .map(({ id }) => id);
+      .map(({ id }): RowKey => ({ kind, id }));
   return [
-    ...ids("SELECT id FROM completions WHERE item_id = ?").map(
-      (id): RowKey => ({ kind: "completion", id }),
-    ),
-    ...ids("SELECT id FROM pages WHERE item_id = ?").map((id): RowKey => ({ kind: "page", id })),
-    ...ids("SELECT id FROM stickers WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)").map(
-      (id): RowKey => ({ kind: "sticker", id }),
-    ),
-    ...textOnPagesOf(sql, itemId),
+    ...keys("completion", `SELECT id FROM completions WHERE item_id IN ${inJson}`),
+    ...keys("page", `SELECT id FROM pages WHERE item_id IN ${inJson}`),
+    ...keys("sticker", `SELECT id FROM stickers WHERE page_id IN ${theirPages}`),
+    ...textOnPagesOf(sql, itemIds),
   ];
 }
 

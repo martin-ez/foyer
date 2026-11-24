@@ -118,76 +118,99 @@ export function pullRows(
   return { rows: rowsBetween(sql, memberId, cursor, upTo), cursor: upTo, done: false };
 }
 
+/** SQL for a list of values bound in its place as one JSON array, as in `id IN ${inJson}` bound to
+ *  `JSON.stringify(ids)`, so that one statement covers any number of rows. */
+export const inJson = "(SELECT value FROM json_each(?))";
+
+/** The ids of some rows, by kind, each kind in the order its rows first come. */
+export function idsByKind(keys: Iterable<RowKey>): Map<RowKey["kind"], string[]> {
+  const byKind = new Map<RowKey["kind"], string[]>();
+  for (const { kind, id } of keys) {
+    const ids = byKind.get(kind);
+    if (ids) ids.push(id);
+    else byKind.set(kind, [id]);
+  }
+  return byKind;
+}
+
 /** The rows as they are now, each once, with who can see each. A row that no longer exists comes
  *  as deleted when the household keeps its tombstone, and is left out otherwise. */
 export function readRows(sql: SqlStorage, keys: RowKey[]): VisibleRow[] {
-  const unique = new Map(keys.map((key) => [`${key.kind} ${key.id}`, key]));
-  return [...unique.values()].flatMap((key) => {
-    const found = readRow(sql, key);
-    if (found.length > 0) return found;
-    return sql
-      .exec<Tombstone>(`${selectTombstones} WHERE kind = ? AND id = ?`, key.kind, key.id)
-      .toArray()
-      .map(deletedRow);
-  });
+  const unique = new Map(keys.map((key) => [keyOf(key), key]));
+  const read = new Map<string, VisibleRow[]>();
+  for (const [kind, ids] of idsByKind(unique.values())) {
+    for (const [id, rows] of readRowsOfKind(sql, kind, ids)) read.set(keyOf({ kind, id }), rows);
+  }
+  return [...unique.keys()].flatMap((key) => read.get(key) ?? []);
 }
 
-function readRow(sql: SqlStorage, key: RowKey): VisibleRow[] {
-  const found = readCurrentRow(sql, key);
-  const hidden = found.flatMap(({ row }) =>
+function keyOf({ kind, id }: RowKey): string {
+  return `${kind} ${id}`;
+}
+
+function readRowsOfKind(
+  sql: SqlStorage,
+  kind: RowKey["kind"],
+  ids: readonly string[],
+): Map<string, VisibleRow[]> {
+  const json = JSON.stringify(ids);
+  const read = new Map(readCurrentRows(sql, kind, json).map(([id, row]) => [id, [row]]));
+  if (read.size > 0) {
+    const hidden = sql
+      .exec<Tombstone>(`${selectHiddenRows} WHERE kind = ? AND id IN ${inJson}`, kind, json)
+      .toArray();
+    for (const row of hidden) {
+      const current = read.get(row.id);
+      if (Number(current?.[0]?.row.seq) === row.seq) current?.push(deletedRow(row));
+    }
+  }
+  const missing = ids.filter((id) => !read.has(id));
+  if (missing.length === 0) return read;
+  const tombstones = sql
+    .exec<Tombstone>(
+      `${selectTombstones} WHERE kind = ? AND id IN ${inJson}`,
+      kind,
+      JSON.stringify(missing),
+    )
+    .toArray();
+  for (const tombstone of tombstones) read.set(tombstone.id, [deletedRow(tombstone)]);
+  return read;
+}
+
+function readCurrentRows(
+  sql: SqlStorage,
+  kind: RowKey["kind"],
+  ids: string,
+): [string, VisibleRow][] {
+  const readAs = <T extends { id: string }>(query: string, toRow: (row: T) => VisibleRow) =>
     sql
-      .exec<Tombstone>(
-        `${selectHiddenRows} WHERE kind = ? AND id = ? AND seq = ?`,
-        key.kind,
-        key.id,
-        Number(row.seq),
-      )
+      .exec<T>(query, ids)
       .toArray()
-      .map(deletedRow),
-  );
-  return [...found, ...hidden];
-}
-
-function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
+      .map((row): [string, VisibleRow] => [row.id, toRow(row)]);
   switch (kind) {
     case "member":
-      return sql.exec<MemberRow>(`${selectMembers} WHERE id = ?`, id).toArray().map(memberRow);
+      return readAs(`${selectMembers} WHERE id IN ${inJson}`, memberRow);
     case "space":
-      return sql.exec<SpaceRow>(`${selectSpaces} WHERE spaces.id = ?`, id).toArray().map(spaceRow);
+      return readAs(`${selectSpaces} WHERE spaces.id IN ${inJson}`, spaceRow);
     case "page":
-      return sql.exec<PageRow>(`${selectPages} AND pages.id = ?`, id).toArray().map(pageRow);
+      return readAs(`${selectPages} AND pages.id IN ${inJson}`, pageRow);
     case "item":
-      return sql.exec<ItemRow>(`${selectItems} WHERE items.id = ?`, id).toArray().map(itemRow);
+      return readAs(`${selectItems} WHERE items.id IN ${inJson}`, itemRow);
     case "sticker":
-      return sql
-        .exec<StickerRow>(`${selectStickers} AND stickers.id = ?`, id)
-        .toArray()
-        .map(stickerRow);
+      return readAs(`${selectStickers} AND stickers.id IN ${inJson}`, stickerRow);
     case "completion":
-      return sql
-        .exec<CompletionRow>(`${selectCompletions} WHERE completions.id = ?`, id)
-        .toArray()
-        .map(completionRow);
+      return readAs(`${selectCompletions} WHERE completions.id IN ${inJson}`, completionRow);
     case "google_connection":
       return sql
-        .exec<GoogleConnectionRow>(`${selectGoogleConnections} WHERE member_id = ?`, id)
+        .exec<GoogleConnectionRow>(`${selectGoogleConnections} WHERE member_id IN ${inJson}`, ids)
         .toArray()
-        .map(googleConnectionRow);
+        .map((row): [string, VisibleRow] => [row.member_id, googleConnectionRow(row)]);
     case "text_group":
-      return sql
-        .exec<TextGroupRow>(`${selectTextGroups} AND text_groups.id = ?`, id)
-        .toArray()
-        .map(textGroupRow);
+      return readAs(`${selectTextGroups} AND text_groups.id IN ${inJson}`, textGroupRow);
     case "text_block":
-      return sql
-        .exec<TextBlockRow>(`${selectTextBlocks} AND text_blocks.id = ?`, id)
-        .toArray()
-        .map(textBlockRow);
+      return readAs(`${selectTextBlocks} AND text_blocks.id IN ${inJson}`, textBlockRow);
     case "stroke":
-      return sql
-        .exec<StrokeRow>(`${selectStrokes} AND strokes.id = ?`, id)
-        .toArray()
-        .map(strokeRow);
+      return readAs(`${selectStrokes} AND strokes.id IN ${inJson}`, strokeRow);
   }
 }
 

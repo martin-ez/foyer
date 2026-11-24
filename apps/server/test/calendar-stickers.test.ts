@@ -329,6 +329,24 @@ describe("keeping an item's calendar stickers on its day", () => {
     }
   });
 
+  it("places new tasks pushed together on a day with no pages yet, one below another", async () => {
+    const { device } = await connect(alex);
+    const inbox = await spaceOf(device, SpaceKind.INBOX);
+    const tasks = [1, 2, 3].map(() => itemCreate({ spaceId: inbox, date: "2026-11-17" }));
+
+    await device.push(...tasks);
+
+    const placed: Sticker[][] = [];
+    for (const task of tasks) placed.push(await calendarStickers(device, idOf(task)));
+    for (const stickers of placed) expect(daysOf(stickers)).toEqual(onDay("2026-11-17"));
+    for (const kind of calendarPageKinds) {
+      const pageId = calendarPageId(kind, "2026-11-17");
+      const ys = placed.map((stickers) => stickers.find((each) => each.pageId === pageId)?.y);
+      expect(ys, kind).toEqual([...ys].sort((a, b) => (a ?? 0) - (b ?? 0)));
+      expect(new Set(ys).size, kind).toBe(3);
+    }
+  });
+
   it("keeps a repeating task's ticked day, places it on its next date, and unticking removes it", async () => {
     const { device } = await connect(alex);
     const inbox = await spaceOf(device, SpaceKind.INBOX);
