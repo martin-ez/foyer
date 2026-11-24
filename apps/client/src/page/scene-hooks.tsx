@@ -15,9 +15,10 @@ import { sceneOf } from "./scene";
 export function SceneHooks({ page }: { page: OpenPage }) {
   const { state, sync } = useHousehold();
   const { pages, items, stickers, strokes } = state;
+  const shownAsText = Platform.OS !== "web";
   const scene = useMemo(
-    () => sceneOf(page, { pages, items, stickers, strokes }),
-    [page, pages, items, stickers, strokes],
+    () => (shownAsText ? sceneOf(page, { pages, items, stickers, strokes }) : null),
+    [shownAsText, page, pages, items, stickers, strokes],
   );
   const shown = useRef(page);
   shown.current = page;
@@ -45,7 +46,7 @@ export function SceneHooks({ page }: { page: OpenPage }) {
     };
   }, [sync, pageId]);
 
-  if (Platform.OS === "web") return null;
+  if (!scene) return null;
   return (
     <Text testID="scene" numberOfLines={1} style={styles.scene}>
       {JSON.stringify(scene)}
