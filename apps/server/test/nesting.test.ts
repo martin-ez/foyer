@@ -89,8 +89,12 @@ function deletedIn(rows: Row[], kind: RowKind) {
   );
 }
 
-async function rowsCaughtUpBy(device: Device) {
-  return (await device.catchUp()).flatMap(({ rows }) => rows);
+async function rowsCaughtUpBy(device: Device, cursor = 0) {
+  return (await device.catchUp(cursor)).flatMap(({ rows }) => rows);
+}
+
+async function cursorOf(device: Device) {
+  return Number((await device.catchUp()).at(-1)?.cursor);
 }
 
 async function itemAsCaughtUpBy(device: Device, itemId: string) {
@@ -367,6 +371,7 @@ describe("moving an item with items under it", () => {
     const party = await newTask(alexDevice, home);
     const carried = await putManyUnder(alexDevice, home, party);
     await samDevice.updates();
+    const beforeGarden = await cursorOf(samDevice);
 
     await alexDevice.push(itemMove(party, garden, secondsAgo(20)));
 
@@ -375,18 +380,28 @@ describe("moving an item with items under it", () => {
       expect(moved.map(({ id }) => id).sort()).toEqual(carried.get(RowKind.ITEM));
       expect(moved.every(({ spaceId }) => spaceId === garden)).toBe(true);
     }
+    expect(carriedIn(await rowsCaughtUpBy(samDevice, beforeGarden))).toEqual(carried);
+    const beforePersonal = await cursorOf(samDevice);
 
     await alexDevice.push(itemMove(party, personal, secondsAgo(10)));
 
     const kept = itemsIn(await alexDevice.updates());
     expect(kept.every(({ spaceId }) => spaceId === personal)).toBe(true);
-    const dropped = await samDevice.updates();
-    for (const [kind, ids] of carried) expect(deletedIn(dropped, kind).sort()).toEqual(ids);
+    for (const rows of [
+      await samDevice.updates(),
+      await rowsCaughtUpBy(samDevice, beforePersonal),
+    ]) {
+      expect(carriedIn(rows)).toEqual(new Map());
+      for (const [kind, ids] of carried) expect(deletedIn(rows, kind).sort()).toEqual(ids);
+    }
+    const beforeHome = await cursorOf(samDevice);
 
     await alexDevice.push(itemMove(party, home));
 
     expect(carriedIn(await samDevice.updates())).toEqual(carried);
-    expect(carriedIn(await rowsCaughtUpBy(samDevice))).toEqual(carried);
+    const caughtUp = await rowsCaughtUpBy(samDevice, beforeHome);
+    expect(carriedIn(caughtUp)).toEqual(carried);
+    expect(caughtUp.some(({ row }) => row.case === "deleted")).toBe(false);
   });
 });
 
