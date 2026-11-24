@@ -117,6 +117,30 @@ describe("InkDrawing", () => {
       },
     );
   });
+
+  it("draws strokes that turn back on themselves or widen suddenly whole, with round turns", async () => {
+    const strokes = [
+      stroke(
+        { x: [14, 34, 16, 36, 18, 38], y: [14, 22, 30, 38, 46, 54], time: [0, 8, 16, 24, 32, 40] },
+        { tool: Tool.MONOLINE, size: 14 },
+      ),
+      stroke(
+        {
+          x: [70, 74, 78, 82, 86],
+          y: [60, 60, 60, 60, 60],
+          time: [0, 4, 8, 12, 16],
+          force: [0.02, 1, 0.02, 1, 0.02],
+        },
+        { size: 8, colour: 0x2255aa },
+      ),
+    ];
+
+    await expectToMatchGoldenImage(
+      "ink-turns",
+      <InkDrawing skia={getSkiaExports().Skia as unknown as typeof Skia} strokes={strokes} />,
+      { width: 160, height: 100 },
+    );
+  });
 });
 
 describe("samplesInPieces", () => {

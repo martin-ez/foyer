@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { Canvas } from "react-native-skia";
 import { DeskDrawing } from "./desk-drawing";
+import { InkSnapshots } from "./ink-snapshots";
 import type { Ruling } from "./page-drawing";
 import { PageScale } from "./page-scale";
 import {
@@ -45,7 +46,9 @@ export function PageSheet({
   /** Views above the page, laid out in its own points. Only those that ask for the pointer, such
    *  as stickers, take it. */
   children?: ReactNode;
-  /** Skia elements drawn on the page above its text, in its own points, such as its ink. */
+  /** Skia elements drawn above everything else on the page, in its own points, such as its ink.
+   *  They're drawn again only when a new element is given, and shown from pictures of them while
+   *  the page moves and zooms. */
   ink?: ReactNode;
   /** The Apple Pencil's view, which the web app doesn't have. */
   pencil?: ReactNode;
@@ -56,6 +59,7 @@ export function PageSheet({
   page.current = size;
   const pointing = useRef<((at: Point) => void) | undefined>(undefined);
   const tapping = useRef<((at: Point) => void) | undefined>(undefined);
+  const [held, setHeld] = useState(false);
   const [desk, setDesk] = useState<{ view: Size; camera: Camera }>({
     view: { width: 0, height: 0 },
     camera: { x: 0, y: 0, scale: 0 },
@@ -84,6 +88,7 @@ export function PageSheet({
         })),
       point: (at) => pointing.current?.(at),
       tap: (at) => tapping.current?.(at),
+      hold: setHeld,
     });
   }, [host]);
 
@@ -105,7 +110,6 @@ export function PageSheet({
       <Canvas style={styles.fill}>
         <DeskDrawing page={size} ruling={ruling} camera={camera}>
           {drawn}
-          {ink}
         </DeskDrawing>
       </Canvas>
       <View
@@ -124,6 +128,11 @@ export function PageSheet({
       >
         <PageScale value={scale}>{children}</PageScale>
       </View>
+      {ink ? (
+        <Canvas style={styles.over}>
+          <InkSnapshots ink={ink} page={size} view={desk.view} camera={camera} held={held} />
+        </Canvas>
+      ) : null}
     </View>
   );
 }
@@ -133,6 +142,7 @@ type Gestures = {
   pan(by: Point): void;
   point(at: Point): void;
   tap(at: Point): void;
+  hold(held: boolean): void;
 };
 
 type SafariTrackpadPinch = Event & { scale: number; clientX: number; clientY: number };
@@ -153,6 +163,7 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
       "pointerdown",
       (event: PointerEvent) => {
         element.setPointerCapture(event.pointerId);
+        if (pointers.size === 0) gestures.hold(true);
         tapFrom =
           pointers.size === 0 && event.button === 0
             ? { pointerId: event.pointerId, at: at(event) }
@@ -184,6 +195,7 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
       "pointerup",
       (event: PointerEvent) => {
         pointers.delete(event.pointerId);
+        if (pointers.size === 0) gestures.hold(false);
         const from = tapFrom;
         if (from?.pointerId !== event.pointerId) return;
         tapFrom = null;
@@ -194,6 +206,7 @@ function followGestures(element: HTMLElement, gestures: Gestures): () => void {
       "pointercancel",
       (event: PointerEvent) => {
         pointers.delete(event.pointerId);
+        if (pointers.size === 0) gestures.hold(false);
         tapFrom = null;
       },
     ],
@@ -249,6 +262,7 @@ function midpoint(a: Point, b: Point): Point {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   desk: { flex: 1, overflow: "hidden" },
+  over: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, pointerEvents: "none" },
   above: {
     position: "absolute",
     left: 0,
