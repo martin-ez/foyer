@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { sessionClient } from "../backend/backend";
-import { forgetUnsentChanges } from "../sync/unsent-changes";
+import { forgetDeviceStorage } from "../sync/device-storage";
 import { checkSession, type Session, signOut } from "./session";
 import { forgetSessionToken } from "./session-token";
 import { problemFromSignIn, signInWithGoogle, signInWithoutGoogle } from "./sign-in";
@@ -27,7 +27,7 @@ export function useSession() {
   const memberId = session.status === "signed-in" ? session.member.id : null;
   const forgetOnDevice = async () => {
     await forgetSessionToken();
-    if (memberId) await forgetUnsentChanges(memberId);
+    if (memberId) await forgetDeviceStorage(memberId);
   };
 
   return {

@@ -4,14 +4,14 @@ import type { Sticker } from "@foyer/shared/gen/foyer/sticker/v1/sticker_pb";
 import type { TextBlock, TextGroup } from "@foyer/shared/gen/foyer/text/v1/text_pb";
 import { useIsFocused } from "expo-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Skia } from "react-native-skia";
 import { timeOf } from "../calendar/events";
 import { InkDrawing } from "../ink/ink-drawing";
-import { usePageInk } from "../ink/page-ink";
+import { useFollowInk, usePageInk } from "../ink/page-ink";
 import { InkBar, PagePencil } from "../ink/page-pencil";
 import { useHousehold } from "../shell/household";
-import { archivedSpaceOf } from "../sync/household-sync";
+import { archivedSpaceOf, canOpenPage } from "../sync/household-sync";
 import { useLivePage } from "../sync/use-live-page";
 import { isStickerDone } from "../tasks/task-lists";
 import { useTick } from "../tasks/ticking";
@@ -51,7 +51,25 @@ type PageViewProps = {
  *  moved, ticked and tapped, its ink, which the Apple Pencil writes and erases on the iPad, and
  *  where others are pointing. It's drawn, and this device is on the page, only while in front. */
 export function PageView(props: PageViewProps) {
-  return useIsFocused() ? <ShownPage {...props} /> : null;
+  return useIsFocused() ? <PageIfOnDevice {...props} /> : null;
+}
+
+function PageIfOnDevice(props: PageViewProps) {
+  const { state } = useHousehold();
+  const pageId = pageIdOf(props.page);
+  return canOpenPage(state, pageId) ? <ShownPage {...props} /> : <PageNotOnDevice {...props} />;
+}
+
+function PageNotOnDevice({ page }: PageViewProps) {
+  const { state, sync } = useHousehold();
+  useFollowInk(pageIdOf(page), sync);
+  return (
+    <View style={styles.notOnDevice}>
+      <Text>
+        {describePage(page, state)} isn't on this iPad. It opens once the iPad is back online.
+      </Text>
+    </View>
+  );
 }
 
 function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children }: PageViewProps) {
@@ -227,4 +245,7 @@ function useLaidOutText(
 
 const drawnPicturesLinger = 1000;
 
-const styles = StyleSheet.create({ fill: { flex: 1 } });
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  notOnDevice: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+});

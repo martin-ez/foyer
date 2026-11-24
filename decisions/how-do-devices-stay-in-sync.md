@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25, #26, #151, #147, #107 and #18
+Decided in #14, #21, #25, #26, #151, #147, #107, #18 and #20
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -16,7 +16,7 @@ Decided in #14, #21, #25, #26, #151, #147, #107 and #18
   - Changes to different values never conflict.
   - An `at` later than the household's clock counts as the household's time, so a device whose clock runs fast can't win forever.
   - Changes the household makes itself, such as those it reads from Google Calendar, are settled the same way, with the time they were made there (`where-do-calendar-events-live.md`).
-- **What each device receives:** everything its member can see except ink, plus the ink of the pages it opens. On connecting, it catches up from its cursor. While connected, it receives every change it can see as soon as the change is committed, its own included.
+- **What each device receives:** everything its member can see except ink, plus the ink of the pages it opens and, on the iPad, of the pages it keeps. On connecting, it catches up from its cursor. While connected, it receives every change it can see as soon as the change is committed, its own included.
 - **A page's ink:** a device pulls it on opening the page, from a cursor it keeps for that page, with `Pull {cursor, page_id}`.
   - The reply holds the page's strokes added or erased after the cursor, erased ones as deleted rows of `ROW_KIND_STROKE`, and repeats `page_id`. A pull without `page_id` never includes ink.
   - The device pulls again from the reply's cursor until it's done. A reply holds at most 500 strokes and 512 KB of samples, unless one change alone changed more, and never splits the strokes of one change.
@@ -38,13 +38,24 @@ Decided in #14, #21, #25, #26, #151, #147, #107 and #18
   - The text "ping" is answered with "pong" by the runtime, which costs no requests. Devices send it every 30 seconds, and connect again after 75 seconds without hearing anything.
   - The same connection carries the live lane, which tells devices who is on which page and where they point (`what-does-the-live-lane-send.md`).
   - When a session ends, the household closes its connections with code 4401, and the device stops connecting until someone signs in. After any other drop, the device connects again, waiting longer after each failed attempt, up to 30 seconds. It catches up from its cursor and sends its unsaved changes again, as the same changes.
-- **What devices store:** what they receive, in memory. They catch up in full when the app starts.
-  - The web app also keeps its member's unsent changes in the browser's IndexedDB, encoded as they're sent, and nothing else. A change is kept when it's made, and forgotten once the household commits or refuses it.
+- **What the web app stores:** what it receives, in memory, so it catches up in full when it opens.
+  - It also keeps its member's unsent changes in the browser's IndexedDB, encoded as they're sent, and nothing else. A change is kept when it's made, and forgotten once the household commits or refuses it.
   - When the web app next opens and connects, it sends them again, as the same changes, before anything new, with each action's changes together. A change kept by two tabs is applied once, since the household answers a change sent again as it did the first time.
   - They're kept for the member who made them, and forgotten when the member signs out or the household ends their session. Another member signing in on the same browser never sends them.
+- **What the iPad stores:** a copy of what it receives, in a SQLite database of the signed-in member's own, with Expo's `expo-sqlite`.
+  - It holds the rows the household sends, with the strokes of the pages it keeps, the changes not yet committed, the household's cursor and each kept page's cursor.
+  - At launch, the iPad reads it, then catches up from its cursor instead of downloading everything again.
+  - It's only a copy: if an app update changes its layout, the app rebuilds it from the household. Unsent changes are kept as encoded changes, so a rebuild never loses them.
+  - Signing out, or the household ending the session, deletes it.
+- **Which pages' ink the iPad keeps:** this month's month page; this week's and next week's week pages and their day pages; each space's newest page; and the 30 pages opened most recently on this iPad.
+  - When a page drops out of the set, its strokes are deleted from the iPad, except those still waiting to be sent.
+  - When a page was last opened is kept only on the iPad, and never synced.
+  - While online, the iPad pulls each kept page's ink on catching up, from that page's cursor.
+- **Offline on the iPad:** pages whose ink it keeps open, and can be written on and erased. Stickers can be placed and moved, and items changed, anywhere, since that data is all on the iPad. Everything queues and syncs when the connection returns. Typed text stays read-only.
+  - A page whose ink the iPad doesn't keep can't be opened offline. The app says it isn't on this iPad and opens it once back online, so nobody writes over ink they can't see.
 
 The web app pulling a page's ink when it opens is built by #19.
-Keeping what the iPad receives between launches is built by #20.
+The iPad receiving new strokes on every kept page as they're committed, not only on the page it shows, is built by #256.
 
 **Why:**
 - Catching up grows with what exists, not with everything ever done, and a new device downloads the household as it is now.
@@ -58,6 +69,9 @@ Keeping what the iPad receives between launches is built by #20.
 - A device whose session has ended can't send changes again, so remembering changes for longer than a session lasts unused is useless.
 - A change made on a phone while offline, such as a captured task, would be lost if the tab closed before the connection came back (#147). Only unsent changes exist nowhere else: what a device received comes back when it catches up.
 - An action applied in part leaves things half done, such as a task under another with its sticker still on its space's page (#151). Refusing it whole leaves things as they were before, on every device.
+- The iPad is where people write, and it has to work without a connection (#20). The current calendar and the pages in use are where people write next, and a fixed set of pages keeps the ink it holds from growing with use.
+- SQLite writes only the rows that change, where a file is written whole and gets slow once a page holds thousands of strokes.
+- Writing on a page whose ink the iPad doesn't hold would put new ink over ink nobody there can see.
 
 **Rejected:**
 - A log of every change, replayed on catching up. It keeps history for free, but it grows forever and a new device replays everything ever done.
@@ -67,3 +81,6 @@ Keeping what the iPad receives between launches is built by #20.
 - Sending a page's new ink to the devices the live lane says are on it, which ties ink to presence.
 - Applying each change of an action on its own, and having devices notice and fix what a refused change left half done. Every action would need its own repair.
 - Having the household move a task's sticker itself when it moves the task. It fixes stickers only, and not other actions made of several changes.
+- Keeping the iPad's copy in files of JSON, which are written whole and get slow once a page holds thousands of strokes.
+- Keeping the ink of every page opened in the last 30 days, which grows with use; and of calendar pages only, which leaves notes and space pages needing a connection.
+- Opening a page the iPad doesn't keep blank while offline and letting people write on it, with others' ink appearing later.

@@ -34,7 +34,7 @@ import {
   HouseholdMessageSchema,
   type Push,
   RowKind,
-  type RowSchema,
+  RowSchema,
 } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localToday } from "../src/page/calendar-date";
@@ -43,15 +43,20 @@ import {
   archivedSpaceOf,
   type Connect,
   type ConnectionEvents,
+  canOpenPage,
   eraseLimit,
+  type HouseholdStore,
   HouseholdSync,
   type KeptChange,
+  type KeptHousehold,
+  type KeptRow,
   keepAliveInterval,
   longestReconnectDelay,
   pushChangeLimit,
   silenceLimit,
   type UnsentChanges,
 } from "../src/sync/household-sync";
+import { keptPages, recentPagesKept } from "../src/sync/kept-pages";
 import { reportEvents, syncAddress } from "../src/sync/socket";
 import { blocksIn } from "../src/text/text-groups";
 
@@ -2966,5 +2971,308 @@ describe("ink on pages", () => {
       changes.map(({ change }) => change.case === "strokeErase" && change.value.strokeIds.length),
     ).toEqual([eraseLimit, 1]);
     expect(new Set(changes.map(({ actionId }) => actionId)).size).toBe(1);
+  });
+});
+
+describe("keeping the household on the device", () => {
+  class KeptInMemory implements HouseholdStore {
+    rows = new Map<string, KeptRow>();
+    cursors = new Map<string, bigint>();
+    opened = new Map<string, number>();
+    forgotten = false;
+    load = async (): Promise<KeptHousehold> => ({
+      rows: [...this.rows.values()].map(({ row }) => row),
+      cursors: new Map(this.cursors),
+      opened: new Map(this.opened),
+    });
+    keepRow = (row: KeptRow) => {
+      this.rows.set(`${row.kind} ${row.id}`, row);
+    };
+    forgetRow = (kind: string, id: string) => {
+      this.rows.delete(`${kind} ${id}`);
+    };
+    keepCursor = (pageId: string, cursor: bigint) => {
+      this.cursors.set(pageId, cursor);
+    };
+    keepOpened = (pageId: string, at: number) => {
+      this.opened.set(pageId, at);
+    };
+    forgetPages = (pageIds: readonly string[]) => {
+      for (const [key, { pageId }] of this.rows) {
+        if (pageId !== null && pageIds.includes(pageId)) this.rows.delete(key);
+      }
+      for (const pageId of pageIds) {
+        this.cursors.delete(pageId);
+        this.opened.delete(pageId);
+      }
+    };
+    forgetAll = () => {
+      this.rows.clear();
+      this.cursors.clear();
+      this.opened.clear();
+      this.forgotten = true;
+    };
+  }
+
+  const today = "2026-11-25";
+  const day = dayPageId(today);
+  const dayAfter = dayPageId("2026-11-26");
+  const farAhead = dayPageId("2027-03-01");
+  const first = "019a8f4e-5c00-7000-8000-0000000000b1";
+  const second = "019a8f4e-5c00-7000-8000-0000000000b2";
+  const garden = { id: "019a8f4e-5c00-7000-8000-0000000000a3", name: "Garden" };
+  const samples = { x: [40, 41.5], y: [60, 62.25], time: [0, 4] };
+  const drawn = { input: Input.PENCIL, tool: Tool.PEN, colour: 0x1a1a1a, size: 1.4, samples };
+
+  let store: KeptInMemory;
+  let date: string;
+
+  function strokeRow(seq: number, id: string, pageId: string): RowInit {
+    const value = { id, pageId, drawnBy: housemate, ...drawn, samples: encodeSamples(samples) };
+    return { seq: BigInt(seq), row: { case: "stroke", value } };
+  }
+
+  function keep(...rows: RowInit[]) {
+    for (const init of rows) {
+      const row = create(RowSchema, init);
+      if (row.row.case !== "space" && row.row.case !== "stroke") throw new Error("Not kept here");
+      const pageId = row.row.case === "stroke" ? row.row.value.pageId : null;
+      store.keepRow({ kind: row.row.case, id: row.row.value.id, pageId, row });
+    }
+  }
+
+  function launch() {
+    sync.stop();
+    sync = new HouseholdSync({ memberId: me, connect, store, today: () => date });
+  }
+
+  async function started() {
+    sync.start();
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  async function caughtUp(rows: RowInit[] = [spaceRow(1, inbox), spaceRow(2, home)], seq = 2) {
+    await started();
+    household().welcome(seq);
+    household().reply(rows, seq);
+  }
+
+  function answerInkPulls(rowsOf: (pageId: string) => RowInit[] = () => [], cursor = 9) {
+    const end = household();
+    let answered = 0;
+    while (end.inkPulls().length > answered) {
+      const { pageId } = end.inkPulls()[answered] ?? { pageId: "" };
+      answered += 1;
+      end.inkReply(pageId, rowsOf(pageId), cursor);
+    }
+    return end.inkPulls().map(({ pageId }) => pageId);
+  }
+
+  function strokeIds() {
+    return [...sync.getState().strokes.keys()].sort();
+  }
+
+  function keptNow() {
+    const { spaces, pages } = sync.getState();
+    return keptPages({ today: date, spaces, pages, opened: store.opened });
+  }
+
+  beforeEach(() => {
+    store = new KeptInMemory();
+    date = today;
+    launch();
+  });
+
+  it("starts from what it kept before connecting, and catches up from where it was", async () => {
+    keep(spaceRow(1, inbox), spaceRow(2, home));
+    store.keepCursor("", 7n);
+
+    sync.start();
+    expect(connections).toHaveLength(0);
+    expect(sync.getState().status).toBe("connecting");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(names()).toEqual(["Inbox", "Home"]);
+    household().welcome(9);
+    expect(household().pulls()).toEqual([7]);
+  });
+
+  it("keeps what the household sends, and where it has caught up to, for the next launch", async () => {
+    await caughtUp();
+    expect(store.cursors.get("")).toBe(2n);
+
+    household().update(spaceRow(5, { ...home, name: "Our home" }));
+    household().update({
+      seq: 6n,
+      row: { case: "deleted", value: { kind: RowKind.SPACE, id: inbox.id } },
+    });
+    expect(store.cursors.get("")).toBe(6n);
+
+    launch();
+    await started();
+    expect(names()).toEqual(["Our home"]);
+    household().welcome(6);
+    expect(household().pulls()).toEqual([6]);
+  });
+
+  it("pulls the ink of each page it keeps in turn on connecting, the shown page first and last", async () => {
+    sync.followInk(day);
+    await caughtUp();
+
+    const pulled = answerInkPulls();
+
+    const kept = keptNow();
+    expect(kept.has(spacePageId(home.id, 1))).toBe(true);
+    expect(pulled[0]).toBe(day);
+    expect(pulled.at(-1)).toBe(day);
+    expect(pulled).toHaveLength(kept.size + 1);
+    expect(new Set(pulled)).toEqual(kept);
+    expect(sync.getState().inkHeld).toEqual(kept);
+  });
+
+  it("pulls each kept page from where it caught up when it connects again", async () => {
+    sync.followInk(day);
+    await caughtUp();
+    answerInkPulls(() => [], 9);
+    household().closeWith(1006);
+    vi.advanceTimersByTime(longestReconnectDelay);
+
+    household().welcome(9);
+
+    expect(household().inkPulls()[0]).toEqual({ pageId: day, cursor: 9 });
+    const kept = keptNow();
+    launch();
+    await started();
+    household().welcome(9);
+    answerInkPulls();
+    expect(
+      new Set(
+        household()
+          .inkPulls()
+          .map(({ pageId }) => pageId),
+      ),
+    ).toEqual(kept);
+    expect(
+      household()
+        .inkPulls()
+        .every(({ cursor }) => cursor === 9),
+    ).toBe(true);
+  });
+
+  it("pulls a page that it comes to keep while connected, and follows the shown page again", async () => {
+    sync.followInk(day);
+    await caughtUp();
+    answerInkPulls();
+    const before = household().inkPulls().length;
+
+    household().update(spaceRow(5, garden));
+
+    expect(answerInkPulls().slice(before)).toEqual([spacePageId(garden.id, 1), day]);
+  });
+
+  it("keeps the strokes of the pages it keeps, and only those", async () => {
+    sync.followInk(day);
+    await caughtUp();
+    answerInkPulls();
+
+    household().update(strokeRow(10, first, day), strokeRow(11, second, farAhead));
+
+    expect(strokeIds()).toEqual([first]);
+    expect([...store.rows.keys()]).toContain(`stroke ${first}`);
+    expect([...store.rows.keys()]).not.toContain(`stroke ${second}`);
+  });
+
+  it("forgets a page's strokes once it no longer keeps the page, but not those not yet sent", async () => {
+    sync.followInk(dayAfter);
+    await caughtUp();
+    answerInkPulls((pageId) => (pageId === day ? [strokeRow(3, first, day)] : []));
+    household().closeWith(1006);
+    const drawnOffline = sync.addStroke(day, { drawnAt: Date.now(), ...drawn });
+
+    date = "2026-12-20";
+    sync.followInk(dayPageId(date));
+
+    expect(strokeIds()).toEqual([drawnOffline]);
+    expect([...store.rows.keys()]).not.toContain(`stroke ${first}`);
+    expect(store.cursors.has(day)).toBe(false);
+    expect(sync.getState().inkHeld?.has(day)).toBe(false);
+    vi.advanceTimersByTime(longestReconnectDelay);
+    household().welcome(9);
+    const sent = household()
+      .pushes()
+      .flatMap(({ changes }) => changes);
+    expect(sent.map(({ change }) => change.case)).toContain("strokeAdd");
+  });
+
+  it("forgets when a page was opened once it's not among those opened most recently", async () => {
+    sync.followInk(farAhead);
+    expect(store.opened.has(farAhead)).toBe(true);
+
+    for (let index = 0; index < recentPagesKept; index++) {
+      vi.advanceTimersByTime(1);
+      sync.followInk(itemPageId(`019a8f4e-5c00-7000-8000-${String(index).padStart(12, "0")}`));
+    }
+
+    expect(store.opened.has(farAhead)).toBe(false);
+    expect(store.opened.size).toBe(recentPagesKept);
+  });
+
+  it("opens without a connection only the pages whose ink it holds", async () => {
+    sync.followInk(day);
+    await started();
+    expect(canOpenPage(sync.getState(), day)).toBe(false);
+    household().welcome(2);
+    household().reply([spaceRow(1, inbox), spaceRow(2, home)], 2);
+    expect(canOpenPage(sync.getState(), farAhead)).toBe(true);
+    answerInkPulls();
+
+    household().closeWith(1006);
+
+    expect(canOpenPage(sync.getState(), day)).toBe(true);
+    expect(canOpenPage(sync.getState(), farAhead)).toBe(false);
+    expect(canOpenPage({ status: "offline", inkHeld: null }, farAhead)).toBe(true);
+  });
+
+  it("opens any page until it has read what it kept", async () => {
+    let loaded: (kept: KeptHousehold) => void = () => undefined;
+    store.load = () =>
+      new Promise((resolve) => {
+        loaded = resolve;
+      });
+
+    sync.start();
+    expect(canOpenPage(sync.getState(), farAhead)).toBe(true);
+    loaded({ rows: [], cursors: new Map(), opened: new Map() });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(canOpenPage(sync.getState(), farAhead)).toBe(false);
+  });
+
+  it("keeps its own strokes once committed, though the connection follows another page", async () => {
+    sync.followInk(day);
+    await caughtUp([spaceRow(1, inbox), spaceRow(2, home), pageRow(2, { id: day })]);
+    answerInkPulls();
+    sync.followInk(dayAfter);
+    answerInkPulls();
+
+    const strokeId = sync.addStroke(day, { drawnAt: Date.now(), ...drawn });
+    household().commit(household().lastPush(), {}, 20);
+
+    expect(strokeIds()).toEqual([strokeId]);
+    expect([...store.rows.keys()]).toContain(`stroke ${strokeId}`);
+
+    sync.eraseStrokes([strokeId]);
+    household().commit(household().lastPush(), {}, 21);
+
+    expect(strokeIds()).toEqual([]);
+    expect([...store.rows.keys()]).not.toContain(`stroke ${strokeId}`);
+  });
+
+  it("forgets everything it kept once the household says the session has ended", async () => {
+    await caughtUp();
+
+    household().closeWith(signedOutCloseCode);
+
+    expect(store.forgotten).toBe(true);
   });
 });
