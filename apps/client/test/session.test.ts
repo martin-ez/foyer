@@ -1,4 +1,4 @@
-import type { MessageInitShape } from "@bufbuild/protobuf";
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import {
   Code,
   ConnectError,
@@ -6,13 +6,20 @@ import {
   createRouterTransport,
   type ServiceImpl,
 } from "@connectrpc/connect";
+import { MemberSchema } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import {
   type GetSessionResponseSchema,
   SessionService,
 } from "@foyer/shared/gen/foyer/session/v1/session_pb";
 import { StatusService } from "@foyer/shared/gen/foyer/status/v1/status_pb";
 import { describe, expect, it, vi } from "vitest";
-import { checkSession, finishSignIn, sendingSessionToken, signOut } from "../src/session/session";
+import {
+  checkSession,
+  finishSignIn,
+  openSession,
+  sendingSessionToken,
+  signOut,
+} from "../src/session/session";
 
 const alex = { id: "019a8f4e-5c00-7000-8000-000000000001", name: "Alex" };
 
@@ -55,6 +62,96 @@ describe("checkSession", () => {
       status: "unreachable",
       problem: "Couldn't reach the backend: [unavailable] No",
     });
+  });
+});
+
+describe("openSession", () => {
+  const sam = { id: "019a8f4e-5c00-7000-8000-000000000002", name: "Sam" };
+
+  function keeping(member: typeof alex | null) {
+    return {
+      member: vi.fn(async () => (member ? create(MemberSchema, member) : null)),
+      signedIn: vi.fn(async () => {}),
+      ended: vi.fn(async () => {}),
+    };
+  }
+
+  async function opened(
+    kept: ReturnType<typeof keeping>,
+    answers: Partial<ServiceImpl<typeof SessionService>>,
+  ) {
+    const shown: unknown[] = [];
+    await openSession(backend(answers), kept, (session) => shown.push(session));
+    return shown;
+  }
+
+  it("shows the kept member at once, before the backend answers", async () => {
+    const kept = keeping(alex);
+    let answer = (_: { member: typeof alex }) => {};
+    const shown: unknown[] = [];
+
+    const opening = openSession(
+      backend({ getSession: () => new Promise((resolve) => (answer = resolve)) }),
+      kept,
+      (session) => shown.push(session),
+    );
+    await vi.waitFor(() => expect(shown).toHaveLength(1));
+
+    expect(shown).toMatchObject([{ status: "signed-in", member: alex }]);
+    answer({ member: alex });
+    await opening;
+  });
+
+  it("keeps the kept member signed in while the backend can't be reached", async () => {
+    const kept = keeping(alex);
+
+    const shown = await opened(kept, { getSession: failingWith(Code.Unavailable) });
+
+    expect(shown).toMatchObject([{ status: "signed-in", member: alex }]);
+    expect(kept.ended).not.toHaveBeenCalled();
+  });
+
+  it("shows the member the backend says is signed in, and keeps them", async () => {
+    const kept = keeping(alex);
+    const renamed = { ...alex, name: "Alexandra" };
+
+    const shown = await opened(kept, { getSession: () => ({ member: renamed }) });
+
+    expect(shown).toMatchObject([
+      { status: "signed-in", member: alex },
+      { status: "signed-in", member: renamed },
+    ]);
+    expect(kept.signedIn).toHaveBeenCalledWith(expect.objectContaining(renamed));
+  });
+
+  it("forgets the kept member's session once the backend says it has ended", async () => {
+    const kept = keeping(alex);
+
+    const shown = await opened(kept, { getSession: failingWith(Code.Unauthenticated) });
+
+    expect(shown).toMatchObject([{ status: "signed-in", member: alex }, { status: "signed-out" }]);
+    expect(kept.ended).toHaveBeenCalledWith(alex.id);
+    expect(kept.signedIn).not.toHaveBeenCalled();
+  });
+
+  it("keeps a member signed in on a device that kept none, and forgets the rest", async () => {
+    const kept = keeping(null);
+
+    const shown = await opened(kept, { getSession: () => ({ member: sam }) });
+
+    expect(shown).toMatchObject([{ status: "checking" }, { status: "signed-in", member: sam }]);
+    expect(kept.signedIn).toHaveBeenCalledWith(expect.objectContaining(sam));
+  });
+
+  it("asks to sign in, or says why it can't, on a device that kept no member", async () => {
+    expect(await opened(keeping(null), { getSession: failingWith(Code.Unauthenticated) })).toEqual([
+      { status: "checking" },
+      { status: "signed-out" },
+    ]);
+    expect(await opened(keeping(null), { getSession: failingWith(Code.Unavailable) })).toEqual([
+      { status: "checking" },
+      { status: "unreachable", problem: "Couldn't reach the backend: [unavailable] No" },
+    ]);
   });
 });
 

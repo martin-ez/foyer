@@ -7,7 +7,7 @@ import { TickingProvider } from "../../tasks/ticking";
 
 /** The household's views for the signed-in member, or the way to sign in. */
 export default function HouseholdLayout() {
-  const { session, check, signIn, signInWithoutGoogle, signOut } = useSession();
+  const { session, check, sessionEnded, signIn, signInWithoutGoogle, signOut } = useSession();
 
   switch (session.status) {
     case "checking":
@@ -24,7 +24,7 @@ export default function HouseholdLayout() {
       );
     case "signed-in":
       return (
-        <HouseholdProvider member={session.member} onSignOut={signOut} onSignedOut={check}>
+        <HouseholdProvider member={session.member} onSignOut={signOut} onSignedOut={sessionEnded}>
           <GoogleCalendarProvider>
             <TickingProvider>
               <AppShell />

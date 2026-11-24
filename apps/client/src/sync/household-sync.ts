@@ -180,8 +180,6 @@ export type UnsentChanges = {
   keep(changes: KeptChange[]): void;
   /** Forgets changes the household committed or refused. */
   forget(changeIds: string[]): void;
-  /** Forgets every change kept for the member. */
-  forgetAll(): void;
 };
 
 /** A row a device keeps, by its kind and id, with the page a stroke is on. */
@@ -214,8 +212,6 @@ export type HouseholdStore = {
   keepOpened(pageId: string, at: number): void;
   /** Forgets the strokes, ink cursor and opening time of pages whose ink isn't kept any more. */
   forgetPages(pageIds: readonly string[]): void;
-  /** Forgets everything kept for the member. */
-  forgetAll(): void;
 };
 
 /** Whether the device can open a page now: any page while it's connected to the household, but
@@ -300,7 +296,8 @@ export class HouseholdSync {
 
   /** `today` gives the device's date, by default from its clock. `unsent` keeps unsent changes
    *  between launches, sent first once started, and `store` what the household sends, which the
-   *  device starts from and catches up from. Both are forgotten if the session ends. */
+   *  device starts from and catches up from. If the session ends, what to forget of either is the
+   *  app's to decide. */
   constructor(options: {
     memberId: string;
     connect: Connect;
@@ -1423,8 +1420,6 @@ export class HouseholdSync {
     if (code === signedOutCloseCode) {
       this.#stopped = true;
       this.#status = "signed-out";
-      this.#unsent?.forgetAll();
-      this.#store?.forgetAll();
     } else {
       this.#status = "offline";
       if (!this.#stopped) {

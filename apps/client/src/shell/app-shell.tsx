@@ -110,11 +110,11 @@ function SyncLine() {
 }
 
 function AccountPanel({ alongSide }: { alongSide: boolean }) {
-  const { member, signOut } = useHousehold();
+  const { member, state, signOut } = useHousehold();
   const [shortcutsShown, setShortcutsShown] = useState(false);
   return (
     <View style={[styles.panel, alongSide ? styles.panelLeft : styles.panelRight]}>
-      <SignedInAs member={member} onSignOut={signOut} />
+      <SignedInAs member={member} unsaved={state.unsaved} onSignOut={signOut} />
       <GoogleCalendarEntry />
       <BackendStatus />
       <Button

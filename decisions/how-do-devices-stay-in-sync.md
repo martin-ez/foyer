@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25, #26, #151, #147, #107, #18 and #20
+Decided in #14, #21, #25, #26, #151, #147, #107, #18, #20 and #89
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -46,7 +46,7 @@ Decided in #14, #21, #25, #26, #151, #147, #107, #18 and #20
   - It holds the rows the household sends, with the strokes of the pages it keeps, the changes not yet committed, the household's cursor and each kept page's cursor.
   - At launch, the iPad reads it, then catches up from its cursor instead of downloading everything again.
   - It's only a copy: if an app update changes its layout, the app rebuilds it from the household. Unsent changes are kept as encoded changes, so a rebuild never loses them.
-  - Signing out, or the household ending the session, deletes it.
+  - Signing out deletes it. The household ending the session deletes all of it but the member's unsent changes, which the iPad sends once the same member signs in again, and deletes if someone else signs in first (`how-do-people-sign-in.md`).
 - **Which pages' ink the iPad keeps:** this month's month page; this week's and next week's week pages and their day pages; each space's newest page; and the 30 pages opened most recently on this iPad.
   - When a page drops out of the set, its strokes are deleted from the iPad, except those still waiting to be sent.
   - When a page was last opened is kept only on the iPad, and never synced.

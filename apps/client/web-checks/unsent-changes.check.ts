@@ -105,7 +105,9 @@ test("keeps nothing once the household has saved the changes", async ({ page }) 
   await expect(page.getByText(/not saved yet/)).toBeHidden();
 });
 
-test("forgets a member's unsent changes when they sign out", async ({ page }) => {
+test("asks before signing out with unsent changes, and forgets them once signed out", async ({
+  page,
+}, testInfo) => {
   const connection = await connectionToTheHousehold(page);
   const space = await openSpaceOfItsOwn(page);
   await connection.goOffline();
@@ -113,6 +115,16 @@ test("forgets a member's unsent changes when they sign out", async ({ page }) =>
 
   await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(
+    page.getByText(/^\d+ changes aren't saved yet\. Signing out now loses them\.$/),
+  ).toBeVisible();
+  await saveScreenshot(page, testInfo, "sign-out-with-unsent-changes");
+  await page.getByRole("button", { name: "Stay signed in" }).click();
+  await expect(page.getByText(/^Signed in as /)).toBeVisible();
+  await expect(page.getByText(/not saved yet/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByRole("button", { name: "Sign out anyway" }).click();
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
   connection.comeBack();
   await openApp(page);

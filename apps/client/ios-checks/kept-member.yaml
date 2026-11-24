@@ -1,0 +1,18 @@
+appId: io.github.martin-ez.foyer
+name: The app opens again as the member signed in, without asking to sign in
+---
+- runFlow: steps/open-and-sign-in.yaml
+- stopApp
+- launchApp:
+    arguments:
+      --initialUrl: http://localhost:8081
+      -EXDevMenuIsOnboardingFinished: true
+      -EXDevMenuShowsAtLaunch: false
+      -EXDevMenuShowFloatingActionButton: false
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 120000
+- assertNotVisible: Sign in without Google
+- takeScreenshot: opened-again-ipad
+- tapOn: Account
+- assertVisible: Signed in as .*
