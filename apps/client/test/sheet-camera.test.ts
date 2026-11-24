@@ -1,12 +1,15 @@
 import { a2Landscape, a4Portrait } from "@foyer/shared";
 import { describe, expect, it } from "vitest";
 import {
+  type Camera,
   deskMargin,
   fittedCamera,
   largestScale,
+  type Point,
   panCamera,
   pointOnPage,
   resizeCamera,
+  snapshotMove,
   zoomCamera,
   zoomLimits,
 } from "../src/page/sheet-camera";
@@ -142,5 +145,34 @@ describe("pointing at the page", () => {
 
     expect(pointOnPage(zoomed, focus).x).toBeCloseTo(pointOnPage(camera, focus).x);
     expect(pointOnPage(zoomed, focus).y).toBeCloseTo(pointOnPage(camera, focus).y);
+  });
+});
+
+describe("moving a snapshot of the desk", () => {
+  const onScreen = (camera: Camera, at: Point) => ({
+    x: camera.x + at.x * camera.scale,
+    y: camera.y + at.y * camera.scale,
+  });
+
+  it("puts each point of a snapshot where the page now shows it", () => {
+    const taken = { x: 40, y: 24, scale: 0.5 };
+    const now = { x: -300, y: -120, scale: 2 };
+    const move = snapshotMove(taken, now);
+
+    for (const at of [
+      { x: 0, y: 0 },
+      { x: 100, y: 250 },
+      { x: page.width, y: page.height },
+    ]) {
+      const inSnapshot = onScreen(taken, at);
+      expect(onScreen(move, inSnapshot).x).toBeCloseTo(onScreen(now, at).x);
+      expect(onScreen(move, inSnapshot).y).toBeCloseTo(onScreen(now, at).y);
+    }
+  });
+
+  it("leaves a snapshot where it is while the page hasn't moved", () => {
+    const camera = { x: 40, y: 24, scale: 0.5 };
+
+    expect(snapshotMove(camera, camera)).toEqual({ x: 0, y: 0, scale: 1 });
   });
 });

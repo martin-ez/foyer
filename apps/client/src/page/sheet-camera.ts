@@ -28,6 +28,13 @@ export function fittedCamera(view: Size, page: PageSize): Camera {
   return keepOnDesk({ x: 0, y: 0, scale: zoomLimits(view, page).smallest }, view, page);
 }
 
+/** How to move and scale a picture of the desk taken through the camera `from` so that it lies
+ *  where the page does through the camera `to`. */
+export function snapshotMove(from: Camera, to: Camera): Camera {
+  const scale = from.scale > 0 ? to.scale / from.scale : 1;
+  return { x: to.x - from.x * scale, y: to.y - from.y * scale, scale };
+}
+
 /** Zooms by `factor` around `focus`, which stays over the same point of the page, then moves the
  *  page by `pan`, as two fingers pinching and moving together do. */
 export function zoomCamera(

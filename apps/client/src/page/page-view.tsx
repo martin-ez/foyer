@@ -83,6 +83,7 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
   const text = useLaidOutText(pageId, state.textGroups, state.textBlocks);
   const editing = useTextEditing(pageId, size, state, sync);
   const ink = usePageInk(pageId, state.strokes, sync);
+  const inkDrawing = useMemo(() => <InkDrawing skia={Skia} strokes={ink.shown} />, [ink.shown]);
   const [moving, setMoving] = useState<{ groupId: string; by: Point } | null>(null);
   const editedBlocks = editing.groupId ? blocksIn(editing.groupId, state.textBlocks) : [];
   const focusedBlock = editedBlocks.find(({ id }) => id === editing.focusedBlockId);
@@ -168,7 +169,7 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
         label={describePage(page, state)}
         onPoint={({ x, y }) => sync.live.point(x, y)}
         onTap={tapPage}
-        ink={<InkDrawing skia={Skia} strokes={ink.shown} />}
+        ink={inkDrawing}
         pencil={
           <PagePencil pageId={pageId} strokes={ink.onPage} sync={sync} onErasing={ink.setErasing} />
         }
