@@ -92,6 +92,8 @@ export type SyncStatus = "connecting" | "catching-up" | "up-to-date" | "offline"
 
 /** What the device knows of the household, with its own changes applied before they're saved. */
 export type SyncState = {
+  /** Up to date once the device has everything the household has, and the changes kept from
+   *  before it launched are back. */
   status: SyncStatus;
   members: Member[];
   /** The spaces the member sees that aren't archived, which every list and picker shows: their
@@ -1693,8 +1695,9 @@ export class HouseholdSync {
     const inOrder = [...spaces.values()].sort(
       (a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.id.localeCompare(b.id),
     );
+    const restoring = this.#status === "up-to-date" && this.#restored !== "done";
     return {
-      status: this.#status,
+      status: restoring ? "catching-up" : this.#status,
       members: [...this.#members.values()]
         .map(({ member }) => member)
         .sort((a, b) => a.id.localeCompare(b.id)),
