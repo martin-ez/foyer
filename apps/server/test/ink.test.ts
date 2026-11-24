@@ -1,11 +1,19 @@
 import { reset } from "cloudflare:test";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import { a4Portrait, dayPageId, encodeSamples, itemPageId, spacePageId } from "@foyer/shared";
+import {
+  a4Portrait,
+  dayPageId,
+  encodeSamples,
+  itemPageId,
+  readStrokeFixture,
+  spacePageId,
+} from "@foyer/shared";
 import { Input, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import { PageKind } from "@foyer/shared/gen/foyer/page/v1/page_pb";
 import { SpaceKind } from "@foyer/shared/gen/foyer/space/v1/space_pb";
 import { type ChangeResult, type Row, RowKind } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, describe, expect, it } from "vitest";
+import { backendUrl, localBackendUrl, requestBackend, requestBackendWith } from "./backend";
 import {
   Device,
   idOf,
@@ -420,5 +428,59 @@ describe("erasing strokes", () => {
     expect(committed.results.map(resultOf)).toEqual([
       { refused: "An erase can name at most 1,000 strokes." },
     ]);
+  });
+});
+
+describe("recording a page's strokes as a fixture", () => {
+  const record = (query = "") => requestBackend(`${localBackendUrl}/auth/dev/strokes${query}`);
+
+  it("gives the strokes left on a page, in the order they were drawn", async () => {
+    const device = await connect(alex);
+    const samples = encodeSamples({ x: [10, 12.5], y: [20, 21], time: [0, 4], force: [0.3, 0.6] });
+    const later = strokeAdd({ pageId: day, drawnAt: madeAt(2_000), tool: Tool.MONOLINE, samples });
+    const earlier = strokeAdd({ pageId: day, drawnAt: madeAt(1_000), colour: 0x2255aa });
+    const erased = strokeAdd({ pageId: day, drawnAt: madeAt(1_500) });
+    await device.push(dayPage, later, earlier, erased, nextDayPage);
+    await device.push(strokeErase([idOf(erased)]));
+
+    const recorded = await record(`?page=${encodeURIComponent(day)}`);
+    const { pageId, strokes } = await recorded.json<{ pageId: string; strokes: unknown }>();
+
+    expect(recorded.status).toBe(200);
+    expect(pageId).toBe(day);
+    expect(readStrokeFixture(strokes)).toEqual([
+      expect.objectContaining({ drawnAt: 1_000, colour: 0x2255aa }),
+      expect.objectContaining({ drawnAt: 2_000, tool: Tool.MONOLINE, samples }),
+    ]);
+  });
+
+  it("gives the strokes of the page someone drew on last, unless a page is named", async () => {
+    const device = await connect(alex);
+    await device.push(dayPage, nextDayPage, strokeAdd({ pageId: nextDay }));
+    await device.push(strokeAdd({ pageId: day }));
+
+    const recorded = await record();
+
+    expect((await recorded.json<{ pageId: string }>()).pageId).toBe(day);
+  });
+
+  it("says when there's no ink to record", async () => {
+    const device = await connect(alex);
+    await device.push(dayPage);
+
+    expect((await record()).status).toBe(404);
+    expect((await record(`?page=${encodeURIComponent(day)}`)).status).toBe(404);
+  });
+
+  it("doesn't exist outside local development", async () => {
+    const device = await connect(alex);
+    await device.push(dayPage, strokeAdd({ pageId: day }));
+
+    expect((await requestBackend(`${backendUrl}/auth/dev/strokes`)).status).toBe(404);
+    const withoutDevSignIn = await requestBackendWith(
+      { DEV_SIGN_IN: undefined },
+      `${localBackendUrl}/auth/dev/strokes`,
+    );
+    expect(withoutDevSignIn.status).toBe(404);
   });
 });

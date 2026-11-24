@@ -1,5 +1,5 @@
 # How do people sign in, and how long do they stay signed in?
-Decided in #12 and #25
+Decided in #12, #25 and #8
 
 **Applies when:** signing people in or out, checking who makes a call or opens the sync connection, storing anything about sessions, or asking Google for anything about a person.
 
@@ -27,7 +27,7 @@ Decided in #12 and #25
   - `GetSession {}` returns `{member}` for the signed-in person, or an unauthenticated error. The app asks for it on start.
   - `SignOut {}` ends the current session.
   - `member` is `foyer.member.v1.Member {id, name}`.
-- **Locally, people can sign in without Google.** When `apps/server/.dev.vars` sets `DEV_SIGN_IN=1`, `/auth/dev?email=…` signs in as an email on the allowlist. The Worker only allows it on `localhost`, and deployments never turn it on.
+- **Locally, people can sign in without Google.** When `apps/server/.dev.vars` sets `DEV_SIGN_IN=1`, `/auth/dev?email=…` signs in as an email on the allowlist. The Worker only allows it on `localhost`, and deployments never turn it on. A real iPad, which can't reach `localhost`, signs in to the local backend with the one-time code that sign-in without Google gives the Mac for it, which `pnpm sign-in-ipad` shows as a QR code. The iPad's development build opens it as `foyer://dev/sign-in?code=…`, which release builds don't follow.
 
 **Why:**
 - One flow for both platforms, and no Google SDK in the app.

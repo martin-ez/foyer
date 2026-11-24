@@ -1,6 +1,6 @@
 import { DurableObject, env } from "cloudflare:workers";
 import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { itemTitleProblem, newId, signedOutCloseCode } from "@foyer/shared";
+import { itemTitleProblem, newId, signedOutCloseCode, strokeFixtureOf } from "@foyer/shared";
 import {
   type DeviceMessage,
   DeviceMessageSchema,
@@ -20,7 +20,7 @@ import {
   useCaptureKey,
 } from "./capture";
 import { applyPush } from "./changes";
-import { pullInk } from "./ink";
+import { pullInk, strokesToRecord } from "./ink";
 import { type LiveConnection, LiveLane, newLiveConnection } from "./live";
 import { migrateHousehold, runJobs } from "./migrations";
 import { canSeePage } from "./pages";
@@ -292,6 +292,13 @@ export class Household extends DurableObject<Env> {
   removeFromAllowlistLocally(email: string): void {
     removeFromAllowlistLocally(email);
     this.#calendars.soon();
+  }
+
+  /** A page's strokes as a stroke fixture, or those of the page someone drew on last when none is
+   *  given. Null when it has no ink. Only a local backend asks, to record fixtures. */
+  strokesToRecord(pageId: string | null): { pageId: string; strokes: unknown[] } | null {
+    const found = strokesToRecord(this.ctx.storage.sql, pageId);
+    return found && { pageId: found.pageId, strokes: strokeFixtureOf(found.strokes) };
   }
 
   /** Disconnects a member's Google account, revoking Foyer's access at Google. The spaces they hold

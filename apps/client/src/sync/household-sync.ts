@@ -889,7 +889,7 @@ export class HouseholdSync {
   }
 
   /** Adds a stroke drawn on a page, with the page if nobody has put anything on it yet, and
-   *  returns its id. */
+   *  returns its id. Its samples are given as values, or as already encoded. */
   addStroke(
     pageId: string,
     stroke: {
@@ -898,19 +898,22 @@ export class HouseholdSync {
       tool: Tool;
       colour: number;
       size: number;
-      samples: StrokeSamples;
+      samples: StrokeSamples | Uint8Array;
     },
   ): string {
     const strokeId = newId();
-    const { drawnAt, samples, ...brush } = stroke;
+    const { drawnAt, samples, input, tool, colour, size } = stroke;
     this.#make("drawing", ...this.#creatingPage(pageId), {
       case: "strokeAdd",
       value: {
         strokeId,
         pageId,
         drawnAt: timestampFromMs(Math.round(drawnAt)),
-        ...brush,
-        samples: encodeSamples(samples),
+        input,
+        tool,
+        colour,
+        size,
+        samples: samples instanceof Uint8Array ? samples : encodeSamples(samples),
       },
     });
     return strokeId;

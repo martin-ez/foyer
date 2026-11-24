@@ -18,9 +18,12 @@
     "format": "biome check --write . && pnpm --filter @foyer/shared format-contracts",
     "generate": "pnpm --filter @foyer/shared generate",
     "test": "pnpm -r --workspace-concurrency=1 --if-present test",
-    "update-golden-images": "pnpm -r --if-present update-golden-images"
+    "update-golden-images": "pnpm -r --if-present update-golden-images",
+    "record-strokes": "node scripts/record-strokes.mjs",
+    "sign-in-ipad": "node scripts/sign-in-ipad.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.7"
+    "@biomejs/biome": "2.6.7",
+    "qrcode-terminal": "0.12.0"
   }
 }
