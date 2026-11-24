@@ -47,14 +47,19 @@ export function settleCalendarStickers(
     const targets = item.date
       ? calendarPageKinds.map((kind) => calendarPageId(kind, item.date ?? ""))
       : [];
-    const plan = planCalendarStickers({
+    const options = {
       itemId,
       date: item.date,
       time: timeOnItsDay(item),
-      kept: item.repeat === null ? new Set() : ticked(sql, itemId),
-      stickers: stickersFor(sql, itemId, targets),
+      kept: item.repeat === null ? new Set<string>() : ticked(sql, itemId),
       pages: pagesAmong(sql, targets),
-    });
+    };
+    let plan = planCalendarStickers({ ...options, stickers: stickersFor(sql, itemId, null) });
+    const needsSpots = plan.place.length + plan.move.length > 0;
+    if (item.date && needsSpots) {
+      const othersOn = { date: item.date, pageIds: targets };
+      plan = planCalendarStickers({ ...options, stickers: stickersFor(sql, itemId, othersOn) });
+    }
     const { pages, place, move, remove } = plan;
     if (pages.length + place.length + move.length + remove.length === 0) continue;
     seq ??= nextSeq(sql);
@@ -165,9 +170,14 @@ function ticked(sql: SqlStorage, itemId: string): Set<string> {
   );
 }
 
-function stickersFor(sql: SqlStorage, itemId: string, pageIds: readonly string[]): PlacedSticker[] {
-  const marks = pageIds.map(() => "?").join(", ");
-  const onPages = pageIds.length > 0 ? `OR page_id IN (${marks})` : "";
+function stickersFor(
+  sql: SqlStorage,
+  itemId: string,
+  othersOn: { date: string; pageIds: readonly string[] } | null,
+): PlacedSticker[] {
+  const marks = othersOn?.pageIds.map(() => "?").join(", ");
+  const onItsDay = othersOn ? `OR (page_id IN (${marks}) AND occurrence = ?)` : "";
+  const onItsDayBindings = othersOn ? [...othersOn.pageIds, othersOn.date] : [];
   return sql
     .exec<{
       id: string;
@@ -178,10 +188,10 @@ function stickersFor(sql: SqlStorage, itemId: string, pageIds: readonly string[]
       occurrence: string;
     }>(
       `SELECT id, page_id, item_id, x, y, occurrence FROM stickers
-       WHERE occurrence IS NOT NULL AND (item_id = ? ${onPages})
+       WHERE (item_id = ? AND occurrence IS NOT NULL) ${onItsDay}
        ORDER BY placed_at, id`,
       itemId,
-      ...pageIds,
+      ...onItsDayBindings,
     )
     .toArray()
     .map((row) => ({
