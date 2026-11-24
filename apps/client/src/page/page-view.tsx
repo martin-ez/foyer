@@ -32,6 +32,10 @@ import { PresenceMarkers } from "./presence-markers";
 import type { Point } from "./sheet-camera";
 import { stickerSize, stickersOn } from "./sticker-layout";
 
+const SceneHooks: typeof import("./scene-hooks").SceneHooks | null = __DEV__
+  ? require("./scene-hooks").SceneHooks
+  : null;
+
 type PageViewProps = {
   page: OpenPage;
   /** What's printed on the page, such as a calendar's grid. */
@@ -200,6 +204,7 @@ function ShownPage({ page, ruling, onOpenItem, onTapPage, onDropOnDay, children 
         />
         <PresenceMarkers markers={markers} />
       </PageSheet>
+      {SceneHooks ? <SceneHooks page={page} /> : null}
     </View>
   );
 }

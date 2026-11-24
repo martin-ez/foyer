@@ -2937,6 +2937,27 @@ describe("ink on pages", () => {
     expect(stroke?.drawnAt && timestampMs(stroke.drawnAt)).toBe(Date.UTC(2026, 10, 23, 9, 30));
   });
 
+  it("adds a stroke whose samples are already encoded, sending those very bytes", () => {
+    startUpToDate();
+    const encoded = encodeSamples(samples);
+
+    const strokeId = sync.addStroke(day, {
+      drawnAt: Date.UTC(2026, 10, 23, 9, 30),
+      input: Input.PENCIL,
+      tool: Tool.PEN,
+      colour: 0x1a1a1a,
+      size: 1.4,
+      samples: encoded,
+    });
+
+    const added = household()
+      .lastPush()
+      .changes.map(({ change }) => change)
+      .find(({ case: kind }) => kind === "strokeAdd");
+    expect(added?.value).toMatchObject({ strokeId, samples: encoded });
+    expect(sync.getState().strokes.get(strokeId)?.samples).toEqual(encoded);
+  });
+
   it("erases strokes at once, and draws them again if the household refuses", () => {
     startUpToDate();
     sync.followInk(day);

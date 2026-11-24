@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionClient } from "../backend/backend";
+import { handleDevLink } from "../shell/dev-links";
 import {
   forgetDeviceStorage,
   forgetEndedSession,
@@ -12,9 +13,15 @@ import {
   keepSignedInMember,
   readSignedInMember,
 } from "./session-token";
-import { problemFromSignIn, signInWithGoogle, signInWithoutGoogle } from "./sign-in";
+import {
+  problemFromSignIn,
+  signInWithCode,
+  signInWithGoogle,
+  signInWithoutGoogle,
+} from "./sign-in";
 
 const withoutGoogle = signInWithoutGoogle;
+const withCode = signInWithCode;
 
 const keptSignIn: KeptSignIn = {
   member: readSignedInMember,
@@ -49,12 +56,22 @@ export function useSession() {
     check();
   }, [check]);
 
-  const show = async (next: Promise<Session>) => {
+  const show = useCallback(async (next: Promise<Session>) => {
     const started = ++latest.current;
     const shown = await next;
     if (shown.status === "signed-in") await keptSignIn.signedIn(shown.member);
     if (started === latest.current) setSession(shown);
-  };
+  }, []);
+
+  useEffect(
+    () =>
+      withCode &&
+      handleDevLink("sign-in", (params) => {
+        setSession({ status: "checking" });
+        show(withCode(params.get("code") ?? ""));
+      }),
+    [show],
+  );
 
   const memberId = session.status === "signed-in" ? session.member.id : null;
 

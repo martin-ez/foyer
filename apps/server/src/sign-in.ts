@@ -40,6 +40,8 @@ export async function handleSignIn(request: Request): Promise<Response> {
       return signInWithoutGoogle(url);
     case "/auth/dev/google":
       return isDevelopment(url) ? fakeConsentPage(url) : new Response(null, { status: 404 });
+    case "/auth/dev/strokes":
+      return strokesToRecord(url);
     default:
       return new Response(null, { status: 404 });
   }
@@ -92,6 +94,13 @@ async function signInWithoutGoogle(url: URL): Promise<Response> {
   if (!isDevelopment(url)) return new Response(null, { status: 404 });
   const member = await theHousehold().joinWithoutGoogle(url.searchParams.get("email") ?? "");
   return signIn(url, appIn(url), member);
+}
+
+async function strokesToRecord(url: URL): Promise<Response> {
+  if (!isDevelopment(url)) return new Response(null, { status: 404 });
+  const found = await theHousehold().strokesToRecord(url.searchParams.get("page"));
+  if (!found) return new Response("There's no ink on that page.", { status: 404 });
+  return Response.json(found, { headers: { "Cache-Control": "no-store" } });
 }
 
 async function removeFromAllowlist(request: Request, url: URL): Promise<Response> {

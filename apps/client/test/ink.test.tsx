@@ -1,8 +1,16 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { encodeSamples, type StrokeSamples, strokeSampleLimit } from "@foyer/shared";
+import {
+  decodeSamples,
+  encodeSamples,
+  fixtureStrokeAsStroke,
+  readStrokeFixture,
+  type StrokeSamples,
+  strokeSampleLimit,
+} from "@foyer/shared";
 import { Input, StrokeSchema, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
-import type { Skia } from "react-native-skia";
+import { strokeFixtures } from "@foyer/shared/stroke-fixtures";
+import { Group, type Skia } from "react-native-skia";
 import { getSkiaExports } from "react-native-skia/lib/commonjs/headless";
 import { describe, expect, it } from "vitest";
 import { strokesCrossed } from "../src/ink/eraser";
@@ -142,6 +150,38 @@ describe("InkDrawing", () => {
     );
   });
 });
+
+const fixtureScale = 2;
+const fixtureMargin = 12;
+
+it.each(Object.entries(strokeFixtures))(
+  "draws the recorded %s stroke fixture as Skia draws it",
+  async (name, json) => {
+    const strokes = readStrokeFixture(json).map((recorded, index) =>
+      fixtureStrokeAsStroke(recorded, {
+        id: `stroke-${String(index).padStart(3, "0")}`,
+        pageId: "day:2026-11-24",
+        drawnBy: "",
+      }),
+    );
+    const decoded = strokes.map(({ samples }) => decodeSamples(samples));
+    const left = Math.min(...decoded.flatMap(({ x }) => x)) - fixtureMargin;
+    const top = Math.min(...decoded.flatMap(({ y }) => y)) - fixtureMargin;
+    const right = Math.max(...decoded.flatMap(({ x }) => x)) + fixtureMargin;
+    const bottom = Math.max(...decoded.flatMap(({ y }) => y)) + fixtureMargin;
+
+    await expectToMatchGoldenImage(
+      `stroke-fixture-${name}`,
+      <Group transform={[{ scale: fixtureScale }, { translateX: -left }, { translateY: -top }]}>
+        <InkDrawing skia={getSkiaExports().Skia as unknown as typeof Skia} strokes={strokes} />
+      </Group>,
+      {
+        width: Math.ceil((right - left) * fixtureScale),
+        height: Math.ceil((bottom - top) * fixtureScale),
+      },
+    );
+  },
+);
 
 describe("samplesInPieces", () => {
   const drawn = (count: number, pressed: boolean) => {

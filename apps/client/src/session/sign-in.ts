@@ -18,6 +18,18 @@ export const signInWithoutGoogle = __DEV__
       })
   : undefined;
 
+/** Signs in with the one-time code that sign-in without Google gave a computer for the iPad at
+ *  the local backend, which a real iPad can't reach at `localhost`. Only development builds have
+ *  it. */
+export const signInWithCode = __DEV__
+  ? (code: string): Promise<Session> =>
+      finishSignIn(
+        `foyer://signed-in?code=${encodeURIComponent(code)}`,
+        sessionClient,
+        keepSessionToken,
+      )
+  : undefined;
+
 async function signInAt(
   address: string,
   options?: { preferEphemeralSession: boolean },
