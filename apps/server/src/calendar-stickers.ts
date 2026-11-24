@@ -9,7 +9,7 @@ import {
   planCalendarStickers,
 } from "@foyer/shared";
 import type { Setter } from "./changes";
-import { nextSeq, type RowKey } from "./rows";
+import { inJson, nextSeq, type RowKey } from "./rows";
 
 type ItemRow = {
   kind: "task" | "event" | "note";
@@ -33,38 +33,38 @@ export function settleCalendarStickers(
 ): RowKey[] {
   const changed: RowKey[] = [];
   let seq: number | null = null;
-  for (const itemId of new Set(itemIds)) {
-    const [item] = sql
-      .exec<ItemRow>(
-        `SELECT items.kind, items.date, items.time, items.starts_at, space_calendars.time_zone,
-           items.repeat, items.space_id, items.created_by
-         FROM items LEFT JOIN space_calendars ON space_calendars.space_id = items.space_id
-         WHERE items.id = ?`,
-        itemId,
-      )
-      .toArray();
+  const ids = [...new Set(itemIds)];
+  const items = itemsAmong(sql, ids);
+  const ownStickers = calendarStickersOf(sql, ids);
+  const targetsOf = (item: ItemRow) =>
+    item.date ? calendarPageKinds.map((kind) => calendarPageId(kind, item.date ?? "")) : [];
+  const calendarPages = pagesAmong(sql, [...items.values()].flatMap(targetsOf));
+  for (const itemId of ids) {
+    const item = items.get(itemId);
     if (!item || item.kind === "note") continue;
-    const targets = item.date
-      ? calendarPageKinds.map((kind) => calendarPageId(kind, item.date ?? ""))
-      : [];
+    const targets = targetsOf(item);
     const options = {
       itemId,
       date: item.date,
       time: timeOnItsDay(item),
       kept: item.repeat === null ? new Set<string>() : ticked(sql, itemId),
-      pages: pagesAmong(sql, targets),
+      pages: calendarPages,
     };
-    let plan = planCalendarStickers({ ...options, stickers: stickersFor(sql, itemId, null) });
+    let plan = planCalendarStickers({ ...options, stickers: ownStickers.get(itemId) ?? [] });
     const needsSpots = plan.place.length + plan.move.length > 0;
     if (item.date && needsSpots) {
       const othersOn = { date: item.date, pageIds: targets };
-      plan = planCalendarStickers({ ...options, stickers: stickersFor(sql, itemId, othersOn) });
+      plan = planCalendarStickers({
+        ...options,
+        stickers: stickersOnItsDay(sql, itemId, othersOn),
+      });
     }
     const { pages, place, move, remove } = plan;
     if (pages.length + place.length + move.length + remove.length === 0) continue;
     seq ??= nextSeq(sql);
     const member = actor ?? memberFor(sql, item);
     for (const page of pages) {
+      calendarPages.set(page.pageId, page.size);
       sql.exec(
         `INSERT INTO pages (id, kind, width, height, created_by, created_at, seq)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -142,11 +142,20 @@ export function placeAllCalendarStickers(storage: DurableObjectStorage): void {
 /** The ids of the items whose stickers some rows are, or which they are. */
 export function itemsOfRows(sql: SqlStorage, rows: readonly RowKey[]): string[] {
   const items = rows.filter(({ kind }) => kind === "item").map(({ id }) => id);
-  for (const { id } of rows.filter(({ kind }) => kind === "sticker")) {
-    const [sticker] = sql
-      .exec<{ item_id: string }>("SELECT item_id FROM stickers WHERE id = ?", id)
-      .toArray();
-    if (sticker) items.push(sticker.item_id);
+  const stickers = rows.filter(({ kind }) => kind === "sticker").map(({ id }) => id);
+  if (stickers.length === 0) return items;
+  const itemOf = new Map(
+    sql
+      .exec<{ id: string; item_id: string }>(
+        `SELECT id, item_id FROM stickers WHERE id IN ${inJson}`,
+        JSON.stringify(stickers),
+      )
+      .toArray()
+      .map(({ id, item_id }) => [id, item_id]),
+  );
+  for (const id of stickers) {
+    const item = itemOf.get(id);
+    if (item) items.push(item);
   }
   return items;
 }
@@ -170,48 +179,88 @@ function ticked(sql: SqlStorage, itemId: string): Set<string> {
   );
 }
 
-function stickersFor(
+function itemsAmong(sql: SqlStorage, itemIds: readonly string[]): Map<string, ItemRow> {
+  const items = sql
+    .exec<ItemRow & { id: string }>(
+      `SELECT items.id, items.kind, items.date, items.time, items.starts_at,
+         space_calendars.time_zone, items.repeat, items.space_id, items.created_by
+       FROM items LEFT JOIN space_calendars ON space_calendars.space_id = items.space_id
+       WHERE items.id IN ${inJson}`,
+      JSON.stringify(itemIds),
+    )
+    .toArray();
+  return new Map(items.map((item) => [item.id, item]));
+}
+
+type StickerRow = {
+  id: string;
+  page_id: string;
+  item_id: string;
+  x: number;
+  y: number;
+  occurrence: string;
+};
+
+function calendarStickersOf(
+  sql: SqlStorage,
+  itemIds: readonly string[],
+): Map<string, PlacedSticker[]> {
+  const stickers = sql
+    .exec<StickerRow>(
+      `SELECT id, page_id, item_id, x, y, occurrence FROM stickers
+       WHERE item_id IN ${inJson} AND occurrence IS NOT NULL
+       ORDER BY placed_at, id`,
+      JSON.stringify(itemIds),
+    )
+    .toArray();
+  const byItem = new Map<string, PlacedSticker[]>();
+  for (const row of stickers) {
+    const sticker = placedSticker(row);
+    const ofItem = byItem.get(sticker.itemId);
+    if (ofItem) ofItem.push(sticker);
+    else byItem.set(sticker.itemId, [sticker]);
+  }
+  return byItem;
+}
+
+function stickersOnItsDay(
   sql: SqlStorage,
   itemId: string,
-  othersOn: { date: string; pageIds: readonly string[] } | null,
+  day: { date: string; pageIds: readonly string[] },
 ): PlacedSticker[] {
-  const marks = othersOn?.pageIds.map(() => "?").join(", ");
-  const onItsDay = othersOn ? `OR (page_id IN (${marks}) AND occurrence = ?)` : "";
-  const onItsDayBindings = othersOn ? [...othersOn.pageIds, othersOn.date] : [];
+  const marks = day.pageIds.map(() => "?").join(", ");
   return sql
-    .exec<{
-      id: string;
-      page_id: string;
-      item_id: string;
-      x: number;
-      y: number;
-      occurrence: string;
-    }>(
+    .exec<StickerRow>(
       `SELECT id, page_id, item_id, x, y, occurrence FROM stickers
-       WHERE (item_id = ? AND occurrence IS NOT NULL) ${onItsDay}
+       WHERE (item_id = ? AND occurrence IS NOT NULL)
+         OR (page_id IN (${marks}) AND occurrence = ?)
        ORDER BY placed_at, id`,
       itemId,
-      ...onItsDayBindings,
+      ...day.pageIds,
+      day.date,
     )
     .toArray()
-    .map((row) => ({
-      id: row.id,
-      pageId: row.page_id,
-      itemId: row.item_id,
-      x: row.x,
-      y: row.y,
-      occurrence: row.occurrence,
-    }));
+    .map(placedSticker);
+}
+
+function placedSticker(row: StickerRow): PlacedSticker {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    itemId: row.item_id,
+    x: row.x,
+    y: row.y,
+    occurrence: row.occurrence,
+  };
 }
 
 function pagesAmong(sql: SqlStorage, pageIds: readonly string[]): Map<string, PageSize> {
   if (pageIds.length === 0) return new Map();
-  const marks = pageIds.map(() => "?").join(", ");
   return new Map(
     sql
       .exec<{ id: string; width: number; height: number }>(
-        `SELECT id, width, height FROM pages WHERE id IN (${marks})`,
-        ...pageIds,
+        `SELECT id, width, height FROM pages WHERE id IN ${inJson}`,
+        JSON.stringify(pageIds),
       )
       .toArray()
       .map(({ id, width, height }) => [id, { width, height }]),

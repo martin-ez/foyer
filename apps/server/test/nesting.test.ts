@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { fakeGoogle } from "../src/fake-google";
 import { connectGoogle, work } from "./calendar-helpers";
 import {
+  type ChangeInit,
   Device,
   idOf,
   itemCreate,
@@ -30,6 +31,9 @@ import {
   spaceCreate,
   stickerPlace,
   stickerRemove,
+  taskTick,
+  textBlockCreate,
+  textGroupCreate,
   together,
 } from "./sync-device";
 
@@ -85,8 +89,12 @@ function deletedIn(rows: Row[], kind: RowKind) {
   );
 }
 
-async function rowsCaughtUpBy(device: Device) {
-  return (await device.catchUp()).flatMap(({ rows }) => rows);
+async function rowsCaughtUpBy(device: Device, cursor = 0) {
+  return (await device.catchUp(cursor)).flatMap(({ rows }) => rows);
+}
+
+async function cursorOf(device: Device) {
+  return Number((await device.catchUp()).at(-1)?.cursor);
 }
 
 async function itemAsCaughtUpBy(device: Device, itemId: string) {
@@ -115,10 +123,13 @@ async function newSharedSpace(device: Device): Promise<string> {
   return idOf(create);
 }
 
+function bodyPage(itemId: string) {
+  return pageCreate({ pageId: itemPageId(itemId), kind: PageKind.ITEM, itemId, ...a4Portrait });
+}
+
 async function bodyPageOf(device: Device, itemId: string) {
-  const pageId = itemPageId(itemId);
-  await device.push(pageCreate({ pageId, kind: PageKind.ITEM, itemId, ...a4Portrait }));
-  return pageId;
+  await device.push(bodyPage(itemId));
+  return itemPageId(itemId);
 }
 
 async function newTask(device: Device, spaceId: string, under?: string) {
@@ -350,7 +361,104 @@ describe("moving an item with items under it", () => {
     });
     expect(takenOut.results.map(resultOf)).toEqual([{ committed: true }, { committed: true }]);
   });
+
+  it("moves many items under it with what's theirs, out of other members' sight and back", async () => {
+    const alexDevice = await connect(alex);
+    const samDevice = await connect(sam);
+    const home = await newSharedSpace(alexDevice);
+    const garden = await newSharedSpace(alexDevice);
+    const personal = await spaceOwnedBy(alexDevice, SpaceKind.PERSONAL);
+    const party = await newTask(alexDevice, home);
+    const carried = await putManyUnder(alexDevice, home, party);
+    await samDevice.updates();
+    const beforeGarden = await cursorOf(samDevice);
+
+    await alexDevice.push(itemMove(party, garden, secondsAgo(20)));
+
+    for (const device of [alexDevice, samDevice]) {
+      const moved = itemsIn(await device.updates());
+      expect(moved.map(({ id }) => id).sort()).toEqual(carried.get(RowKind.ITEM));
+      expect(moved.every(({ spaceId }) => spaceId === garden)).toBe(true);
+    }
+    expect(carriedIn(await rowsCaughtUpBy(samDevice, beforeGarden))).toEqual(carried);
+    const beforePersonal = await cursorOf(samDevice);
+
+    await alexDevice.push(itemMove(party, personal, secondsAgo(10)));
+
+    const kept = itemsIn(await alexDevice.updates());
+    expect(kept.every(({ spaceId }) => spaceId === personal)).toBe(true);
+    for (const rows of [
+      await samDevice.updates(),
+      await rowsCaughtUpBy(samDevice, beforePersonal),
+    ]) {
+      expect(carriedIn(rows)).toEqual(new Map());
+      for (const [kind, ids] of carried) expect(deletedIn(rows, kind).sort()).toEqual(ids);
+    }
+    const beforeHome = await cursorOf(samDevice);
+
+    await alexDevice.push(itemMove(party, home));
+
+    expect(carriedIn(await samDevice.updates())).toEqual(carried);
+    const caughtUp = await rowsCaughtUpBy(samDevice, beforeHome);
+    expect(carriedIn(caughtUp)).toEqual(carried);
+    expect(caughtUp.some(({ row }) => row.case === "deleted")).toBe(false);
+  });
 });
+
+async function putManyUnder(device: Device, spaceId: string, parent: string) {
+  const carried = new Map<RowKind, string[]>([[RowKind.ITEM, [parent]]]);
+  const carry = (kind: RowKind, change: ChangeInit) => {
+    carried.set(kind, [...(carried.get(kind) ?? []), idOf(change)].sort());
+    return change;
+  };
+  await device.push(carry(RowKind.PAGE, bodyPage(parent)));
+  let first = parent;
+  for (let index = 0; index < 30; index++) {
+    const task = carry(RowKind.ITEM, itemCreate({ spaceId }, secondsAgo(60)));
+    const itemId = idOf(task);
+    const under = index < 20 ? parent : first;
+    const sticker = stickerPlace({ pageId: itemPageId(under), itemId }, secondsAgo(50));
+    const changes = [
+      task,
+      itemSetParent(itemId, under, secondsAgo(50)),
+      carry(RowKind.STICKER, sticker),
+    ];
+    if (index === 0) first = itemId;
+    if (index % 5 === 0)
+      changes.push(carry(RowKind.COMPLETION, taskTick({ itemId }, secondsAgo(50))));
+    if (index % 10 === 0) {
+      const group = carry(RowKind.TEXT_GROUP, textGroupCreate({ pageId: itemPageId(itemId) }));
+      const block = carry(RowKind.TEXT_BLOCK, textBlockCreate({ groupId: idOf(group) }));
+      changes.push(carry(RowKind.PAGE, bodyPage(itemId)), group, block);
+    }
+    const committed = await device.push(...changes);
+    expect(committed.results.map(resultOf)).not.toContainEqual(
+      expect.objectContaining({ refused: expect.anything() }),
+    );
+  }
+  await device.updates();
+  return carried;
+}
+
+const carriedKinds = {
+  item: RowKind.ITEM,
+  page: RowKind.PAGE,
+  sticker: RowKind.STICKER,
+  completion: RowKind.COMPLETION,
+  textGroup: RowKind.TEXT_GROUP,
+  textBlock: RowKind.TEXT_BLOCK,
+} as const;
+
+function carriedIn(rows: Row[]): Map<RowKind, string[]> {
+  const byKind = new Map<RowKind, string[]>();
+  for (const { row } of rows) {
+    if (!row.case || !(row.case in carriedKinds)) continue;
+    const kind = carriedKinds[row.case as keyof typeof carriedKinds];
+    const { id } = row.value as { id: string };
+    byKind.set(kind, [...(byKind.get(kind) ?? []), id].sort());
+  }
+  return byKind;
+}
 
 describe("deleting an item with items under it", () => {
   it("moves the items still under it up to its own parent", async () => {

@@ -24,7 +24,7 @@ import {
   updatedAt,
 } from "./google-events";
 import { deleteItemForHousehold, insertItem, moveItemForHousehold } from "./items";
-import { nextSeq, type RowKey } from "./rows";
+import { inJson, nextSeq, type RowKey } from "./rows";
 
 const minute = 60_000;
 
@@ -120,23 +120,17 @@ type StoredEvent = {
 /** Marks each event that a change changed, and each deleted item that is in Google, as waiting to
  *  be written to Google. */
 export function queueEventWrites(sql: SqlStorage, keys: readonly RowKey[]): void {
-  for (const { kind, id } of keys) {
-    if (kind !== "item") continue;
-    const waits = sql
-      .exec(
-        `SELECT 1 FROM items WHERE id = ? AND kind = 'event'
-         UNION ALL SELECT 1 FROM google_events WHERE item_id = ?`,
-        id,
-        id,
-      )
-      .toArray();
-    if (waits.length === 0) continue;
-    sql.exec(
-      `INSERT INTO google_event_writes (item_id, version, tries, next_attempt_at) VALUES (?, 1, 0, 0)
-       ON CONFLICT (item_id) DO UPDATE SET version = version + 1, tries = 0, next_attempt_at = 0`,
-      id,
-    );
-  }
+  const items = keys.filter(({ kind }) => kind === "item").map(({ id }) => id);
+  if (items.length === 0) return;
+  const ids = JSON.stringify(items);
+  sql.exec(
+    `INSERT INTO google_event_writes (item_id, version, tries, next_attempt_at)
+     SELECT id, 1, 0, 0 FROM items WHERE id IN ${inJson} AND kind = 'event'
+     UNION SELECT item_id, 1, 0, 0 FROM google_events WHERE item_id IN ${inJson}
+     ON CONFLICT (item_id) DO UPDATE SET version = version + 1, tries = 0, next_attempt_at = 0`,
+    ids,
+    ids,
+  );
 }
 
 /** Lets writes and removals that waited for a calendar's holder or a calendar be tried now. */

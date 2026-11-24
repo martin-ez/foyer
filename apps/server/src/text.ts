@@ -11,7 +11,7 @@ import type {
 } from "@foyer/shared/gen/foyer/text/v1/text_pb";
 import { type Applied, isLater, type Setter } from "./changes";
 import { canSeePage } from "./pages";
-import { joinPageSpace, nextSeq, type RowKey } from "./rows";
+import { inJson, joinPageSpace, nextSeq, type RowKey } from "./rows";
 
 /** Makes a text group on a page the member sees, which has been created, with its corner on the
  *  page and a width no wider than the page. */
@@ -163,21 +163,20 @@ export function buryGroups(
   return buried;
 }
 
-/** The text groups and blocks on an item's pages. */
-export function textOnPagesOf(sql: SqlStorage, itemId: string): RowKey[] {
+/** The text groups and blocks on some items' pages. */
+export function textOnPagesOf(sql: SqlStorage, itemIds: readonly string[]): RowKey[] {
+  const ids = JSON.stringify(itemIds);
+  const onTheirPages = `text_groups.page_id IN (SELECT id FROM pages WHERE item_id IN ${inJson})`;
   const groups = sql
-    .exec<{ id: string }>(
-      "SELECT id FROM text_groups WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)",
-      itemId,
-    )
+    .exec<{ id: string }>(`SELECT id FROM text_groups WHERE ${onTheirPages}`, ids)
     .toArray()
     .map(({ id }): RowKey => ({ kind: "text_group", id }));
   const blocks = sql
     .exec<{ id: string }>(
       `SELECT text_blocks.id FROM text_blocks
        JOIN text_groups ON text_groups.id = text_blocks.group_id
-       WHERE text_groups.page_id IN (SELECT id FROM pages WHERE item_id = ?)`,
-      itemId,
+       WHERE ${onTheirPages}`,
+      ids,
     )
     .toArray()
     .map(({ id }): RowKey => ({ kind: "text_block", id }));
