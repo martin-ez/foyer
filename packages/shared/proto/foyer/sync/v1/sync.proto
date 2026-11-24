@@ -115,6 +115,9 @@ message HouseholdMessage {
 message Welcome {
   // The number of the household's latest change.
   int64 seq = 1;
+  // The member whose session the connection carries. A device that holds what another member sees,
+  // as when someone else signed in on the same browser since, stops without sending anything.
+  string member_id = 2;
 }
 
 // What became of each change in a push.

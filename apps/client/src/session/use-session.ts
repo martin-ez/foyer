@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionClient } from "../backend/backend";
+import { canReloadApp, reloadApp } from "../shell/app-files";
 import { handleDevLink } from "../shell/dev-links";
 import {
   forgetDeviceStorage,
@@ -37,8 +38,8 @@ const keptSignIn: KeptSignIn = {
 };
 
 /** Who is signed in on this device, opened with `openSession` when the app starts, and the ways to
- *  change it. Signing out forgets what the device keeps for the member. Only the iPad app's
- *  development builds can sign in without Google. */
+ *  change it. Signing out forgets what the device keeps for the member. `anotherMember` opens the
+ *  app as whoever is signed in now. Only the iPad app's development builds sign in without Google. */
 export function useSession() {
   const [session, setSession] = useState<Session>({ status: "checking" });
   const latest = useRef(0);
@@ -81,6 +82,8 @@ export function useSession() {
     await check();
   }, [memberId, check]);
 
+  const anotherMember = canReloadApp ? reloadApp : check;
+
   const forgetOnDevice = async () => {
     await forgetSessionToken();
     await forgetSignedInMember();
@@ -91,6 +94,7 @@ export function useSession() {
     session,
     check,
     sessionEnded,
+    anotherMember,
     signIn: () => show(signInWithGoogle()),
     signInWithoutGoogle: withoutGoogle && ((email: string) => show(withoutGoogle(email))),
     signOut: () => show(signOut(sessionClient, forgetOnDevice)),

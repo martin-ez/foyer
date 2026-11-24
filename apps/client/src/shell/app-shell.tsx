@@ -20,6 +20,7 @@ const statusLines: Record<SyncStatus, string> = {
   "up-to-date": "Up to date",
   offline: "Offline. Changes are sent once it's back.",
   "signed-out": "Signed out",
+  "another-member": "Someone else signed in. Opening Foyer as them…",
 };
 
 /** The frame around Foyer's views: a bar to move between the Calendar, the Notebook and the Tasks,

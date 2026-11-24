@@ -1,5 +1,5 @@
 # How do devices stay in sync with the household?
-Decided in #14, #21, #25, #26, #151, #147, #107, #18, #20 and #89
+Decided in #14, #21, #25, #26, #151, #147, #107, #18, #20, #89 and #220
 
 **Applies when:** storing, changing or deleting anything devices hold, adding a kind of change or of row to sync, making something people do send several changes, deciding which devices receive something, or changing how devices connect, catch up or send their changes.
 
@@ -33,10 +33,11 @@ Decided in #14, #21, #25, #26, #151, #147, #107, #18, #20 and #89
   - Each change is remembered by its id, as any change is, so an action sent again is answered as it was the first time.
   - The device undoes a refused action whole, and says once that it couldn't be saved.
 - **The connection** is a WebSocket at `/sync`, which carries the session as calls do (`how-do-people-sign-in.md`). The Worker checks the session before the connection reaches the household, and takes the web app's cookie only from the backend's own site.
-  - Each binary WebSocket message is one Protocol Buffers message from `foyer.sync.v1`. A device sends `Push {push_id, changes[]}` and `Pull {cursor}`. The household sends `Welcome {seq}` when the connection opens, `Updates {rows[]}`, `Committed {push_id, results[]}` after a push's updates, and `PullReply {rows[], cursor, done}`.
+  - Each binary WebSocket message is one Protocol Buffers message from `foyer.sync.v1`. A device sends `Push {push_id, changes[]}` and `Pull {cursor}`. The household sends `Welcome {seq, member_id}` when the connection opens, `Updates {rows[]}`, `Committed {push_id, results[]}` after a push's updates, and `PullReply {rows[], cursor, done}`.
   - A pull reply holds at most 500 rows, and never splits the rows of one change. The device pulls again from the reply's cursor until it's done.
   - The text "ping" is answered with "pong" by the runtime, which costs no requests. Devices send it every 30 seconds, and connect again after 75 seconds without hearing anything.
   - The same connection carries the live lane, which tells devices who is on which page and where they point (`what-does-the-live-lane-send.md`).
+  - `Welcome` names the member whose session the connection carries. A device that holds what another member sees, such as a tab left open while someone else signed in on the same browser, stops connecting without sending anything, and opens again as the member now signed in: the web app reloads, and the iPad checks its session again. The first member's unsent changes stay kept for them.
   - When a session ends, the household closes its connections with code 4401, and the device stops connecting until someone signs in. After any other drop, the device connects again, waiting longer after each failed attempt, up to 30 seconds. It catches up from its cursor and sends its unsaved changes again, as the same changes.
 - **What the web app stores:** what it receives, in memory, so it catches up in full when it opens.
   - It also keeps its member's unsent changes in the browser's IndexedDB, encoded as they're sent, and nothing else. A change is kept when it's made, and forgotten once the household commits or refuses it.
@@ -64,6 +65,7 @@ The iPad receiving new strokes on every kept page as they're committed, not only
 - Ink is most of the data. Everything else is small enough for every device to hold, so lists, search and capture work offline.
 - Pulling a page's ink is the same loop as pulling the household, from a cursor of its own. Following the page last pulled keeps ink apart from presence, which drops a device after a minute of silence (`what-does-the-live-lane-send.md`). A WebSocket message must stay under 1 MB, and a long stroke can take tens of kilobytes.
 - Connections drop in bursts with no fault on the server (#4), so every device must connect again and pull from its cursor.
+- A browser's tabs share one session cookie, and signing in starts a new session without ending the one before. A tab left open as one member would otherwise connect again as another, catch up on their rows into what it holds for the first, and send the first member's changes under the other's name (#220).
 - Sending a whole day's changes in one reply took 7 ms of CPU against a 10 ms limit (#4), so replies are capped.
 - Applying changes costs far more CPU than sending them: on the preview, a push of 100 changes took 30 to 230 ms, and one of 10 changes 5 to 26 ms (#107). Cloudflare only tolerates going over 10 ms now and then, and a device back from a long time offline sends its pushes one after another, so pushes are small.
 - A device whose session has ended can't send changes again, so remembering changes for longer than a session lasts unused is useless.
@@ -77,6 +79,7 @@ The iPad receiving new strokes on every kept page as they're committed, not only
 - A log of every change, replayed on catching up. It keeps history for free, but it grows forever and a new device replays everything ever done.
 - The change that arrives last wins. It needs no stored times, but a late offline edit overwrites newer ones.
 - Every device holding the whole household, ink included, which grows by gigabytes over the years.
+- Signing in on a browser ending the session it already held, which leaves a tab open as the first member connecting with the new cookie all the same.
 - Separate messages for pulling a page's ink, which are clearer to read but add a second pull loop to every device.
 - Sending a page's new ink to the devices the live lane says are on it, which ties ink to presence.
 - Applying each change of an action on its own, and having devices notice and fix what a refused change left half done. Every action would need its own repair.

@@ -78,6 +78,20 @@ describe("opening a sync connection", () => {
     expect(await device.welcome()).toBe(2);
   });
 
+  it("welcomes each device with the member whose session its connection carries", async () => {
+    const alexSignedIn = await signIn(alex);
+    const samSignedIn = await signIn(sam);
+
+    const alexDevice = await Device.connect(alexSignedIn.token);
+    const samOnTheWeb = Device.from(
+      await openConnection({ Cookie: `foyer_session=${samSignedIn.token}`, Origin: backendUrl }),
+    );
+    devices.push(alexDevice, samOnTheWeb);
+
+    expect((await alexDevice.next("welcome")).memberId).toBe(alexSignedIn.memberId);
+    expect((await samOnTheWeb.next("welcome")).memberId).toBe(samSignedIn.memberId);
+  });
+
   it("opens with the web app's session cookie, from the backend's own site", async () => {
     const { token } = await signIn(alex);
 
