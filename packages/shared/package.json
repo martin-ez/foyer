@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./gen/*": "./src/gen/*.ts"
+    "./gen/*": "./src/gen/*.ts",
+    "./stroke-fixtures": "./test/fixtures/strokes/index.ts"
   },
   "scripts": {
     "generate": "node scripts/generate.mjs",

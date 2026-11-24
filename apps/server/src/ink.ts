@@ -2,6 +2,7 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 import { isId, strokeProblem } from "@foyer/shared";
 import {
   Input,
+  type Stroke,
   type StrokeAdd,
   type StrokeErase,
   Tool,
@@ -9,7 +10,14 @@ import {
 import type { Row } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import type { Applied, Setter } from "./changes";
 import { canSeePage } from "./pages";
-import { latestSeq, nextSeq, pullReplyRowLimit, type RowKey, strokesOnPageBetween } from "./rows";
+import {
+  latestSeq,
+  nextSeq,
+  pullReplyRowLimit,
+  type RowKey,
+  strokesOnPage,
+  strokesOnPageBetween,
+} from "./rows";
 
 const inputs: Partial<Record<Input, string>> = {
   [Input.PENCIL]: "pencil",
@@ -144,4 +152,22 @@ export function eraseStrokes(sql: SqlStorage, memberId: string, erase: StrokeEra
 /** Deletes the ink on an item's pages, as when the item is deleted with them. */
 export function deleteInkOnPagesOf(sql: SqlStorage, itemId: string): void {
   sql.exec("DELETE FROM strokes WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?)", itemId);
+}
+
+/** The strokes on a page that haven't been erased, in the order they were drawn, or on the page
+ *  someone drew on last when none is given. Null when there's no such page or it has no ink. */
+export function strokesToRecord(
+  sql: SqlStorage,
+  pageId: string | null,
+): { pageId: string; strokes: Stroke[] } | null {
+  const drawnOn =
+    pageId ??
+    sql
+      .exec<{ page_id: string }>(
+        "SELECT page_id FROM strokes WHERE samples IS NOT NULL ORDER BY seq DESC LIMIT 1",
+      )
+      .toArray()[0]?.page_id;
+  if (drawnOn === undefined) return null;
+  const strokes = strokesOnPage(sql, drawnOn);
+  return strokes.length > 0 ? { pageId: drawnOn, strokes } : null;
 }

@@ -1,0 +1,16 @@
+appId: io.github.martin-ez.foyer
+name: Adds a stroke fixture to the day page and reads it back from the scene
+---
+- runFlow: steps/open-and-sign-in.yaml
+- copyTextFrom:
+    id: scene
+- evalScript: ${output.before = JSON.parse(maestro.copiedText).strokes.length}
+- openLink: foyer://dev/add-strokes?fixture=circle-and-scribble
+- extendedWaitUntil:
+    visible: Up to date
+    timeout: 10000
+- copyTextFrom:
+    id: scene
+- assertTrue: ${JSON.parse(maestro.copiedText).page.kind == "day"}
+- assertTrue: ${JSON.parse(maestro.copiedText).strokes.length > output.before}
+- takeScreenshot: stroke-fixture-added-ipad

@@ -23,7 +23,8 @@ type StartedSignIn = { state?: string; codeVerifier?: string; app: App };
 
 /** Answers the browser navigations under `/auth/` that sign people in, with Google or, locally,
  *  without it. They return to the web app with a session cookie, or, opened with `?app=ipad`, to
- *  `foyer://signed-in` with a one-time code. Someone who isn't let in returns with an error. */
+ *  `foyer://signed-in` with a one-time code. Someone who isn't let in returns with an error.
+ *  Locally, `/auth/dev/strokes` also gives a page's strokes, to record them as a test fixture. */
 export async function handleSignIn(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/auth/dev/google/calendar") {
@@ -40,6 +41,8 @@ export async function handleSignIn(request: Request): Promise<Response> {
       return signInWithoutGoogle(url);
     case "/auth/dev/google":
       return isDevelopment(url) ? fakeConsentPage(url) : new Response(null, { status: 404 });
+    case "/auth/dev/strokes":
+      return strokesToRecord(url);
     default:
       return new Response(null, { status: 404 });
   }
@@ -92,6 +95,13 @@ async function signInWithoutGoogle(url: URL): Promise<Response> {
   if (!isDevelopment(url)) return new Response(null, { status: 404 });
   const member = await theHousehold().joinWithoutGoogle(url.searchParams.get("email") ?? "");
   return signIn(url, appIn(url), member);
+}
+
+async function strokesToRecord(url: URL): Promise<Response> {
+  if (!isDevelopment(url)) return new Response(null, { status: 404 });
+  const found = await theHousehold().strokesToRecord(url.searchParams.get("page"));
+  if (!found) return new Response("There's no ink on that page.", { status: 404 });
+  return Response.json(found, { headers: { "Cache-Control": "no-store" } });
 }
 
 async function removeFromAllowlist(request: Request, url: URL): Promise<Response> {

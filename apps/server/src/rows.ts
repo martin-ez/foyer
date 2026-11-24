@@ -4,7 +4,7 @@ import {
   GoogleConnectionSchema,
   GoogleConnectionState,
 } from "@foyer/shared/gen/foyer/calendar/v1/calendar_pb";
-import { Input, StrokeSchema, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
+import { Input, type Stroke, StrokeSchema, Tool } from "@foyer/shared/gen/foyer/ink/v1/ink_pb";
 import { ItemKind, ItemSchema, RepeatFrom } from "@foyer/shared/gen/foyer/item/v1/item_pb";
 import { MemberSchema } from "@foyer/shared/gen/foyer/member/v1/member_pb";
 import { PageKind, PageSchema } from "@foyer/shared/gen/foyer/page/v1/page_pb";
@@ -189,6 +189,21 @@ function readCurrentRow(sql: SqlStorage, { kind, id }: RowKey): VisibleRow[] {
         .toArray()
         .map(strokeRow);
   }
+}
+
+/** The strokes on a page that haven't been erased, in the order they were drawn. */
+export function strokesOnPage(sql: SqlStorage, pageId: string): Stroke[] {
+  return sql
+    .exec<StrokeRow>(
+      `${selectStrokes} AND strokes.page_id = ? AND strokes.samples IS NOT NULL
+       ORDER BY strokes.drawn_at, strokes.id`,
+      pageId,
+    )
+    .toArray()
+    .flatMap((stroke) => {
+      const { row } = strokeRow(stroke).row;
+      return row.case === "stroke" ? [row.value] : [];
+    });
 }
 
 /** The strokes on a page that changed after one change and up to another, oldest first. */

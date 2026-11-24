@@ -116,6 +116,13 @@ export {
   taskStickerSize,
   unknownStickerSize,
 } from "./sticker-spot";
+export {
+  type FixtureStroke,
+  fixtureStrokeAsStroke,
+  readStrokeFixture,
+  redrawnAt,
+  strokeFixtureOf,
+} from "./stroke-fixture";
 export { signedOutCloseCode, syncPath } from "./sync";
 export {
   mergeRuns,

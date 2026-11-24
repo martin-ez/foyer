@@ -12,6 +12,9 @@ export function signInWithGoogle(): Promise<Session> {
 /** The web app offers no way to sign in without Google: open the backend's `/auth/dev` instead. */
 export const signInWithoutGoogle = undefined;
 
+/** The web app signs in with a session cookie, never with a one-time code. */
+export const signInWithCode = undefined;
+
 /** Why sign-in just returned to the web app without signing the person in, if it did. Reading it
  *  removes it from the address, so it's reported once. */
 export function problemFromSignIn(): string | undefined {

@@ -79,6 +79,18 @@ The iPad app runs on the simulator only on a Mac with Xcode and CocoaPods, so cl
   - `./scripts/setup.sh` installs Maestro. Its first run on a simulator also installs its driver there, which takes longer.
 - **Drawing:** the simulator has no Apple Pencil. In it, the ink tools above the page have a switch, Draw with the mouse, which lets the mouse and Maestro's swipes draw and erase, while the page doesn't move with them. Turn it off to move the page again. How ink looks and feels under a real Pencil, such as its lag, can only be checked on an iPad.
 
+## Recording stroke fixtures
+
+Stroke fixtures are real Apple Pencil strokes that checks and tests add to pages, in `packages/shared/test/fixtures/strokes/`, as `apps/client/AGENTS.md` explains. Recording one needs a Mac and an iPad with an Apple Pencil, on the same network. The iPad runs the development build against the local backend, which it reaches through the Mac's name on the network, such as `my-mac.local`, shown in System Settings, under General and then Sharing.
+
+1. **Start the local backend on the network**, so the iPad can reach it: `pnpm --filter @foyer/server dev --ip 0.0.0.0`. It's usually reachable only from the Mac.
+2. **Start Expo's server with the iPad app calling the Mac:** `EXPO_PUBLIC_BACKEND_URL=http://my-mac.local:8787 pnpm --filter @foyer/client start --clear`. Start it again without the variable once you're done, so the simulator calls `localhost` again.
+3. **Open the development build on the iPad** from Expo's server. To install it there, connect the iPad and run `pnpm --filter @foyer/client ios --device` once.
+4. **Sign in:** run `pnpm sign-in-ipad`, which signs in without Google at `localhost`, as `you@example.com` unless you name another email, and prints a QR code. Scan it with the iPad's camera within a minute, and open it in Foyer. Sign-in without Google only answers at `localhost`, so this is how a real iPad signs in to the local backend.
+5. **Write on a page with the Pencil**, such as today's day page. The repository is public: write only neutral content, such as "The quick brown fox" or a scribble, never a signature or anything personal.
+6. **Save it:** run `pnpm record-strokes <name>`, such as `pnpm record-strokes circle-and-scribble`. It saves the strokes left on the page someone drew on last, unless you add a page's id after the name, and lists the fixture in `index.ts` beside it. Saving the same name again replaces the fixture.
+7. **Draw its golden image** with `pnpm update-golden-images`, look at `apps/client/test/golden-images/stroke-fixture-<name>.png`, and commit it with the fixture and `index.ts`.
+
 ## Cloud sessions
 
 Most work on Foyer happens in Claude Code cloud sessions. Their environment's setup script runs `./scripts/setup.sh` and copies `apps/server/.dev.vars.example` to `apps/server/.dev.vars`, so a session starts with the dependencies installed and can sign in without Google as `you@example.com`.
