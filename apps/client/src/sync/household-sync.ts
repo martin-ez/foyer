@@ -87,8 +87,16 @@ import { LiveLane } from "./live-lane";
  *  minutes after midnight: null in the strip of things without a time, and missing on other pages. */
 export type SpotOnDay = { pageId: string; at: Point; time?: number | null };
 
-/** Where the device stands with the household. */
-export type SyncStatus = "connecting" | "catching-up" | "up-to-date" | "offline" | "signed-out";
+/** Where the device stands with the household. It stops connecting once `signed-out`, when the
+ *  session has ended, and once `another-member`, when its connection carries another member's
+ *  session, as after someone else signed in on the same browser. */
+export type SyncStatus =
+  | "connecting"
+  | "catching-up"
+  | "up-to-date"
+  | "offline"
+  | "signed-out"
+  | "another-member";
 
 /** What the device knows of the household, with its own changes applied before they're saved. */
 export type SyncState = {
@@ -238,7 +246,7 @@ function nextPush(unsent: Pending[]): Pending[] {
 
 /** Keeps a device in step with the household, in memory and in its store if any: catches up when
  *  it connects, applies what others change, and shows the member's changes at once until saved or
- *  refused. Connects again after a drop, waiting longer each time, until signed out. */
+ *  refused. Connects again after a drop, waiting longer each time, until its `SyncStatus` stops it. */
 export class HouseholdSync {
   /** Which page the device is on and where it's pointing, and who else is there. */
   readonly live = new LiveLane((message) => this.#send(message));
@@ -373,7 +381,9 @@ export class HouseholdSync {
     this.#stopped = true;
     clearTimeout(this.#reconnectTimer);
     this.#drop();
-    if (this.#status !== "signed-out") this.#status = "offline";
+    if (this.#status !== "signed-out" && this.#status !== "another-member") {
+      this.#status = "offline";
+    }
     this.#changed();
   }
 
@@ -1224,7 +1234,14 @@ export class HouseholdSync {
     const { message } = fromBinary(HouseholdMessageSchema, data);
     if (this.live.receive(message)) return;
     switch (message.case) {
-      case "welcome":
+      case "welcome": {
+        const { memberId } = message.value;
+        if (memberId !== "" && memberId !== this.#memberId) {
+          this.#stopped = true;
+          this.#disconnect();
+          this.#status = "another-member";
+          break;
+        }
         this.#attempts = 0;
         this.#status = "catching-up";
         this.#send({ case: "pull", value: { cursor: this.#cursor } });
@@ -1237,6 +1254,7 @@ export class HouseholdSync {
         this.#pushUnsent();
         this.live.connected();
         break;
+      }
       case "pullReply":
         if (message.value.pageId !== "") {
           this.#receiveInk(message.value);
@@ -1412,13 +1430,7 @@ export class HouseholdSync {
   }
 
   #closed(code: number): void {
-    this.#drop();
-    this.#inkQueue = [];
-    this.#inkPulling = null;
-    this.#inkFollowed = null;
-    this.#inkPullsUnanswered = 0;
-    this.#inkCaughtUp = false;
-    for (const pending of this.#pending) pending.pushId = undefined;
+    this.#disconnect();
     if (code === signedOutCloseCode) {
       this.#stopped = true;
       this.#status = "signed-out";
@@ -1431,6 +1443,16 @@ export class HouseholdSync {
       }
     }
     this.#changed();
+  }
+
+  #disconnect(): void {
+    this.#drop();
+    this.#inkQueue = [];
+    this.#inkPulling = null;
+    this.#inkFollowed = null;
+    this.#inkPullsUnanswered = 0;
+    this.#inkCaughtUp = false;
+    for (const pending of this.#pending) pending.pushId = undefined;
   }
 
   #drop(): void {

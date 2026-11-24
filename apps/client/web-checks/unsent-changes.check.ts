@@ -94,6 +94,39 @@ test("never sends a member's unsent changes for another member signed in on the 
   await other.context().close();
 });
 
+test("reloads a tab left open as one member once another signs in on the same browser, without sending its changes", async ({
+  page,
+  context,
+  browser,
+}, testInfo) => {
+  const connection = await connectionToTheHousehold(page);
+  const space = await openSpaceOfItsOwn(page);
+  await connection.goOffline();
+  const title = await addTaskOffline(page);
+
+  const shared = await context.newPage();
+  await signIn(shared, housemate);
+  await expect(shared.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
+  const reloaded = page.waitForEvent("load", { timeout: timeToConnectAgain });
+  connection.comeBack();
+
+  await reloaded;
+  await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
+  await page.getByRole("button", { name: "Account" }).click();
+  await expect(page.getByText("Signed in as housemate")).toBeVisible();
+  await expect(page.getByText(/not saved yet/)).toBeHidden();
+  await expect(page.getByText(/^Couldn't save/)).toBeHidden();
+  await saveScreenshot(page, testInfo, "reloaded-as-another-member");
+  const other = await sameMemberInAnotherBrowser(browser, space);
+  await expect(stickerOf(other, title)).toBeHidden();
+
+  await signIn(shared, member);
+  await expect(shared.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
+  await expect(shared.getByText(/not saved yet/)).toBeHidden();
+  await expectOnAnotherDevice(stickerOf(other, title)).toBeVisible();
+  await other.context().close();
+});
+
 test("keeps nothing once the household has saved the changes", async ({ page }) => {
   const connection = await connectionToTheHousehold(page);
   await openSpaceOfItsOwn(page);

@@ -81,8 +81,8 @@ class HouseholdEnd {
     this.closedByDevice = true;
   }
 
-  welcome(seq: number) {
-    this.#say({ case: "welcome", value: { seq: BigInt(seq) } });
+  welcome(seq: number, memberId = me) {
+    this.#say({ case: "welcome", value: { seq: BigInt(seq), memberId } });
   }
 
   reply(rows: RowInit[], cursor: number, done = true) {
@@ -844,6 +844,38 @@ describe("losing the connection", () => {
     expect(connections).toHaveLength(1);
   });
 
+  it("stops connecting, without sending anything, once welcomed as another member", () => {
+    sync.renameSpace(home.id, "Our home");
+    sync.live.enter("day:2026-11-17");
+    sync.start();
+
+    household().welcome(2, housemate);
+    vi.advanceTimersByTime(10 * longestReconnectDelay);
+
+    expect(sync.getState()).toMatchObject({ status: "another-member", unsaved: 1 });
+    expect(household().received).toEqual([]);
+    expect(household().closedByDevice).toBe(true);
+    expect(connections).toHaveLength(1);
+  });
+
+  it("stays stopped as another member's once stopped", () => {
+    sync.start();
+    household().welcome(2, housemate);
+
+    sync.stop();
+
+    expect(sync.getState().status).toBe("another-member");
+  });
+
+  it("catches up as usual when the household doesn't say whose the connection is", () => {
+    sync.start();
+
+    household().welcome(2, "");
+
+    expect(sync.getState().status).toBe("catching-up");
+    expect(household().pulls()).toEqual([0]);
+  });
+
   it("closes the connection and stops connecting when stopped", () => {
     startUpToDate();
 
@@ -1003,6 +1035,20 @@ describe("keeping unsent changes between launches", () => {
 
     expect(keptIds()).toEqual(kept);
     expect(kept).toHaveLength(1);
+  });
+
+  it("keeps its member's changes, unsent, once welcomed as another member", async () => {
+    await startedUpToDate();
+    household().closeWith(1006);
+    sync.renameSpace(home.id, "Our home");
+    const kept = keptIds();
+    vi.advanceTimersByTime(1000);
+
+    household().welcome(2, housemate);
+
+    expect(keptIds()).toEqual(kept);
+    expect(kept).toHaveLength(1);
+    expect(household().pushes()).toEqual([]);
   });
 
   it("sends a change made before it started once, though it's kept too", async () => {

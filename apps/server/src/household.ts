@@ -89,8 +89,8 @@ export class Household extends DurableObject<Env> {
   }
 
   /** Opens a sync connection for the session the Worker checked, named by the headers in
-   *  `syncConnectionHeaders`, and welcomes it with the number of the household's latest change.
-   *  Reads the changes made in Google Calendar soon after. */
+   *  `syncConnectionHeaders`, and welcomes it with the number of the household's latest change and
+   *  the session's member. Reads the changes made in Google Calendar soon after. */
   override async fetch(request: Request): Promise<Response> {
     const memberId = request.headers.get(syncConnectionHeaders.member);
     const sessionId = request.headers.get(syncConnectionHeaders.session);
@@ -103,7 +103,7 @@ export class Household extends DurableObject<Env> {
     household.serializeAttachment({ memberId, sessionId, live } satisfies SyncConnection);
     sendIfOpen(household, {
       case: "welcome",
-      value: { seq: BigInt(latestSeq(this.ctx.storage.sql)) },
+      value: { seq: BigInt(latestSeq(this.ctx.storage.sql)), memberId },
     });
     this.#calendars.readSoon();
     return new Response(null, { status: 101, webSocket: device });
