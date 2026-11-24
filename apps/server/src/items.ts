@@ -558,7 +558,9 @@ function deleteFound(
     .exec<{ id: string; owner_id: string | null }>(
       `SELECT stickers.id, spaces.owner_id FROM stickers
        JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
-       WHERE stickers.item_id = ? OR pages.item_id = ?`,
+       WHERE stickers.id IN (
+         SELECT id FROM stickers WHERE item_id = ?
+         UNION SELECT id FROM stickers WHERE page_id IN (SELECT id FROM pages WHERE item_id = ?))`,
       itemId,
       itemId,
     )
