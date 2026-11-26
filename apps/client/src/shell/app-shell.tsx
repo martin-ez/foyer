@@ -8,6 +8,8 @@ import { CapturePanel } from "../capture/capture-panel";
 import { ShortcutsPanel } from "../capture/shortcuts-panel";
 import { SignedInAs } from "../session/session-screens";
 import type { SyncStatus } from "../sync/household-sync";
+import { useFirstScreen } from "./first-screen";
+import { FirstScreenPicker } from "./first-screen-picker";
 import { useHousehold } from "./household";
 import { ThrowWhenAsked } from "./throw-when-asked";
 import { ViewBoundary } from "./view-boundary";
@@ -23,17 +25,21 @@ const statusLines: Record<SyncStatus, string> = {
   "another-member": "Someone else signed in. Opening Foyer as them…",
 };
 
-/** The frame around Foyer's views: a bar to move between the Calendar, the Notebook and the Tasks,
- *  along the bottom of narrow windows and the side of wider ones, with Capture, the sync status and
- *  an account menu, beside the open view and anything sync couldn't do. */
+/** The frame around Foyer's views: a bar to move between them, along the bottom of narrow windows
+ *  and the side of wider ones, with Capture, the sync status and an account menu, beside the open
+ *  view and anything sync couldn't do. The Overview is in the bar only while it's the first screen. */
 export function AppShell() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [accountShown, setAccountShown] = useState(false);
   const [captureShown, setCaptureShown] = useState(false);
+  const [firstScreen] = useFirstScreen();
   const side = width >= sideBarFrom;
   const bar = (
     <TabList style={side ? styles.sideBar : styles.bottomBar} accessibilityRole="tablist">
+      <TabTrigger name="overview" href="/overview" asChild>
+        <Destination label="Overview" hidden={firstScreen !== "overview"} />
+      </TabTrigger>
       <TabTrigger name="calendar" href="/calendar" asChild>
         <Destination label="Calendar" />
       </TabTrigger>
@@ -84,9 +90,11 @@ export function AppShell() {
 
 function Destination({
   label,
+  hidden = false,
   isFocused,
   ...props
-}: Omit<TabTriggerSlotProps, "ref"> & { label: string }) {
+}: Omit<TabTriggerSlotProps, "ref"> & { label: string; hidden?: boolean }) {
+  if (hidden && !isFocused) return null;
   return (
     <Pressable
       {...props}
@@ -118,6 +126,7 @@ function AccountPanel({ alongSide }: { alongSide: boolean }) {
       <SignedInAs member={member} unsaved={state.unsaved} onSignOut={signOut} />
       <GoogleCalendarEntry />
       <BackendStatus />
+      <FirstScreenPicker />
       <Button
         title={shortcutsShown ? "Hide Shortcuts" : "Shortcuts"}
         onPress={() => setShortcutsShown(!shortcutsShown)}

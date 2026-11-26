@@ -8,8 +8,8 @@ import { Checkbox } from "./checkbox";
 import { doneTasks, spaceTree, todayList } from "./task-lists";
 
 /** The member's tasks, and the events under them, as lists: the Inbox, Today, then each other space,
- *  or one space's alone when `only` names it. Tasks can be ticked, and tapping a title opens it.
- *  Done tasks are left out unless `showDone` is on, and always from Today. */
+ *  or only one space's, or Today, when `only` says so. Tasks can be ticked, and tapping a title
+ *  opens it. Done tasks are left out unless `showDone` is on, and always from Today. */
 export function TasksPanel({
   state,
   only,
@@ -19,7 +19,7 @@ export function TasksPanel({
   onTick,
 }: {
   state: SyncState;
-  only?: string;
+  only?: { spaceId: string } | "today";
   showDone: boolean;
   onShowDone: (showDone: boolean) => void;
   onOpenTask: (itemId: string) => void;
@@ -29,7 +29,12 @@ export function TasksPanel({
   const items = [...state.items.values()];
   const stickers = [...state.stickers.values()];
   const done = doneTasks(state.items, state.completions.values());
-  const spaces = only === undefined ? state.spaces : state.spaces.filter(({ id }) => id === only);
+  const spaces =
+    only === undefined
+      ? state.spaces
+      : only === "today"
+        ? []
+        : state.spaces.filter(({ id }) => id === only.spaceId);
   const today = todayList(localToday(), state.spaces, items, stickers, done);
   const listOf = (spaceId: string) =>
     spaceTree(spaceId, items, stickers).filter(({ item }) => showDone || !done.has(item.id));
@@ -39,13 +44,15 @@ export function TasksPanel({
   return (
     <View style={styles.panel}>
       <ScrollView>
-        <View style={styles.list}>
-          <Checkbox checked={showDone} label="Show done" onChange={onShowDone}>
-            <Text style={styles.line}>Show done</Text>
-          </Checkbox>
-        </View>
+        {only === "today" ? null : (
+          <View style={styles.list}>
+            <Checkbox checked={showDone} label="Show done" onChange={onShowDone}>
+              <Text style={styles.line}>Show done</Text>
+            </Checkbox>
+          </View>
+        )}
         {inbox ? <TaskList heading={nameOf(inbox)} tasks={listOf(inbox.id)} {...list} /> : null}
-        {only === undefined ? (
+        {only === undefined || only === "today" ? (
           <TaskList heading="Today" tasks={today.map((item) => ({ item, depth: 0 }))} {...list} />
         ) : null}
         {others.map((space) => (
@@ -56,15 +63,19 @@ export function TasksPanel({
   );
 }
 
-function TaskList({
+/** A list of tasks and events, named by its heading, each indented by its depth, with what it says
+ *  when it's `empty`. Tasks can be ticked, and tapping a title opens it. */
+export function TaskList({
   heading,
   tasks,
+  empty = "No tasks",
   done,
   onOpenTask,
   onTick,
 }: {
   heading: string;
   tasks: { item: Item; depth: number }[];
+  empty?: string;
   done: ReadonlySet<string>;
   onOpenTask: (itemId: string) => void;
   onTick: (itemId: string, done: boolean) => void;
@@ -74,7 +85,7 @@ function TaskList({
       <Text style={styles.heading} accessibilityRole="header">
         {heading}
       </Text>
-      {tasks.length === 0 ? <Text style={styles.line}>No tasks</Text> : null}
+      {tasks.length === 0 ? <Text style={styles.line}>{empty}</Text> : null}
       {tasks.map(({ item: task, depth }) =>
         task.kind === ItemKind.EVENT ? (
           <EventRow key={task.id} event={task} depth={depth} onOpen={onOpenTask} />
