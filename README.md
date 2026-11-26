@@ -40,4 +40,5 @@ Open the web app at `http://localhost:8787`. To sign in without Google, open `ht
 - [Development](docs/development.md): how the code is organised, its commands and tests, and signing in locally.
 - [Deploying](docs/deploying.md): how changes reach the household, the secrets it needs, and previewing a branch.
 - [Capturing from a Shortcut](docs/capturing-from-a-shortcut.md): adding tasks to your Inbox from an iPhone's Action Button or a widget.
+- [Release checks](docs/release-checks.md): the checks to run by hand on real devices before Foyer goes onto the household's.
 - [Decisions](decisions/): how Foyer is built and why, one question per file.
