@@ -48,63 +48,31 @@ export function nextSeq(sql: SqlStorage): number {
   return sql.exec<{ seq: number }>("UPDATE household SET seq = seq + 1 RETURNING seq").one().seq;
 }
 
-/** The rows a member can see that changed after a cursor, oldest change first. Rows that one
- *  change changed always come together, so a reply holds more than the limit only when a single
- *  change changed more rows than that. */
+const pulledTables = [
+  ["members", "spaces", "pages", "google_connections"],
+  ["items", "stickers", "completions", "tombstones", "hidden_rows"],
+  ["text_groups", "text_blocks"],
+];
+
+/** The rows a member can see that changed after a cursor, oldest change first. The limit counts
+ *  every row that changed, seen or not, and the rows that one change changed always come together,
+ *  so a reply holds more than the limit only when a single change changed more rows than that. */
 export function pullRows(
   sql: SqlStorage,
   memberId: string,
   cursor: number,
   limit = pullReplyRowLimit,
 ): { rows: Row[]; cursor: number; done: boolean } {
-  const seqsOf = (query: string, ...bindings: unknown[]) =>
-    sql
-      .exec<{ seq: number }>(`${query} ORDER BY seq LIMIT ?`, ...bindings, limit + 1)
-      .toArray()
-      .map(({ seq }) => seq);
-  const seqs = [
-    ...seqsOf(
-      `SELECT seq FROM members WHERE seq > ?
-       UNION ALL SELECT seq FROM spaces WHERE seq > ? AND (owner_id IS NULL OR owner_id = ?)
-       UNION ALL SELECT pages.seq FROM ${pagesWithOwner} AND pages.seq > ? AND ${pageSeenBy}
-       UNION ALL SELECT seq FROM google_connections WHERE seq > ? AND member_id = ?`,
-      cursor,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-    ),
-    ...seqsOf(
-      `SELECT items.seq FROM ${itemsWithOwner} WHERE items.seq > ? AND ${itemSeenBy}
-       UNION ALL SELECT stickers.seq FROM ${stickersWithOwner} AND stickers.seq > ? AND ${pageSeenBy}
-       UNION ALL SELECT completions.seq FROM ${completionsWithOwner}
-         WHERE completions.seq > ? AND ${itemSeenBy}
-       UNION ALL SELECT seq FROM tombstones WHERE seq > ? AND (visible_to IS NULL OR visible_to = ?)
-       UNION ALL SELECT seq FROM hidden_rows WHERE seq > ? AND member_id = ?`,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-    ),
-    ...seqsOf(
-      `SELECT text_groups.seq AS seq FROM ${textGroupsWithOwner}
-         AND text_groups.seq > ? AND ${pageSeenBy}
-       UNION ALL SELECT text_blocks.seq FROM ${textBlocksWithOwner}
-         AND text_blocks.seq > ? AND ${pageSeenBy}`,
-      cursor,
-      memberId,
-      cursor,
-      memberId,
-    ),
-  ]
+  const seqs = pulledTables
+    .flatMap((tables) =>
+      readAll<{ seq: number }>(
+        sql,
+        `${tables.map((table) => `SELECT seq FROM ${table} WHERE seq > ?`).join(" UNION ALL ")}
+         ORDER BY seq LIMIT ?`,
+        ...tables.map(() => cursor),
+        limit + 1,
+      ).map(({ seq }) => seq),
+    )
     .sort((a, b) => a - b)
     .slice(0, limit + 1);
 
@@ -121,6 +89,18 @@ export function pullRows(
 /** SQL for a list of values bound in its place as one JSON array, as in `id IN ${inJson}` bound to
  *  `JSON.stringify(ids)`, so that one statement covers any number of rows. */
 export const inJson = "(SELECT value FROM json_each(?))";
+
+function readAll<T>(sql: SqlStorage, query: string, ...bindings: unknown[]): T[] {
+  const cursor = sql.exec(query, ...bindings);
+  const names = cursor.columnNames;
+  const rows: T[] = [];
+  for (const values of cursor.raw()) {
+    const row: Record<string, SqlStorageValue> = {};
+    for (const [index, name] of names.entries()) row[name] = values[index] ?? null;
+    rows.push(row as T);
+  }
+  return rows;
+}
 
 /** The ids of some rows, by kind, each kind in the order its rows first come. */
 export function idsByKind(keys: Iterable<RowKey>): Map<RowKey["kind"], string[]> {
@@ -366,7 +346,9 @@ type StrokeRow = {
 
 type Tombstone = { kind: RowKey["kind"]; id: string; visible_to: string | null; seq: number };
 
-const selectMembers = "SELECT id, name, seq FROM members";
+const memberColumns = "id, name, seq";
+
+const selectMembers = `SELECT ${memberColumns} FROM members`;
 
 const selectSpaces = `SELECT spaces.id, spaces.kind, spaces.owner_id, spaces.name, spaces.seq,
   spaces.archived, space_calendars.member_id AS calendar_member_id,
@@ -393,43 +375,45 @@ const itemsWithOwner = "items JOIN spaces ON spaces.id = items.space_id";
 
 const itemSeenBy = "(spaces.owner_id IS NULL OR spaces.owner_id = ?)";
 
-const selectItems = `SELECT items.id, items.kind, items.space_id, items.title, items.description,
+const itemColumns = `items.id, items.kind, items.space_id, items.title, items.description,
   items.date, items.time, items.repeat, items.repeat_from, items.parent_id, items.created_by, items.created_at,
-  items.starts_on, items.ends_on, items.starts_at, items.ends_at, items.series_id, items.seq,
-  spaces.owner_id
-  FROM ${itemsWithOwner}`;
+  items.starts_on, items.ends_on, items.starts_at, items.ends_at, items.series_id, items.seq`;
+
+const selectItems = `SELECT ${itemColumns}, spaces.owner_id FROM ${itemsWithOwner}`;
 
 const stickersWithOwner = `stickers JOIN pages ON pages.id = stickers.page_id ${joinPageSpace}
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
 
-const selectStickers = `SELECT stickers.id, stickers.page_id, stickers.x, stickers.y, stickers.kind,
-  stickers.item_id, stickers.occurrence, stickers.placed_at, stickers.placed_by, stickers.seq,
-  spaces.owner_id
-  FROM ${stickersWithOwner}`;
+const stickerColumns = `stickers.id, stickers.page_id, stickers.x, stickers.y, stickers.kind,
+  stickers.item_id, stickers.occurrence, stickers.placed_at, stickers.placed_by, stickers.seq`;
+
+const selectStickers = `SELECT ${stickerColumns}, spaces.owner_id FROM ${stickersWithOwner}`;
 
 const completionsWithOwner = `completions JOIN items ON items.id = completions.item_id
   JOIN spaces ON spaces.id = items.space_id`;
 
-const selectCompletions = `SELECT completions.id, completions.item_id, completions.occurrence,
-  completions.done_at, completions.done_by, completions.seq, spaces.owner_id
-  FROM ${completionsWithOwner}`;
+const completionColumns = `completions.id, completions.item_id, completions.occurrence,
+  completions.done_at, completions.done_by, completions.seq`;
+
+const selectCompletions = `SELECT ${completionColumns}, spaces.owner_id FROM ${completionsWithOwner}`;
 
 const textGroupsWithOwner = `text_groups JOIN pages ON pages.id = text_groups.page_id
   ${joinPageSpace} WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
 
-const selectTextGroups = `SELECT text_groups.id, text_groups.page_id, text_groups.x, text_groups.y,
+const textGroupColumns = `text_groups.id, text_groups.page_id, text_groups.x, text_groups.y,
   text_groups.width, text_groups.placed_at, text_groups.placed_by, text_groups.created_by,
-  text_groups.created_at, text_groups.seq, spaces.owner_id
-  FROM ${textGroupsWithOwner}`;
+  text_groups.created_at, text_groups.seq`;
+
+const selectTextGroups = `SELECT ${textGroupColumns}, spaces.owner_id FROM ${textGroupsWithOwner}`;
 
 const textBlocksWithOwner = `text_blocks JOIN text_groups ON text_groups.id = text_blocks.group_id
   JOIN pages ON pages.id = text_groups.page_id ${joinPageSpace}
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
 
-const selectTextBlocks = `SELECT text_blocks.id, text_blocks.group_id, text_blocks.block_order,
-  text_blocks.markdown, text_blocks.created_by, text_blocks.created_at, text_blocks.seq,
-  spaces.owner_id
-  FROM ${textBlocksWithOwner}`;
+const textBlockColumns = `text_blocks.id, text_blocks.group_id, text_blocks.block_order,
+  text_blocks.markdown, text_blocks.created_by, text_blocks.created_at, text_blocks.seq`;
+
+const selectTextBlocks = `SELECT ${textBlockColumns}, spaces.owner_id FROM ${textBlocksWithOwner}`;
 
 const strokesWithOwner = `strokes JOIN pages ON pages.id = strokes.page_id ${joinPageSpace}
   WHERE (pages.kind != 'item' OR page_items.id IS NOT NULL)`;
@@ -438,6 +422,18 @@ const selectStrokes = `SELECT strokes.id, strokes.page_id, strokes.drawn_at, str
   strokes.input, strokes.tool, strokes.colour, strokes.size, strokes.samples, strokes.seq,
   spaces.owner_id
   FROM ${strokesWithOwner}`;
+
+const seenSpacesAmong = `SELECT id, owner_id FROM spaces
+  WHERE id IN ${inJson} AND (owner_id IS NULL OR owner_id = ?)`;
+
+const seenPagesAmong = `SELECT pages.id, spaces.owner_id FROM ${pagesWithOwner}
+  AND pages.id IN ${inJson} AND ${pageSeenBy}`;
+
+const seenItemsAmong = `SELECT items.id, spaces.owner_id FROM ${itemsWithOwner}
+  WHERE items.id IN ${inJson} AND ${itemSeenBy}`;
+
+const seenTextGroupsAmong = `SELECT text_groups.id, spaces.owner_id FROM ${textGroupsWithOwner}
+  AND text_groups.id IN ${inJson} AND ${pageSeenBy}`;
 
 const selectTombstones = "SELECT kind, id, visible_to, seq FROM tombstones";
 
@@ -489,101 +485,73 @@ const googleConnectionStates = {
 } as const;
 
 function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: number): Row[] {
-  const members = sql
-    .exec<MemberRow>(`${selectMembers} WHERE seq > ? AND seq <= ?`, after, upTo)
-    .toArray()
-    .map(memberRow);
-  const spaces = sql
-    .exec<SpaceRow>(
-      `${selectSpaces} WHERE spaces.seq > ? AND spaces.seq <= ?
-       AND (spaces.owner_id IS NULL OR spaces.owner_id = ?)`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(spaceRow);
-  const pages = sql
-    .exec<PageRow>(
-      `${selectPages} AND pages.seq > ? AND pages.seq <= ? AND ${pageSeenBy}`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(pageRow);
-  const items = sql
-    .exec<ItemRow>(
-      `${selectItems} WHERE items.seq > ? AND items.seq <= ? AND ${itemSeenBy}`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(itemRow);
-  const stickers = sql
-    .exec<StickerRow>(
-      `${selectStickers} AND stickers.seq > ? AND stickers.seq <= ? AND ${pageSeenBy}`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(stickerRow);
-  const completions = sql
-    .exec<CompletionRow>(
-      `${selectCompletions} WHERE completions.seq > ? AND completions.seq <= ? AND ${itemSeenBy}`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(completionRow);
-  const googleConnections = sql
-    .exec<GoogleConnectionRow>(
-      `${selectGoogleConnections} WHERE seq > ? AND seq <= ? AND member_id = ?`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(googleConnectionRow);
-  const textGroups = sql
-    .exec<TextGroupRow>(
-      `${selectTextGroups} AND text_groups.seq > ? AND text_groups.seq <= ? AND ${pageSeenBy}`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(textGroupRow);
-  const textBlocks = sql
-    .exec<TextBlockRow>(
-      `${selectTextBlocks} AND text_blocks.seq > ? AND text_blocks.seq <= ? AND ${pageSeenBy}`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(textBlockRow);
-  const tombstones = sql
-    .exec<Tombstone>(
-      `${selectTombstones} WHERE seq > ? AND seq <= ? AND (visible_to IS NULL OR visible_to = ?)`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(deletedRow);
-  const hidden = sql
-    .exec<Tombstone>(
-      `${selectHiddenRows} WHERE seq > ? AND seq <= ? AND member_id = ?`,
-      after,
-      upTo,
-      memberId,
-    )
-    .toArray()
-    .map(deletedRow);
+  const changedIn = <T>(table: string, columns: string) =>
+    readAll<T>(sql, `SELECT ${columns} FROM ${table} WHERE seq > ? AND seq <= ?`, after, upTo);
+  const seenAmong = (query: string) => (ids: string[]) =>
+    readAll<SeenParent>(sql, query, JSON.stringify(ids), memberId);
+
+  const members = changedIn<MemberRow>("members", memberColumns).map(memberRow);
+  const spaces = readAll<SpaceRow>(
+    sql,
+    `${selectSpaces} WHERE spaces.seq > ? AND spaces.seq <= ?
+     AND (spaces.owner_id IS NULL OR spaces.owner_id = ?)`,
+    after,
+    upTo,
+    memberId,
+  ).map(spaceRow);
+  const pages = readAll<PageRow>(
+    sql,
+    `${selectPages} AND pages.seq > ? AND pages.seq <= ? AND ${pageSeenBy}`,
+    after,
+    upTo,
+    memberId,
+  ).map(pageRow);
+  const items = keepSeen(
+    changedIn<Unowned<ItemRow>>("items", itemColumns),
+    (item) => item.space_id,
+    seenAmong(seenSpacesAmong),
+  ).map(itemRow);
+  const stickers = keepSeen(
+    changedIn<Unowned<StickerRow>>("stickers", stickerColumns),
+    (sticker) => sticker.page_id,
+    seenAmong(seenPagesAmong),
+  ).map(stickerRow);
+  const completions = keepSeen(
+    changedIn<Unowned<CompletionRow>>("completions", completionColumns),
+    (completion) => completion.item_id,
+    seenAmong(seenItemsAmong),
+  ).map(completionRow);
+  const googleConnections = readAll<GoogleConnectionRow>(
+    sql,
+    `${selectGoogleConnections} WHERE seq > ? AND seq <= ? AND member_id = ?`,
+    after,
+    upTo,
+    memberId,
+  ).map(googleConnectionRow);
+  const textGroups = keepSeen(
+    changedIn<Unowned<TextGroupRow>>("text_groups", textGroupColumns),
+    (group) => group.page_id,
+    seenAmong(seenPagesAmong),
+  ).map(textGroupRow);
+  const textBlocks = keepSeen(
+    changedIn<Unowned<TextBlockRow>>("text_blocks", textBlockColumns),
+    (block) => block.group_id,
+    seenAmong(seenTextGroupsAmong),
+  ).map(textBlockRow);
+  const tombstones = readAll<Tombstone>(
+    sql,
+    `${selectTombstones} WHERE seq > ? AND seq <= ? AND (visible_to IS NULL OR visible_to = ?)`,
+    after,
+    upTo,
+    memberId,
+  ).map(deletedRow);
+  const hidden = readAll<Tombstone>(
+    sql,
+    `${selectHiddenRows} WHERE seq > ? AND seq <= ? AND member_id = ?`,
+    after,
+    upTo,
+    memberId,
+  ).map(deletedRow);
   return [
     ...members,
     ...spaces,
@@ -599,6 +567,25 @@ function rowsBetween(sql: SqlStorage, memberId: string, after: number, upTo: num
   ]
     .map(({ row }) => row)
     .sort((a, b) => Number(a.seq - b.seq));
+}
+
+type Unowned<T extends { owner_id: string | null }> = Omit<T, "owner_id">;
+
+type SeenParent = { id: string; owner_id: string | null };
+
+function keepSeen<T>(
+  rows: T[],
+  parentOf: (row: T) => string,
+  seen: (ids: string[]) => SeenParent[],
+): (T & { owner_id: string | null })[] {
+  if (rows.length === 0) return [];
+  const owners = new Map(
+    seen([...new Set(rows.map(parentOf))]).map(({ id, owner_id }) => [id, owner_id]),
+  );
+  return rows.flatMap((row) => {
+    const owner = owners.get(parentOf(row));
+    return owner === undefined ? [] : [{ ...row, owner_id: owner }];
+  });
 }
 
 function memberRow({ id, name, seq }: MemberRow): VisibleRow {
