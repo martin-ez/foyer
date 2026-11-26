@@ -48,6 +48,7 @@ Decided in #14, #21, #25, #26, #151, #147, #107, #18, #20, #89 and #220
   - At launch, the iPad reads it, then catches up from its cursor instead of downloading everything again.
   - It's only a copy: if an app update changes its layout, the app rebuilds it from the household. Unsent changes are kept as encoded changes, so a rebuild never loses them.
   - Signing out deletes it. The household ending the session deletes all of it but the member's unsent changes, which the iPad sends once the same member signs in again, and deletes if someone else signs in first (`how-do-people-sign-in.md`).
+  - Another member opening on the iPad, as when someone signs in over the member, deletes all of it but the member's unsent changes, which the iPad keeps until that member signs in again, whoever signs in meanwhile.
 - **Which pages' ink the iPad keeps:** this month's month page; this week's and next week's week pages and their day pages; each space's newest page; and the 30 pages opened most recently on this iPad.
   - When a page drops out of the set, its strokes are deleted from the iPad, except those still waiting to be sent.
   - When a page was last opened is kept only on the iPad, and never synced.
