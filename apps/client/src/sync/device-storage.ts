@@ -9,6 +9,7 @@ export type DeviceStorage = { unsent?: UnsentChanges; store?: HouseholdStore };
 const databases = new Map<string, HouseholdDatabase>();
 
 const unsentOfEndedSession = "unsent-changes-of-ended-session";
+const householdCopyOf = "household-copy-of";
 
 function fileOf(memberId: string): string {
   return `household-${memberId}.db`;
@@ -35,6 +36,7 @@ export function deviceStorageOf(memberId: string): DeviceStorage {
 
 /** Deletes everything the iPad keeps for the member, as when they sign out. */
 export async function forgetDeviceStorage(memberId: string): Promise<void> {
+  await stopHoldingCopyOf(memberId);
   const database = databases.get(memberId);
   if (database && !database.closed) return database.forget();
   await database?.closed;
@@ -45,16 +47,31 @@ export async function forgetDeviceStorage(memberId: string): Promise<void> {
  *  changes, which it sends once they sign in again. If someone else signs in first, they're
  *  deleted (`forgetOtherMembers`). */
 export async function forgetEndedSession(memberId: string): Promise<void> {
-  await forgetOtherMembers(memberId);
+  await forgetEndedSessionOfOthers(memberId);
   await SecureStore.setItemAsync(unsentOfEndedSession, memberId);
   await databaseOf(memberId).keepOnlyUnsent();
 }
 
-/** Deletes what the iPad still keeps for anyone but the member who just signed in: the unsent
- *  changes of a member whose session ended, which only they may send. */
+/** Forgets what the iPad keeps for anyone but the member who just signed in. A member whose session
+ *  ended loses their unsent changes, which only they may send. A member someone signed in over
+ *  keeps only theirs, which the iPad sends once they sign in again. */
 export async function forgetOtherMembers(memberId: string): Promise<void> {
+  await forgetEndedSessionOfOthers(memberId);
+  const held = await SecureStore.getItemAsync(householdCopyOf);
+  if (held === memberId) return;
+  if (held !== null) await databaseOf(held).keepOnlyUnsent();
+  await SecureStore.setItemAsync(householdCopyOf, memberId);
+}
+
+async function forgetEndedSessionOfOthers(memberId: string): Promise<void> {
   const kept = await SecureStore.getItemAsync(unsentOfEndedSession);
   if (kept === null) return;
   if (kept !== memberId) await forgetDeviceStorage(kept);
   await SecureStore.deleteItemAsync(unsentOfEndedSession);
+}
+
+async function stopHoldingCopyOf(memberId: string): Promise<void> {
+  if ((await SecureStore.getItemAsync(householdCopyOf)) === memberId) {
+    await SecureStore.deleteItemAsync(householdCopyOf);
+  }
 }

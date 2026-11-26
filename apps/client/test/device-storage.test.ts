@@ -1,7 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { newId } from "@foyer/shared";
+import { create } from "@bufbuild/protobuf";
+import { dayPageId, newId } from "@foyer/shared";
+import { RowSchema } from "@foyer/shared/gen/foyer/sync/v1/sync_pb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as DeviceStorage from "../src/sync/device-storage";
 import { openNodeSqlite } from "./node-sqlite";
@@ -45,6 +47,8 @@ async function launchApp(): Promise<typeof DeviceStorage> {
 }
 
 const change = { changeId: "a", encoded: new Uint8Array([1]), describe: "a change" };
+
+const nothingKept = { rows: [], cursors: new Map(), opened: new Map() };
 
 beforeEach(() => {
   files.folder = mkdtempSync(join(tmpdir(), "foyer-device-"));
@@ -122,11 +126,7 @@ describe("what the iPad keeps once a member's session has ended", () => {
     await app.forgetOtherMembers(me);
 
     const kept = app.deviceStorageOf(me);
-    expect(await kept.store?.load()).toEqual({
-      rows: [],
-      cursors: new Map(),
-      opened: new Map(),
-    });
+    expect(await kept.store?.load()).toEqual(nothingKept);
     expect(await kept.unsent?.load()).toEqual([change]);
   });
 
@@ -179,5 +179,113 @@ describe("what the iPad keeps once a member's session has ended", () => {
 
     expect(await app.deviceStorageOf(me).unsent?.load()).toEqual([]);
     expect(await app.deviceStorageOf(housemate).unsent?.load()).toEqual([change]);
+  });
+});
+
+describe("what the iPad keeps once someone else signs in over a member", () => {
+  const day = dayPageId("2026-11-26");
+  const home = newId();
+  const stroke = newId();
+
+  async function signedInWithACopy(app: typeof DeviceStorage, member: string) {
+    await app.forgetOtherMembers(member);
+    const { store, unsent } = app.deviceStorageOf(member);
+    store?.keepRow({
+      kind: "space",
+      id: home,
+      pageId: null,
+      row: create(RowSchema, {
+        seq: 3n,
+        row: { case: "space", value: { id: home, name: "Home" } },
+      }),
+    });
+    store?.keepRow({
+      kind: "stroke",
+      id: stroke,
+      pageId: day,
+      row: create(RowSchema, {
+        seq: 4n,
+        row: { case: "stroke", value: { id: stroke, pageId: day } },
+      }),
+    });
+    store?.keepCursor("", 5n);
+    store?.keepCursor(day, 4n);
+    store?.keepOpened(day, 1_000);
+    unsent?.keep([change]);
+    await store?.load();
+  }
+
+  it("deletes the first member's copy of the household and their ink, but not their unsent changes", async () => {
+    const me = newId();
+    const housemate = newId();
+    let app = await launchApp();
+    await signedInWithACopy(app, me);
+
+    await app.forgetOtherMembers(housemate);
+
+    expect(await app.deviceStorageOf(me).store?.load()).toEqual(nothingKept);
+    app = await launchApp();
+    expect(await app.deviceStorageOf(me).store?.load()).toEqual(nothingKept);
+    expect(await app.deviceStorageOf(me).unsent?.load()).toEqual([change]);
+  });
+
+  it("keeps the copy of a member signed in again, as at each launch", async () => {
+    const me = newId();
+    let app = await launchApp();
+    await signedInWithACopy(app, me);
+    app = await launchApp();
+
+    await app.forgetOtherMembers(me);
+
+    const kept = await app.deviceStorageOf(me).store?.load();
+    expect(kept?.rows).toHaveLength(2);
+    expect(kept?.cursors).toEqual(
+      new Map([
+        ["", 5n],
+        [day, 4n],
+      ]),
+    );
+    expect(kept?.opened).toEqual(new Map([[day, 1_000]]));
+  });
+
+  it("keeps the first member's unsent changes to send once they sign in again, whoever signs in meanwhile", async () => {
+    const me = newId();
+    const housemate = newId();
+    let app = await launchApp();
+    await signedInWithACopy(app, me);
+    await app.forgetOtherMembers(housemate);
+    await app.forgetEndedSession(housemate);
+    await app.forgetOtherMembers(newId());
+    app = await launchApp();
+
+    await app.forgetOtherMembers(me);
+
+    expect(await app.deviceStorageOf(me).unsent?.load()).toEqual([change]);
+    expect(await app.deviceStorageOf(me).store?.load()).toEqual(nothingKept);
+  });
+
+  it("leaves nothing on the iPad for a member who signed out, once someone else signs in", async () => {
+    const me = newId();
+    const app = await launchApp();
+    await signedInWithACopy(app, me);
+    await app.forgetDeviceStorage(me);
+
+    await app.forgetOtherMembers(newId());
+
+    expect(readdirSync(files.folder).filter((file) => file.includes(me))).toEqual([]);
+  });
+
+  it("deletes the second member's copy in turn when the first signs in over them", async () => {
+    const me = newId();
+    const housemate = newId();
+    const app = await launchApp();
+    await signedInWithACopy(app, me);
+    await signedInWithACopy(app, housemate);
+
+    await app.forgetOtherMembers(me);
+
+    expect(await app.deviceStorageOf(housemate).store?.load()).toEqual(nothingKept);
+    expect(await app.deviceStorageOf(housemate).unsent?.load()).toEqual([change]);
+    expect(await app.deviceStorageOf(me).unsent?.load()).toEqual([change]);
   });
 });

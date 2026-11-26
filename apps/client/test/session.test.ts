@@ -124,6 +124,19 @@ describe("openSession", () => {
     expect(kept.signedIn).toHaveBeenCalledWith(expect.objectContaining(renamed));
   });
 
+  it("opens as another member than the kept one when the backend says they're signed in", async () => {
+    const kept = keeping(alex);
+
+    const shown = await opened(kept, { getSession: () => ({ member: sam }) });
+
+    expect(shown).toMatchObject([
+      { status: "signed-in", member: alex },
+      { status: "signed-in", member: sam },
+    ]);
+    expect(kept.signedIn).toHaveBeenCalledWith(expect.objectContaining(sam));
+    expect(kept.ended).not.toHaveBeenCalled();
+  });
+
   it("forgets the kept member's session once the backend says it has ended", async () => {
     const kept = keeping(alex);
 
