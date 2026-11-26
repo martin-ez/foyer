@@ -1,0 +1,15 @@
+appId: io.github.martin-ez.foyer
+name: Opens today's day page whole, fitted to the desk
+---
+- runFlow: steps/open-and-sign-in.yaml
+- assertVisible:
+    text: Calendar
+    selected: true
+- waitForAnimationToEnd
+- copyTextFrom:
+    id: page-rest
+- assertTrue: ${JSON.parse(maestro.copiedText).x <= 0}
+- assertTrue: ${JSON.parse(maestro.copiedText).y <= 0}
+- assertTrue: ${JSON.parse(maestro.copiedText).x + JSON.parse(maestro.copiedText).width >= JSON.parse(maestro.copiedText).page.width}
+- assertTrue: ${JSON.parse(maestro.copiedText).y + JSON.parse(maestro.copiedText).height >= JSON.parse(maestro.copiedText).page.height}
+- takeScreenshot: page-fitted-ipad

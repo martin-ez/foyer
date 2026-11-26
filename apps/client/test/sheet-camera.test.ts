@@ -7,6 +7,7 @@ import {
   largestScale,
   type Point,
   panCamera,
+  partShown,
   pointOnPage,
   resizeCamera,
   snapshotMove,
@@ -36,6 +37,26 @@ describe("fitting a page to the desk", () => {
 
   it("shows nothing on a desk with no room", () => {
     expect(fittedCamera({ width: 0, height: 0 }, a4Portrait).scale).toBe(0);
+  });
+
+  it("shows the whole page and the margin around it at the fitted zoom, from its middle", () => {
+    const shown = partShown(view, fit, { x: page.width / 2, y: page.height / 2 });
+
+    expect(shown.y).toBeCloseTo(-deskMargin / fit);
+    expect(shown.y + shown.height).toBeCloseTo(page.height + deskMargin / fit);
+    expect(shown.x).toBeLessThan(0);
+    expect(shown.x + shown.width).toBeGreaterThan(page.width);
+  });
+});
+
+describe("the part of the page shown", () => {
+  it("is the view's size divided by the zoom, around the point in its middle", () => {
+    expect(partShown({ width: 800, height: 600 }, 4, { x: 300, y: 420 })).toEqual({
+      x: 200,
+      y: 345,
+      width: 200,
+      height: 150,
+    });
   });
 });
 

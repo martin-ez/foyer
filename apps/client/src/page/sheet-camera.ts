@@ -23,6 +23,17 @@ export function zoomLimits(view: Size, page: PageSize): { smallest: number; larg
   return { smallest: fit, largest: Math.max(largestScale, fit) };
 }
 
+/** A part of a page, in the page's points from its top-left corner. */
+export type PagePart = { x: number; y: number; width: number; height: number };
+
+/** The part of a page a view shows when one point of the page takes `scale` of the view's points,
+ *  with the page's point `middle` in the middle of the view. */
+export function partShown(view: Size, scale: number, middle: Point): PagePart {
+  const width = view.width / scale;
+  const height = view.height / scale;
+  return { x: middle.x - width / 2, y: middle.y - height / 2, width, height };
+}
+
 /** The whole page, as large as fits the desk, in its middle. */
 export function fittedCamera(view: Size, page: PageSize): Camera {
   return keepOnDesk({ x: 0, y: 0, scale: zoomLimits(view, page).smallest }, view, page);
