@@ -40,8 +40,9 @@ export function TaskEditor({
   done: boolean;
   state: SyncState;
   sync: HouseholdSync;
-  /** Opens the page of the space the task is in, numbered from 1. */
-  onShowOnPage: (spaceId: string, pageNumber: number) => void;
+  /** Opens the page of the space the task is in, numbered from 1. Without it, the editor doesn't
+   *  offer to show the task on its page. */
+  onShowOnPage?: (spaceId: string, pageNumber: number) => void;
   onOpenTask: (itemId: string) => void;
   onClose: () => void;
 }) {
@@ -155,7 +156,7 @@ export function TaskEditor({
             ))}
           </View>
         ) : null}
-        {task.parentId ? null : (
+        {task.parentId || !onShowOnPage ? null : (
           <Button
             title="Show on its page"
             onPress={() => {

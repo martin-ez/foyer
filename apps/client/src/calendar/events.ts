@@ -1,7 +1,7 @@
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 import { type EventTime, isIsoDate, readEventTime } from "@foyer/shared";
 import { type Item, ItemKind } from "@foyer/shared/gen/foyer/item/v1/item_pb";
-import { describeDay, localToday } from "../page/calendar-date";
+import { addDays, describeDay, localToday } from "../page/calendar-date";
 
 /** When an event happens, or null for an item that isn't an event. */
 export function timeOf(item: Item): EventTime | null {
@@ -37,6 +37,33 @@ export function upcomingEvents(items: Iterable<Item>, now = new Date()): Item[] 
       seriesListed.add(seriesId);
       return true;
     });
+}
+
+/** The events that happen at some time of the device's today, by its clock and time zone: all-day
+ *  ones first, then by when they start, and events that start together by title. */
+export function todayEvents(items: Iterable<Item>, now = new Date()): Item[] {
+  const today = localToday(now);
+  const dayStarts = midnightOf(today);
+  const dayEnds = midnightOf(addDays(today, 1));
+  const listed: { item: Item; allDay: boolean; startsAt: number }[] = [];
+  for (const item of items) {
+    const time = timeOf(item);
+    if (!time) continue;
+    if (time.allDay) {
+      if (time.startsOn <= today && today <= time.endsOn)
+        listed.push({ item, allDay: true, startsAt: 0 });
+    } else if (time.startsAt < dayEnds && (time.endsAt > dayStarts || time.startsAt >= dayStarts)) {
+      listed.push({ item, allDay: false, startsAt: time.startsAt });
+    }
+  }
+  return listed
+    .sort(
+      (a, b) =>
+        Number(b.allDay) - Number(a.allDay) ||
+        a.startsAt - b.startsAt ||
+        a.item.title.localeCompare(b.item.title),
+    )
+    .map(({ item }) => item);
 }
 
 /** When an event happens as people read it, in the device's time zone. */

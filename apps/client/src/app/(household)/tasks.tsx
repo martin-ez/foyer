@@ -1,5 +1,7 @@
+import { useLocalSearchParams } from "expo-router";
 import { TasksScreen } from "../../tasks/tasks-screen";
 
 export default function Tasks() {
-  return <TasksScreen />;
+  const { show } = useLocalSearchParams<{ show?: string }>();
+  return <TasksScreen openOnToday={show === "today"} />;
 }

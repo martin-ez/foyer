@@ -19,12 +19,14 @@ import { useTick } from "./ticking";
 type SpacePage = { spaceId: string; number: number };
 
 /** The member's spaces and their tasks: a space's page, opening on the Inbox's newest, with ways to
- *  move between its pages and add tasks, to open, tick and edit a task above its body page, to open
- *  an event above the page its sticker is on, and to show the spaces and the task lists. */
-export function TasksScreen() {
+ *  move between pages, add tasks, open a task or an event above its page, and show the spaces, the
+ *  task lists or Today's alone, which it opens showing when `openOnToday` is on. */
+export function TasksScreen({ openOnToday = false }: { openOnToday?: boolean }) {
   const { member, state, sync } = useHousehold();
   const [chosen, setChosen] = useState<SpacePage | null>(null);
-  const [panel, setPanel] = useState<"spaces" | "lists" | "list" | null>(null);
+  const [panel, setPanel] = useState<"spaces" | "lists" | "list" | "today" | null>(
+    openOnToday ? "today" : null,
+  );
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const inbox = state.spaces.find(({ kind }) => kind === SpaceKind.INBOX);
@@ -66,6 +68,10 @@ export function TasksScreen() {
         <Button
           title={panel === "lists" ? "Hide all lists" : "All lists"}
           onPress={() => toggle("lists")}
+        />
+        <Button
+          title={panel === "today" ? "Hide Today list" : "Today list"}
+          onPress={() => toggle("today")}
         />
       </TitleBar>
       {openTask ? (
@@ -112,10 +118,16 @@ export function TasksScreen() {
               setPanel(null);
             }}
           />
-        ) : panel === "lists" || panel === "list" ? (
+        ) : panel === "lists" || panel === "list" || panel === "today" ? (
           <TasksPanel
             state={state}
-            only={panel === "list" ? space.spaceId : undefined}
+            only={
+              panel === "list"
+                ? { spaceId: space.spaceId }
+                : panel === "today"
+                  ? "today"
+                  : undefined
+            }
             showDone={showDone}
             onShowDone={setShowDone}
             onOpenTask={setOpenTaskId}

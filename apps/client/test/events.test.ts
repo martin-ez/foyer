@@ -8,6 +8,7 @@ import {
   newEventDraft,
   timeFromDraft,
   timeOf,
+  todayEvents,
   upcomingEvents,
 } from "../src/calendar/events";
 
@@ -76,6 +77,40 @@ describe("upcomingEvents", () => {
       "Dinner",
       "Choir 2026-11-25",
     ]);
+  });
+});
+
+describe("todayEvents", () => {
+  const now = new Date("2026-11-20T16:00:00-04:00");
+
+  it("lists the events happening at some time today, all-day ones first, then by when they start", () => {
+    const items = [
+      event("Dinner", { at: ["2026-11-20T19:00:00-04:00", "2026-11-20T21:00:00-04:00"] }),
+      event("Breakfast", { at: ["2026-11-20T08:00:00-04:00", "2026-11-20T09:00:00-04:00"] }),
+      event("Holiday", { on: ["2026-11-19", "2026-11-22"] }),
+      event("Away", { on: ["2026-11-20", "2026-11-20"] }),
+      event("Night shift", { at: ["2026-11-19T22:00:00-04:00", "2026-11-20T06:00:00-04:00"] }),
+      event("Bins", { on: ["2026-11-19", "2026-11-19"] }),
+      event("Brunch", { at: ["2026-11-21T10:00:00-04:00", "2026-11-21T11:00:00-04:00"] }),
+      create(ItemSchema, { id: "task", kind: ItemKind.TASK, title: "A task" }),
+    ];
+
+    expect(todayEvents(items, now).map(({ title }) => title)).toEqual([
+      "Away",
+      "Holiday",
+      "Night shift",
+      "Breakfast",
+      "Dinner",
+    ]);
+  });
+
+  it("leaves out an event that ends as today starts, and keeps one that starts and ends then", () => {
+    const items = [
+      event("Late film", { at: ["2026-11-19T22:00:00-04:00", "2026-11-20T00:00:00-04:00"] }),
+      event("New day", { at: ["2026-11-20T00:00:00-04:00", "2026-11-20T00:00:00-04:00"] }),
+    ];
+
+    expect(todayEvents(items, now).map(({ title }) => title)).toEqual(["New day"]);
   });
 });
 
