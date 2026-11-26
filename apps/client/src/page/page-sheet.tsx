@@ -8,6 +8,7 @@ import {
   ScrollView,
   type ScrollViewInstance,
   StyleSheet,
+  Text,
   View,
   type ViewStyle,
 } from "react-native";
@@ -27,7 +28,7 @@ import {
   SharpDrawing,
   type SharpLayer,
 } from "./sharp-layers";
-import { type Point, type Size, zoomLimits } from "./sheet-camera";
+import { type PagePart, type Point, partShown, type Size, zoomLimits } from "./sheet-camera";
 import { tapSlop } from "./sticker-drag";
 
 /** A page lying on the desk, fitted to it at first, in a view that iOS zooms and moves as one sheet,
@@ -79,8 +80,15 @@ export function PageSheet({
       zoomWhenAsked(scroll.current, shownView.current, params),
     );
   }, []);
+  const fit = limits?.smallest ?? 0;
+  useEffect(() => {
+    const shown = shownView.current;
+    if (!(fit > 0) || !shown) return;
+    const middle = { x: size.width / 2, y: size.height / 2 };
+    zoomTo(scroll.current, partShown(shown, fit, middle), false);
+  }, [fit, size.width, size.height]);
   const fitted = useRef(1);
-  fitted.current = limits?.smallest || 1;
+  fitted.current = fit || 1;
   const zoomed = useRef<number | null>(null);
   const scale = useCallback(() => zoomed.current ?? fitted.current, []);
   const followZoom = ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -140,7 +148,6 @@ export function PageSheet({
           contentContainerStyle={sheet}
           minimumZoomScale={limits.smallest}
           maximumZoomScale={limits.largest}
-          zoomScale={limits.smallest}
           centerContent
           bouncesZoom
           onScroll={followZoom}
@@ -183,7 +190,17 @@ export function PageSheet({
           </View>
         </ScrollView>
       ) : null}
+      {__DEV__ && sharp.rest ? <RestForChecks page={size} rest={sharp.rest} /> : null}
     </View>
+  );
+}
+
+function RestForChecks({ page, rest }: { page: PageSize; rest: Rest }) {
+  const read = { ...rest, page: { width: page.width, height: page.height } };
+  return (
+    <Text testID="page-rest" numberOfLines={1} style={styles.forChecks}>
+      {JSON.stringify(read)}
+    </Text>
   );
 }
 
@@ -239,13 +256,11 @@ function zoomWhenAsked(
     console.error(`Zooming needs a scale, an x and a y, but got "${params}".`);
     return;
   }
-  const width = view.width / scale;
-  const height = view.height / scale;
-  const animated = params.get("animated") === "1";
-  scroll.scrollResponderZoomTo(
-    { x: x - width / 2, y: y - height / 2, width, height, animated },
-    animated,
-  );
+  zoomTo(scroll, partShown(view, scale, { x, y }), params.get("animated") === "1");
+}
+
+function zoomTo(scroll: ScrollViewInstance | null, part: PagePart, animated: boolean) {
+  scroll?.scrollResponderZoomTo({ ...part, animated }, animated);
 }
 
 const styles = StyleSheet.create({
@@ -253,4 +268,14 @@ const styles = StyleSheet.create({
   paper: { boxShadow: "0 2px 8px rgba(0, 0, 0, 0.18)" },
   above: { position: "absolute", left: 0, top: 0, pointerEvents: "box-none" },
   over: { position: "absolute", left: 0, top: 0, pointerEvents: "box-none" },
+  forChecks: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 2,
+    fontSize: 1,
+    color: "transparent",
+    pointerEvents: "none",
+  },
 });
