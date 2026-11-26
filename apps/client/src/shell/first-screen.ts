@@ -11,11 +11,6 @@ export const firstScreens: readonly { screen: FirstScreen; name: string }[] = [
   { screen: "overview", name: "Overview" },
 ];
 
-/** The first screen a stored value names, or today's day page for anything else. */
-export function firstScreenOf(stored: string | null): FirstScreen {
-  return firstScreens.find(({ screen }) => screen === stored)?.screen ?? "day-page";
-}
-
 /** Where a first screen is: the route to open, and what its address says beyond it. */
 export function firstScreenHref(screen: FirstScreen): {
   pathname: "/calendar" | "/tasks" | "/overview";
@@ -57,4 +52,8 @@ export function chooseFirstScreen(screen: FirstScreen): void {
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+function firstScreenOf(stored: string | null): FirstScreen {
+  return firstScreens.find(({ screen }) => screen === stored)?.screen ?? "day-page";
 }

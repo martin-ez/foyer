@@ -2,8 +2,8 @@ import * as SecureStore from "expo-secure-store";
 
 const key = "first-screen";
 
-/** The first screen chosen on this iPad, which it keeps for itself in the Keychain, the one place
- *  the app stores anything; or null when none was chosen. */
+/** The first screen chosen on this iPad, which it keeps in the Keychain, or null when none was
+ *  chosen. */
 export function readStoredFirstScreen(): string | null {
   try {
     return SecureStore.getItem(key);

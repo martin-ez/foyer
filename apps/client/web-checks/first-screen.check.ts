@@ -1,6 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
+import { connectAtFakeGoogle, memberOfItsOwn } from "./google-calendar";
 import { describeDayInBrowser } from "./pages";
 import { saveScreenshot } from "./screenshot";
+import { overviewMembers, signIn } from "./sign-in";
 import {
   addTask,
   bundleBuildTimeout,
@@ -15,7 +17,6 @@ test.beforeEach(() => {
   test.setTimeout(bundleBuildTimeout + 60_000);
 });
 
-/** Chooses what the app opens on in this browser, from the account menu. */
 async function chooseFirstScreen(page: Page, name: string) {
   await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("radio", { name }).click();
@@ -23,13 +24,11 @@ async function chooseFirstScreen(page: Page, name: string) {
   await page.getByRole("button", { name: "Hide account" }).click();
 }
 
-/** Opens the app afresh at its first page, as a home screen icon would. */
 async function startAgain(page: Page) {
   await page.goto("/");
   await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
 }
 
-/** Adds a task dated today to the open space, and returns its title once it's saved. */
 async function addTaskForToday(page: Page): Promise<string> {
   const title = await addTask(page);
   await stickerOf(page, title).click();
@@ -65,9 +64,12 @@ test("opens on the Today list once it's chosen", async ({ page }, testInfo) => {
   const today = page.getByRole("list", { name: "Today" });
   await expect(today.getByRole("button", { name: title })).toBeVisible();
   await expect(page.getByRole("list", { name: "Inbox" })).toBeHidden();
+  await expect(page.getByRole("checkbox", { name: "Show done" })).toBeHidden();
   await saveScreenshot(page, testInfo, "first-screen-today-list");
   await page.getByRole("button", { name: "Hide Today list" }).click();
   await expect(today).toBeHidden();
+  await page.getByRole("button", { name: "Today list" }).click();
+  await expect(today.getByRole("button", { name: title })).toBeVisible();
 });
 
 test("opens on the Overview once it's chosen, with today's tasks to tick", async ({
@@ -86,12 +88,13 @@ test("opens on the Overview once it's chosen, with today's tasks to tick", async
   await expect(pageTitle(page)).toHaveText(`Today, ${await describeDayInBrowser(page, 0)}`);
   const tasks = page.getByRole("list", { name: "Tasks" });
   await expect(tasks.getByRole("button", { name: title })).toBeVisible();
-  await expect(page.getByRole("list", { name: "Events" })).toBeVisible();
-  await expect(page.getByRole("list", { name: "Recent notes" })).toBeVisible();
+  const notes = page.getByRole("list", { name: "Recent notes" });
+  await expect(notes.getByText("No notes yet")).toBeVisible();
   await saveScreenshot(page, testInfo, "first-screen-overview");
 
   await tasks.getByRole("button", { name: title }).click();
   await expect(page.getByLabel("Title")).toHaveValue(title);
+  await expect(page.getByRole("button", { name: "Show on its page" })).toBeHidden();
   await page.getByRole("button", { name: "Close" }).click();
   await tasks.getByRole("checkbox", { name: `Done: ${title}` }).click();
   await expect(tasks.getByRole("button", { name: title })).toBeHidden();
@@ -99,4 +102,29 @@ test("opens on the Overview once it's chosen, with today's tasks to tick", async
   await chooseFirstScreen(page, "Today's day page");
   await page.getByRole("tab", { name: "Calendar" }).click();
   await expect(page.getByRole("tab", { name: "Overview" })).toBeHidden();
+});
+
+test("lists today's events on the Overview, and opens one", async ({ page }, testInfo) => {
+  await signIn(page, memberOfItsOwn(overviewMembers, testInfo));
+  await expect(page.getByText("Up to date")).toBeVisible({ timeout: bundleBuildTimeout });
+  await connectAtFakeGoogle(page, /^Continue as /);
+  const title = `Dentist ${Date.now()}`;
+  const today = await todayInBrowser(page);
+  await page.getByRole("button", { name: "New event" }).click();
+  await page.getByLabel("Title").fill(title);
+  await page.getByRole("checkbox", { name: "All day" }).click();
+  await page.getByLabel("First day").fill(today);
+  await page.getByLabel("Last day").fill(today);
+  await page.getByRole("checkbox", { name: "In Personal" }).click();
+  await page.getByRole("button", { name: "Add event" }).click();
+  await expect(page.getByText(/not saved yet/)).toBeHidden();
+  await chooseFirstScreen(page, "Overview");
+
+  await startAgain(page);
+
+  const events = page.getByRole("list", { name: "Events" });
+  await expect(events.getByRole("button", { name: `Event: ${title}` })).toBeVisible();
+  await expect(events.getByText("No events today")).toBeHidden();
+  await events.getByRole("button", { name: `Event: ${title}` }).click();
+  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue(title);
 });
