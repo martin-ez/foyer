@@ -40,10 +40,13 @@ describe("fitting a page to the desk", () => {
   });
 
   it("shows the whole page and the margin around it at the fitted zoom, from its middle", () => {
-    const shown = partShown(view, fit, { x: page.width / 2, y: page.height / 2 });
+    const desk = { width: 1000, height: 648 };
+    const fitted = zoomLimits(desk, page).smallest;
+    const shown = partShown(desk, fitted, { x: page.width / 2, y: page.height / 2 });
 
-    expect(shown.y).toBeCloseTo(-deskMargin / fit);
-    expect(shown.y + shown.height).toBeCloseTo(page.height + deskMargin / fit);
+    expect(fitted).toBeCloseTo(0.75);
+    expect(shown.y).toBeCloseTo(-deskMargin / fitted);
+    expect(shown.y + shown.height).toBeCloseTo(page.height + deskMargin / fitted);
     expect(shown.x).toBeLessThan(0);
     expect(shown.x + shown.width).toBeGreaterThan(page.width);
   });

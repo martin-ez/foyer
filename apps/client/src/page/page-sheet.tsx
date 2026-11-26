@@ -80,8 +80,6 @@ export function PageSheet({
       zoomWhenAsked(scroll.current, shownView.current, params),
     );
   }, []);
-  // iOS ignores a zoom set before the sheet has a size, as the first `zoomScale` would be, so the
-  // sheet is fitted once it's laid out, and again whenever the desk's size changes the fit.
   const fit = limits?.smallest ?? 0;
   useEffect(() => {
     const shown = shownView.current;
@@ -197,8 +195,6 @@ export function PageSheet({
   );
 }
 
-/** Where the page last came to rest, for the iPad's checks to read as JSON from the element
- *  `page-rest`: the part of the page shown, in its points, the zoom, and the page's size. */
 function RestForChecks({ page, rest }: { page: PageSize; rest: Rest }) {
   const read = { ...rest, page: { width: page.width, height: page.height } };
   return (
