@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
@@ -262,6 +262,17 @@ describe("what the iPad keeps once someone else signs in over a member", () => {
 
     expect(await app.deviceStorageOf(me).unsent?.load()).toEqual([change]);
     expect(await app.deviceStorageOf(me).store?.load()).toEqual(nothingKept);
+  });
+
+  it("leaves nothing on the iPad for a member who signed out, once someone else signs in", async () => {
+    const me = newId();
+    const app = await launchApp();
+    await signedInWithACopy(app, me);
+    await app.forgetDeviceStorage(me);
+
+    await app.forgetOtherMembers(newId());
+
+    expect(readdirSync(files.folder).filter((file) => file.includes(me))).toEqual([]);
   });
 
   it("deletes the second member's copy in turn when the first signs in over them", async () => {

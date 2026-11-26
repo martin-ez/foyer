@@ -49,7 +49,6 @@ export async function forgetDeviceStorage(memberId: string): Promise<void> {
 export async function forgetEndedSession(memberId: string): Promise<void> {
   await forgetEndedSessionOfOthers(memberId);
   await SecureStore.setItemAsync(unsentOfEndedSession, memberId);
-  await stopHoldingCopyOf(memberId);
   await databaseOf(memberId).keepOnlyUnsent();
 }
 
