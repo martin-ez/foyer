@@ -61,7 +61,7 @@ test("puts an event under a task, shows it on the task's page and list, offers t
   await saveScreenshot(page, testInfo, "event-editor-under-task");
   await page.getByRole("button", { name: `Open “${party}”` }).click();
   await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
-  await expect(page.getByText("Move to", { exact: true })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Move to Inbox" })).toBeHidden();
   await page.getByRole("button", { name: "Close" }).click();
 
   const garden = await createSpaceOfItsOwn(page);
