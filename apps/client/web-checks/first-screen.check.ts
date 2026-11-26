@@ -39,7 +39,9 @@ async function addTaskForToday(page: Page): Promise<string> {
   return title;
 }
 
-test("opens on today's day page until another first screen is chosen", async ({ page }) => {
+test("opens on today's day page until another first screen is chosen", async ({
+  page,
+}, testInfo) => {
   await openApp(page);
   await page.getByRole("tab", { name: "Tasks" }).click();
 
@@ -50,6 +52,7 @@ test("opens on today's day page until another first screen is chosen", async ({ 
   await expect(pageTitle(page)).toHaveText(await describeDayInBrowser(page, 0));
   await page.getByRole("button", { name: "Account" }).click();
   await expect(page.getByRole("radio", { name: "Today's day page" })).toBeChecked();
+  await saveScreenshot(page, testInfo, "first-screen-setting");
 });
 
 test("opens on the Today list once it's chosen", async ({ page }, testInfo) => {
