@@ -826,7 +826,7 @@ describe("catching up", () => {
 
   it("keeps the rows one change changed in the same reply", async () => {
     const samDevice = await connect((await signIn(sam)).token);
-    const spaces = Array.from({ length: pullReplyRowLimit - 2 }, (_, index) =>
+    const spaces = Array.from({ length: pullReplyRowLimit - 4 }, (_, index) =>
       spaceCreate({ name: `Space ${index}` }),
     );
     await samDevice.push(...spaces);
@@ -835,8 +835,31 @@ describe("catching up", () => {
 
     const replies = await device.catchUp();
 
-    expect(replies.map(({ rows }) => rows.length)).toEqual([pullReplyRowLimit - 1, 3]);
+    expect(replies.map(({ rows }) => rows.length)).toEqual([pullReplyRowLimit - 3, 3]);
     expect(describeRows(replies[1]?.rows ?? [])).toContainEqual({ member: "member" });
+  });
+
+  it("catches up past more rows than a reply holds that the member doesn't see", async () => {
+    const samDevice = await connect((await signIn(sam)).token);
+    const personal = Array.from({ length: pullReplyRowLimit + 10 }, (_, index) =>
+      spaceCreate({ name: `Sam's ${index}`, kind: SpaceKind.PERSONAL }),
+    );
+    await samDevice.push(...personal);
+    await samDevice.push(spaceCreate({ name: "Home" }));
+    const device = await connect((await signIn(alex)).token);
+
+    const replies = await device.catchUp();
+
+    expect(replies.length).toBeGreaterThan(1);
+    const rows = describeRows(replies.flatMap(({ rows }) => rows));
+    expect(rows).toHaveLength(5);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { member: "housemate" },
+        { space: "Home", kind: SpaceKind.SHARED, ownerId: "" },
+        { member: "member" },
+      ]),
+    );
   });
 
   it("sends a deleted row as deleted, only to the members who could see it", async () => {
